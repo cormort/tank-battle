@@ -172,12 +172,19 @@
   #overlay.translucent { background: rgba(0,0,0,0.55); backdrop-filter: blur(1px); }
   #overlay .badge {
     margin-top: 10px;
-    padding: 4px 10px;
-    background: #ffd700;
+    padding: 5px 12px;
+    background: linear-gradient(180deg, #ffe14d, #ffb700);
     color: #000;
     font-size: 9px;
     letter-spacing: 2px;
-    animation: titlePulse 1.2s ease-in-out infinite;
+    border-radius: 2px;
+    box-shadow: 0 0 18px rgba(255,215,0,0.6), 0 2px 0 #8b6500;
+    text-shadow: none;
+    animation: badgePulse 1.2s ease-in-out infinite;
+  }
+  @keyframes badgePulse {
+    0%,100% { transform: scale(1); box-shadow: 0 0 18px rgba(255,215,0,0.55), 0 2px 0 #8b6500; }
+    50% { transform: scale(1.06); box-shadow: 0 0 28px rgba(255,215,0,0.9), 0 2px 0 #8b6500; }
   }
   #overlay .high {
     margin-top: 4px;
@@ -260,12 +267,10 @@
   }
   #controls b { color: #6a6a78; }
 
-  /* Pause button (always available on touch) */
-  #pauseBtn {
-    display: none;
+  /* Floating canvas-corner controls */
+  .canvas-btn {
     position: absolute;
     top: 6px;
-    right: 6px;
     width: 32px;
     height: 32px;
     border-radius: 50%;
@@ -276,10 +281,15 @@
     z-index: 30;
     -webkit-tap-highlight-color: transparent;
     cursor: pointer;
+    display: flex;
     align-items: center;
     justify-content: center;
+    transition: background 0.15s, transform 0.1s;
   }
-  #pauseBtn:active { background: rgba(255,255,255,0.25); }
+  .canvas-btn:hover { background: rgba(255,255,255,0.18); }
+  .canvas-btn:active { background: rgba(255,255,255,0.25); transform: scale(0.95); }
+  #soundBtn { left: 6px; }
+  #pauseBtn { right: 6px; display: none; }
 
   /* Touch controls for mobile */
   #touchControls {
@@ -339,11 +349,11 @@
     #powerStatus { width: 100vw; height: 22px; padding: 0 10px; font-size: 8px; }
     canvas { width: 100vw; height: 100vw; max-width: 520px; max-height: 520px; }
     #touchControls { display: flex; }
-    #pauseBtn { display: flex; align-items: center; justify-content: center; }
+    #pauseBtn { display: flex; }
     #controls { display: none; }
   }
   @media (pointer: coarse) {
-    #pauseBtn { display: flex; align-items: center; justify-content: center; }
+    #pauseBtn { display: flex; }
   }
 </style>
 </head>
@@ -360,7 +370,8 @@
 
 <div id="gameContainer">
   <canvas id="gameCanvas" width="520" height="520"></canvas>
-  <button id="pauseBtn" type="button" aria-label="Pause">⏸</button>
+  <button id="soundBtn" class="canvas-btn" type="button" aria-label="Toggle sound">🔊</button>
+  <button id="pauseBtn" class="canvas-btn" type="button" aria-label="Pause">⏸</button>
   <div id="overlay">
     <h1>TANK WARS</h1>
     <div class="subtitle">— BATTLE CITY —</div>
@@ -372,7 +383,7 @@
     <button class="start-btn" id="startBtn">START</button>
   </div>
 </div>
-<div id="controls"><b>WASD / ARROWS</b> MOVE &nbsp; · &nbsp; <b>SPACE / J</b> FIRE &nbsp; · &nbsp; <b>P</b> PAUSE</div>
+<div id="controls"><b>WASD / ARROWS</b> MOVE &nbsp; · &nbsp; <b>SPACE / J</b> FIRE &nbsp; · &nbsp; <b>P</b> PAUSE &nbsp; · &nbsp; <b>M</b> MUTE</div>
 
 <!-- Mobile touch controls -->
 <div id="touchControls">
@@ -420,6 +431,92 @@ const staticCtx = staticCanvas.getContext('2d');
 const forestCanvas = document.createElement('canvas');
 forestCanvas.width = W; forestCanvas.height = H;
 const forestCtx = forestCanvas.getContext('2d');
+
+// ==================== AUDIO ====================
+const SFX = {
+  ctx: null,
+  master: null,
+  muted: localStorage.getItem('tankWars.muted') === '1',
+  init() {
+    if (this.ctx) return;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    try {
+      this.ctx = new Ctx();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.muted ? 0 : 0.7;
+      this.master.connect(this.ctx.destination);
+    } catch (_) { this.ctx = null; }
+  },
+  resume() {
+    this.init();
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+  },
+  setMuted(m) {
+    this.muted = m;
+    localStorage.setItem('tankWars.muted', m ? '1' : '0');
+    if (this.master) this.master.gain.value = m ? 0 : 0.7;
+  },
+  toggleMute() { this.setMuted(!this.muted); return this.muted; },
+
+  _osc(type, f0, f1, when, dur, peak) {
+    const c = this.ctx, o = c.createOscillator(), g = c.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, when);
+    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), when + dur);
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(peak, when + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    o.connect(g).connect(this.master);
+    o.start(when); o.stop(when + dur + 0.04);
+  },
+  _noise(when, dur, lp0, lp1, peak) {
+    const c = this.ctx;
+    const buf = c.createBuffer(1, Math.max(1, c.sampleRate * dur | 0), c.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const src = c.createBufferSource(); src.buffer = buf;
+    const filt = c.createBiquadFilter(); filt.type = 'lowpass';
+    filt.frequency.setValueAtTime(lp0, when);
+    filt.frequency.exponentialRampToValueAtTime(Math.max(80, lp1), when + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(peak, when);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    src.connect(filt).connect(g).connect(this.master);
+    src.start(when); src.stop(when + dur + 0.04);
+  },
+  _seq(notes, type, peak, gap) {
+    const c = this.ctx, t0 = c.currentTime;
+    notes.forEach((f, i) => this._osc(type, f, f, t0 + i * gap, gap * 1.6, peak));
+  },
+
+  play(name) {
+    if (this.muted || !this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    switch (name) {
+      case 'shootPlayer': this._osc('square', 460, 110, t, 0.09, 0.08); break;
+      case 'shootEnemy':  this._osc('triangle', 300, 90, t, 0.08, 0.05); break;
+      case 'brick':       this._noise(t, 0.09, 1800, 400, 0.10); break;
+      case 'steel':
+        this._noise(t, 0.06, 5500, 2000, 0.06);
+        this._osc('sine', 2200, 1500, t, 0.06, 0.04);
+        break;
+      case 'explode':
+        this._noise(t, 0.35, 2400, 200, 0.18);
+        this._osc('sine', 130, 40, t, 0.32, 0.10);
+        break;
+      case 'bigExplode':
+        this._noise(t, 0.7, 3200, 100, 0.22);
+        this._osc('sawtooth', 90, 28, t, 0.65, 0.14);
+        break;
+      case 'pickup':     this._seq([523, 659, 784], 'square', 0.06, 0.06); break;
+      case 'oneUp':      this._seq([523, 659, 784, 1047], 'square', 0.06, 0.08); break;
+      case 'levelClear': this._seq([392, 523, 659, 784, 1047], 'square', 0.05, 0.1); break;
+      case 'gameOver':   this._seq([659, 587, 494, 392, 330], 'triangle', 0.07, 0.18); break;
+      case 'click':      this._osc('square', 880, 880, t, 0.04, 0.04); break;
+    }
+  },
+};
 
 // ==================== OBJECT POOLS ====================
 class Pool {
@@ -747,6 +844,7 @@ class Tank {
     b.speed = this.isPlayer ? 6 : 3.5;
     b.power = this.bulletPower;
     this.bulletTimer = this.bulletCooldown;
+    SFX.play(this.isPlayer ? 'shootPlayer' : 'shootEnemy');
   }
 
   draw() {
@@ -874,10 +972,11 @@ function updateBullet(b) {
     const t = G.map[br][bc];
     if (t === BRICK) {
       b.alive = false; breakTile(bc, br);
-      spawnExplosion(b.x, b.y, 'brick'); return;
+      spawnExplosion(b.x, b.y, 'brick'); SFX.play('brick'); return;
     }
     if (t === STEEL) {
       b.alive = false; spawnExplosion(b.x, b.y, 'spark');
+      SFX.play('steel');
       if (b.power >= 2) breakTile(bc, br);
       return;
     }
@@ -885,6 +984,7 @@ function updateBullet(b) {
       b.alive = false; G.map[br][bc] = BASE_DEAD;
       G.baseDestroyed = true;
       spawnExplosion(bc*TILE+TILE/2, br*TILE+TILE/2, 'big');
+      SFX.play('bigExplode');
       triggerShake(20, 8);
       return;
     }
@@ -903,6 +1003,7 @@ function updateBullet(b) {
       if (t.hp <= 0) {
         t.alive = false;
         spawnExplosion(t.x+t.size/2, t.y+t.size/2, 'tank');
+        SFX.play('explode');
         if (!b.isPlayer && t === G.player) {
           G.lives--; triggerShake(10,5); updateHUD();
           G.aliveEnemies = 0; for (const e of G.enemies) if (e.alive) G.aliveEnemies++;
@@ -1172,6 +1273,7 @@ function updatePowerUps() {
       addScorePopup(pu.x+TILE/2, pu.y+TILE/2, '+200');
       G.pickupBanner = { text: labels[pu.type], color: colors[pu.type], life: 60 };
       spawnExplosion(pu.x+TILE/2, pu.y+TILE/2, 'spark');
+      SFX.play(pu.type === 'life' ? 'oneUp' : 'pickup');
       G.powerUps.splice(i,1);
     }
   }
@@ -1207,6 +1309,7 @@ function checkLevelComplete() {
   if (G.aliveEnemies <= 0 && G.enemiesSpawned >= G.maxEnemies) {
     G.state = 'levelComplete';
     G.levelTransition = 120;
+    SFX.play('levelClear');
     saveHighScore();
     setTimeout(() => {
       const ov = document.getElementById('overlay');
@@ -1256,6 +1359,7 @@ function startLevel() {
 
 function showGameOver() {
   G.state = 'gameover';
+  SFX.play('gameOver');
   const isNew = saveHighScore();
   const ov = document.getElementById('overlay');
   ov.classList.remove('hidden');
@@ -1294,12 +1398,24 @@ function updatePowerStatus() {
 }
 
 // ==================== INPUT ====================
+function syncSoundBtn() {
+  const btn = document.getElementById('soundBtn');
+  if (!btn) return;
+  btn.textContent = SFX.muted ? '🔇' : '🔊';
+  btn.setAttribute('aria-pressed', SFX.muted ? 'true' : 'false');
+}
+
 document.addEventListener('keydown', e => {
+  SFX.resume();
   G.keys[e.code] = true;
   if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
 
   if (e.code === 'KeyP' && (G.state === 'playing' || G.state === 'paused')) {
     togglePause();
+  } else if (e.code === 'KeyM') {
+    SFX.toggleMute();
+    syncSoundBtn();
+    if (!SFX.muted) SFX.play('click');
   } else if ((e.code === 'Enter' || e.code === 'Space') && (G.state === 'menu' || G.state === 'gameover')) {
     e.preventDefault();
     restartGame();
@@ -1309,9 +1425,16 @@ document.addEventListener('keydown', e => {
   }
 });
 document.addEventListener('keyup', e => G.keys[e.code] = false);
-document.getElementById('startBtn').addEventListener('click', restartGame);
+document.getElementById('startBtn').addEventListener('click', () => { SFX.resume(); restartGame(); });
 document.getElementById('pauseBtn').addEventListener('click', () => {
+  SFX.resume();
   if (G.state === 'playing' || G.state === 'paused') togglePause();
+});
+document.getElementById('soundBtn').addEventListener('click', () => {
+  SFX.resume();
+  SFX.toggleMute();
+  syncSoundBtn();
+  if (!SFX.muted) SFX.play('click');
 });
 
 window.togglePause = function togglePause() {
@@ -1324,10 +1447,12 @@ window.togglePause = function togglePause() {
       <p>Press <b>P</b> to resume</p>
       <button class="start-btn" id="resumeBtn" onclick="togglePause()">RESUME</button>`;
     document.getElementById('resumeBtn').focus();
+    SFX.play('click');
   } else if (G.state === 'paused') {
     G.state = 'playing';
     ov.classList.remove('translucent');
     hideOverlay();
+    SFX.play('click');
   }
 };
 const togglePause = window.togglePause;
@@ -1487,6 +1612,7 @@ function gameLoop() {
 
 // Initial HUD + menu high score
 updateHUD();
+syncSoundBtn();
 const menuHigh = document.getElementById('menuHigh');
 if (menuHigh) menuHigh.textContent = G.highScore > 0 ? `HI ${G.highScore}` : '';
 
