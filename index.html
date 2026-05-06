@@ -51,10 +51,11 @@
     letter-spacing: 0.5px;
   }
   .hud-item { display: flex; align-items: center; gap: 6px; }
-  .label { color: #666; font-size: 9px; }
-  .value { color: #ffd700; font-weight: bold; text-shadow: 0 0 8px rgba(255,215,0,0.4); }
-  .value.lives { color: #f44; text-shadow: 0 0 8px rgba(255,68,68,0.4); }
-  .value.level { color: #4af; text-shadow: 0 0 8px rgba(68,170,255,0.4); }
+  .label { color: #888; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; }
+  .value { color: #fff; font-weight: bold; text-shadow: 0 0 8px rgba(255,255,255,0.3); }
+  .value.lives { color: #ff5555; text-shadow: 0 0 8px rgba(255,85,85,0.5); }
+  .value.level { color: #55bbff; text-shadow: 0 0 8px rgba(85,187,255,0.5); }
+  .value.score { color: #ffdd55; text-shadow: 0 0 10px rgba(255,221,85,0.5); }
 
   #overlay {
     position: absolute;
@@ -134,33 +135,33 @@
   }
   .dpad {
     display: grid;
-    grid-template-columns: 50px 50px 50px;
-    grid-template-rows: 50px 50px 50px;
-    gap: 2px;
+    grid-template-columns: 60px 60px 60px;
+    grid-template-rows: 60px 60px 60px;
+    gap: 4px;
     pointer-events: auto;
   }
   .dpad-btn {
-    background: rgba(255,255,255,0.12);
-    border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 6px;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 8px;
     color: #fff;
-    font-size: 20px;
+    font-size: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
   }
-  .dpad-btn:active { background: rgba(255,255,255,0.3); }
+  .dpad-btn:active { background: rgba(255,255,255,0.35); transform: scale(0.95); }
   .dpad-btn.empty { background: none; border: none; }
   .fire-btn {
-    width: 80px;
-    height: 80px;
+    width: 90px;
+    height: 90px;
     border-radius: 50%;
-    background: rgba(255,68,0,0.25);
-    border: 2px solid rgba(255,68,0,0.5);
-    color: #f40;
-    font-size: 14px;
+    background: rgba(255,68,0,0.3);
+    border: 3px solid rgba(255,100,0,0.6);
+    color: #ff6432;
+    font-size: 12px;
     font-family: 'Press Start 2P', monospace;
     display: flex;
     align-items: center;
@@ -169,7 +170,7 @@
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
   }
-  .fire-btn:active { background: rgba(255,68,0,0.5); }
+  .fire-btn:active { background: rgba(255,68,0,0.6); transform: scale(0.95); }
 
   @media (max-width: 600px) {
     #hud { width: 100vw; font-size: 9px; padding: 8px 10px; border-radius: 0; }
@@ -182,10 +183,11 @@
 <body>
 
 <div id="hud">
-  <div class="hud-item"><span class="label">SCR</span><span class="value" id="scoreDisplay">0</span></div>
+  <div class="hud-item"><span class="label">SCR</span><span class="value score" id="scoreDisplay">0</span></div>
   <div class="hud-item"><span class="label">LV</span><span class="value level" id="levelDisplay">1</span></div>
   <div class="hud-item"><span class="label">HP</span><span class="value lives" id="livesDisplay">♥♥♥</span></div>
   <div class="hud-item"><span class="label">EN</span><span class="value" id="enemiesDisplay">0</span></div>
+  <div class="hud-item" id="pauseIndicator" style="display:none;"><span class="label">PAUSED</span></div>
 </div>
 
 <div id="gameContainer">
@@ -195,6 +197,7 @@
     <p>消滅所有敵方坦克，保護你的基地！</p>
     <p style="margin-top:12px;"><b>WASD / 方向鍵</b> 移動</p>
     <p><b>空白鍵 / J</b> 射擊</p>
+    <p><b>P</b> 暫停</p>
     <button class="start-btn" id="startBtn">START</button>
   </div>
 </div>
@@ -287,6 +290,7 @@ const G = {
   touchDir: -1, touchFire: false,
   enemies: [],
   powerUps: [],
+  scorePopups: [],
 };
 
 // Particle pool
@@ -668,6 +672,7 @@ function updateBullet(b) {
           if (G.lives > 0) setTimeout(respawnPlayer, 1200);
         } else {
           G.score += 100; triggerShake(3,2); updateHUD();
+          addScorePopup(o.x, o.y, '+100');
           if (Math.random() < 0.18) spawnPowerUp(t.x, t.y);
           checkLevelComplete();
         }
@@ -746,6 +751,26 @@ function rectsOverlap(x1,y1,w1,h1, x2,y2,w2,h2) {
 }
 
 function triggerShake(f, i) { G.shakeTimer = f; G.shakeIntensity = i; }
+
+function addScorePopup(x, y, text) {
+  G.scorePopups.push({ x, y, text, life: 45, vy: -1.2 });
+}
+
+function updateScorePopups() {
+  for (let i = G.scorePopups.length - 1; i >= 0; i--) {
+    const p = G.scorePopups[i];
+    p.y += p.vy;
+    p.vy *= 0.95;
+    p.life--;
+    if (p.life <= 0) { G.scorePopups.splice(i, 1); continue; }
+    ctx.globalAlpha = p.life / 45;
+    ctx.font = 'bold 12px "Press Start 2P", monospace';
+    ctx.fillStyle = '#ffdd55';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.text, p.x, p.y);
+  }
+  ctx.globalAlpha = 1;
+}
 
 // ==================== ENEMY AI ====================
 function updateEnemyAI(e) {
@@ -840,6 +865,7 @@ function updatePowerUps() {
       if (pu.type==='power') G.player.bulletPower = 2;
       if (pu.type==='life') { G.lives++; updateHUD(); }
       G.score += 200; updateHUD();
+      addScorePopup(pu.x+TILE/2, pu.y+TILE/2, '+200');
       spawnExplosion(pu.x+TILE/2, pu.y+TILE/2, 'spark');
       G.powerUps.splice(i,1);
     }
@@ -909,9 +935,32 @@ function updateHUD() {
 document.addEventListener('keydown', e => {
   G.keys[e.code] = true;
   if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+  
+  if (e.code === 'KeyP' && G.state === 'playing') {
+    togglePause();
+  }
 });
 document.addEventListener('keyup', e => G.keys[e.code] = false);
 document.getElementById('startBtn').addEventListener('click', restartGame);
+
+function togglePause() {
+  const ov = document.getElementById('overlay');
+  const indicator = document.getElementById('pauseIndicator');
+  if (G.state === 'playing') {
+    G.state = 'paused';
+    ov.classList.remove('hidden');
+    ov.innerHTML = `<h2>PAUSED</h2>
+      <p>Press <b>P</b> to resume</p>
+      <button class="start-btn" onclick="togglePause(); G.state='playing'; hideOverlay();">RESUME</button>`;
+  } else if (G.state === 'paused') {
+    G.state = 'playing';
+    hideOverlay();
+  }
+}
+
+function hideOverlay() {
+  document.getElementById('overlay').classList.add('hidden');
+}
 
 // Touch controls
 document.querySelectorAll('.dpad-btn[data-dir]').forEach(btn => {
@@ -927,9 +976,9 @@ fireBtn.addEventListener('touchend', e => { e.preventDefault(); G.touchFire = fa
 function gameLoop() {
   G.frameCount++;
 
-  if (G.state === 'playing') {
+  if (G.state === 'playing' || G.state === 'paused') {
     // Player input
-    if (G.player && G.player.alive) {
+    if (G.player && G.player.alive && G.state === 'playing') {
       G.player.update();
       let moved = false;
       if (G.keys['ArrowUp']||G.keys['KeyW']||G.touchDir===UP) { G.player.move(UP); moved=true; }
@@ -975,7 +1024,7 @@ function gameLoop() {
     G.shakeIntensity *= 0.88;
   }
 
-  if (G.state !== 'menu') {
+  if (G.state !== 'menu' && G.state !== 'paused') {
     // Static terrain (brick + steel) from cache
     ctx.drawImage(staticCanvas, 0, 0);
 
@@ -1000,13 +1049,16 @@ function gameLoop() {
   for (let i = 0; i < G.enemies.length; i++) G.enemies[i].draw();
 
   // Player
-  if (G.player && G.state === 'playing') G.player.draw();
+  if (G.player && (G.state === 'playing' || G.state === 'paused')) G.player.draw();
 
   // Forest overlay (on top of tanks, like original game)
   if (G.state !== 'menu') ctx.drawImage(forestCanvas, 0, 0);
 
   // Particles on top
   updateDrawParticles();
+
+  // Score popups
+  if (G.state !== 'menu' && G.state !== 'paused') updateScorePopups();
 
   // Base glow
   if (G.basePos && !G.baseDestroyed && G.state !== 'menu') {
@@ -1023,7 +1075,7 @@ function gameLoop() {
   }
 
   // Subtle scanline overlay for retro feel
-  if (G.state !== 'menu') {
+  if (G.state !== 'menu' && G.state !== 'paused') {
     ctx.fillStyle = 'rgba(0,0,0,0.04)';
     for (let y = 0; y < H; y += 3) ctx.fillRect(0,y,W,1);
   }
