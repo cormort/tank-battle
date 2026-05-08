@@ -2,16 +2,22 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <title>坦克大戰 v2 - 優化版</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
   body {
     background: radial-gradient(ellipse at 50% 30%, #1a1a26 0%, #0a0a10 50%, #050508 100%), #0a0a0e;
     display: flex; justify-content: center; align-items: center;
     min-height: 100vh; font-family: 'Press Start 2P', 'Courier New', monospace;
-    flex-direction: column; overflow: hidden; user-select: none; position: relative;
+    flex-direction: column; user-select: none; position: relative;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
   body::before {
     content: ''; position: fixed; inset: 0;
@@ -58,19 +64,20 @@
   #overlay, #upgradeUI {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column;
     justify-content: center; align-items: center; background: rgba(0,0,0,0.85); color: #fff; z-index: 10; backdrop-filter: blur(4px);
+    padding: 20px;
   }
   #overlay.hidden, #upgradeUI.hidden { display: none !important; }
-  #overlay h1, #upgradeUI h1 { font-size: 32px; color: #ffd700; text-shadow: 3px 3px 0 #8b0000; margin-bottom: 8px; animation: titlePulse 2.4s infinite; }
+  #overlay h1, #upgradeUI h1 { font-size: 32px; color: #ffd700; text-shadow: 3px 3px 0 #8b0000; margin-bottom: 8px; animation: titlePulse 2.4s infinite; text-align: center; }
   @keyframes titlePulse { 0%,100% { transform: scale(1); text-shadow: 3px 3px 0 #8b0000, 0 0 35px rgba(255,215,0,0.5); } 50% { transform: scale(1.03); text-shadow: 3px 3px 0 #8b0000, 0 0 60px rgba(255,215,0,0.8); } }
-  #overlay h2 { font-size: 24px; color: #ff5050; margin-bottom: 14px; text-shadow: 2px 2px 0 #500; }
-  #overlay p { font-size: 10px; color: #aaa; margin: 6px 0; line-height: 1.8; }
+  #overlay h2 { font-size: 24px; color: #ff5050; margin-bottom: 14px; text-shadow: 2px 2px 0 #500; text-align: center; }
+  #overlay p { font-size: 10px; color: #aaa; margin: 6px 0; line-height: 1.8; text-align: center; }
   
   .card-container { display: flex; gap: 15px; margin-top: 25px; flex-wrap: wrap; justify-content: center; max-width: 480px; }
   .upgrade-card {
     background: linear-gradient(180deg, #1e1e28, #111); border: 2px solid #3a3a45; padding: 20px 15px; width: 140px;
     border-radius: 6px; cursor: pointer; transition: all 0.2s ease; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
   }
-  .upgrade-card:hover { border-color: #ffd700; transform: translateY(-5px); box-shadow: 0 8px 20px rgba(255,215,0,0.3); }
+  .upgrade-card:hover, .upgrade-card:active { border-color: #ffd700; transform: translateY(-5px); box-shadow: 0 8px 20px rgba(255,215,0,0.3); }
   .card-title { color: #5cd8ff; font-size: 11px; margin-bottom: 12px; line-height: 1.4; text-shadow: 0 0 5px rgba(92,216,255,0.4); }
   .card-desc { color: #888; font-size: 8px; line-height: 1.6; }
 
@@ -79,7 +86,7 @@
     background: linear-gradient(180deg, rgba(255,215,0,0.08), rgba(255,170,0,0.02)); color: #ffd700;
     border: 2px solid #ffd700; border-radius: 4px; cursor: pointer; text-shadow: 0 0 8px rgba(255,215,0,0.5);
   }
-  .start-btn:hover { background: linear-gradient(180deg, #ffe14d, #ffb700); color: #000; text-shadow: none; box-shadow: 0 0 25px rgba(255,215,0,0.7); }
+  .start-btn:hover, .start-btn:active { background: linear-gradient(180deg, #ffe14d, #ffb700); color: #000; text-shadow: none; box-shadow: 0 0 25px rgba(255,215,0,0.7); }
   #controls { color: #6a6a78; font-size: 8px; margin-top: 12px; text-align: center; letter-spacing: 2px; }
   
   /* 性能監測面板 */
@@ -93,6 +100,136 @@
   #perfMonitor .lbl { color: #6a6a78; }
   #perfMonitor .warn { color: #ffaa00; }
   #perfMonitor .bad { color: #ff5050; }
+
+  /* ==================== 手機操作介面 ==================== */
+  #mobileControls {
+    display: none;
+    position: fixed; left: 0; right: 0; bottom: 0;
+    height: 220px; pointer-events: none; z-index: 50;
+    padding: 0 20px 30px;
+    padding-bottom: calc(30px + env(safe-area-inset-bottom));
+  }
+  body.mobile #mobileControls { display: block; }
+
+  /* 虛擬搖桿 */
+  #joystickArea {
+    position: absolute; left: 0; bottom: 0;
+    width: 50%; height: 100%;
+    pointer-events: auto;
+    touch-action: none;
+  }
+  #joystickBase {
+    position: absolute; left: 30px; bottom: 30px;
+    width: 130px; height: 130px;
+    border: 3px solid rgba(255, 215, 0, 0.35);
+    background: radial-gradient(circle, rgba(255,215,0,0.08) 0%, rgba(0,0,0,0.4) 70%);
+    border-radius: 50%;
+    box-shadow: 0 0 20px rgba(255,170,0,0.2), inset 0 0 15px rgba(0,0,0,0.6);
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  #joystickStick {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 56px; height: 56px;
+    margin-left: -28px; margin-top: -28px;
+    background: radial-gradient(circle, #ffd700 0%, #b8860b 100%);
+    border: 2px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 15px rgba(255,215,0,0.7);
+    pointer-events: none;
+  }
+  /* 方向指示 */
+  #joystickBase::before {
+    content: ''; position: absolute; inset: 8px;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 50% 12%, rgba(255,215,0,0.25) 0%, transparent 12%),
+      radial-gradient(circle at 88% 50%, rgba(255,215,0,0.25) 0%, transparent 12%),
+      radial-gradient(circle at 50% 88%, rgba(255,215,0,0.25) 0%, transparent 12%),
+      radial-gradient(circle at 12% 50%, rgba(255,215,0,0.25) 0%, transparent 12%);
+  }
+
+  /* 射擊按鈕 */
+  #fireButton {
+    position: absolute; right: 30px; bottom: 35px;
+    width: 110px; height: 110px;
+    border: 3px solid #ff5050;
+    background: radial-gradient(circle, rgba(255,80,80,0.3) 0%, rgba(80,0,0,0.6) 100%);
+    border-radius: 50%;
+    color: #ffcccc;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 14px;
+    text-shadow: 0 0 8px rgba(255,80,80,0.8);
+    box-shadow: 0 0 20px rgba(255,80,80,0.4), inset 0 0 15px rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: auto;
+    touch-action: none;
+    user-select: none;
+    transition: transform 0.05s, box-shadow 0.05s;
+  }
+  #fireButton.pressed {
+    transform: scale(0.92);
+    background: radial-gradient(circle, rgba(255,140,140,0.5) 0%, rgba(120,0,0,0.7) 100%);
+    box-shadow: 0 0 30px rgba(255,80,80,0.8), inset 0 0 20px rgba(0,0,0,0.5);
+  }
+  #fireButton.auto {
+    border-color: #5cd8ff;
+    background: radial-gradient(circle, rgba(92,216,255,0.2) 0%, rgba(0,40,80,0.6) 100%);
+    color: #88e8ff;
+    text-shadow: 0 0 8px rgba(92,216,255,0.8);
+    box-shadow: 0 0 20px rgba(92,216,255,0.4), inset 0 0 15px rgba(0,0,0,0.6);
+  }
+
+  /* 響應式：行動版佈局 */
+  body.mobile {
+    align-items: stretch;
+    justify-content: flex-start;
+    padding-top: env(safe-area-inset-top);
+  }
+  body.mobile #hud,
+  body.mobile #powerStatus,
+  body.mobile #gameContainer { 
+    width: 100%; max-width: 100vw; 
+  }
+  body.mobile #hud {
+    border-radius: 0; border-left: none; border-right: none;
+    font-size: 10px;
+    padding: 8px 10px;
+  }
+  body.mobile #hud .label { font-size: 8px; }
+  body.mobile #powerStatus {
+    border-left: none; border-right: none;
+    font-size: 8px;
+    padding: 0 10px;
+  }
+  body.mobile canvas {
+    width: 100% !important;
+    height: auto !important;
+    max-width: 100vw;
+    border-left: none;
+    border-right: none;
+  }
+  body.mobile #controls { display: none; }
+  /* 行動版升級卡縮小 */
+  body.mobile #overlay h1,
+  body.mobile #upgradeUI h1 { font-size: 22px; }
+  body.mobile #overlay h2 { font-size: 18px; }
+  body.mobile #overlay p { font-size: 9px; }
+  body.mobile .upgrade-card { width: 105px; padding: 14px 10px; }
+  body.mobile .card-title { font-size: 9px; }
+  body.mobile .card-desc { font-size: 7px; }
+  body.mobile .card-container { gap: 10px; max-width: 100%; }
+  body.mobile .start-btn { padding: 16px 36px; font-size: 13px; }
+
+  /* 橫向手機 */
+  @media (orientation: landscape) and (max-height: 500px) {
+    body.mobile #hud { padding: 4px 10px; font-size: 9px; }
+    body.mobile #powerStatus { height: 20px; }
+    body.mobile #mobileControls { height: 180px; padding-bottom: 15px; }
+    body.mobile #joystickBase { width: 110px; height: 110px; left: 20px; bottom: 20px; }
+    body.mobile #fireButton { width: 95px; height: 95px; right: 20px; bottom: 25px; }
+  }
 </style>
 </head>
 <body>
@@ -110,9 +247,11 @@
   
   <div id="overlay">
     <h1>TANK WARS v2</h1>
-    <p>消滅敵軍，每 10 關進入生存割草模式！</p>
-    <p style="margin-top:12px; color:#ffd700;">WASD / 方向鍵 <b>移動</b></p>
-    <p style="color:#ffd700;">空白鍵 <b>射擊</b> · F3 <b>性能監測</b></p>
+    <p>消滅敵軍,每 10 關進入生存割草模式!</p>
+    <p style="margin-top:12px; color:#ffd700;" class="kbd-hint">WASD / 方向鍵 <b>移動</b></p>
+    <p style="color:#ffd700;" class="kbd-hint">空白鍵 <b>射擊</b> · F3 <b>性能監測</b></p>
+    <p style="margin-top:12px; color:#ffd700;" class="touch-hint" hidden>左搖桿 <b>移動</b></p>
+    <p style="color:#ffd700;" class="touch-hint" hidden>右按鈕 <b>射擊</b></p>
     <button class="start-btn" id="startBtn">START</button>
   </div>
 
@@ -123,6 +262,16 @@
   </div>
 </div>
 <div id="controls">WASD / ARROWS MOVE &nbsp; · &nbsp; SPACE FIRE &nbsp; · &nbsp; F3 PERF</div>
+
+<!-- 手機虛擬控制器 -->
+<div id="mobileControls">
+  <div id="joystickArea">
+    <div id="joystickBase">
+      <div id="joystickStick"></div>
+    </div>
+  </div>
+  <button id="fireButton">FIRE</button>
+</div>
 
 <div id="perfMonitor">
   <div class="row"><span class="lbl">FPS</span><span id="perfFPS">--</span></div>
@@ -162,9 +311,9 @@ const CONFIG = {
     BULLET_MAX: 500,
   },
   AI: {
-    VISION_RANGE: 26 * 12,    // 12 格視野
+    VISION_RANGE: 26 * 12,
     CHANGE_INTERVAL: 30,
-    VS_UPDATE_INTERVAL: 12,    // VS 模式 AI 更新頻率
+    VS_UPDATE_INTERVAL: 12,
   },
   GAMEPLAY: {
     POSITION_PRECISION: 0.5,
@@ -175,7 +324,11 @@ const CONFIG = {
     MAX_ENEMIES_ON_SCREEN_VS: 18,
   },
   GRID: {
-    CELL_SIZE: 26 * 2, // 52 px
+    CELL_SIZE: 26 * 2,
+  },
+  MOBILE: {
+    JOYSTICK_DEADZONE: 0.25,   // 死區百分比
+    JOYSTICK_MAX_RADIUS: 50,   // 搖桿最大半徑(px)
   }
 };
 
@@ -185,6 +338,20 @@ const COLS = (W / TILE) | 0, ROWS = (H / TILE) | 0;
 const EMPTY = 0, BRICK = 1, STEEL = 2, WATER = 3, FOREST = 4, BASE = 5, BASE_DEAD = 6;
 const UP = 0, RIGHT = 1, DOWN = 2, LEFT = 3;
 const DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0];
+
+// ==================== 手機偵測 ====================
+const IS_MOBILE = (() => {
+  const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const isNarrow = window.matchMedia('(max-width: 820px)').matches;
+  const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  return hasTouch && (isNarrow || isMobileUA);
+})();
+
+if (IS_MOBILE) {
+  document.body.classList.add('mobile');
+  document.querySelectorAll('.kbd-hint').forEach(el => el.hidden = true);
+  document.querySelectorAll('.touch-hint').forEach(el => el.hidden = false);
+}
 
 // ==================== Canvas 初始化 ====================
 const canvas = document.getElementById('gameCanvas');
@@ -274,9 +441,11 @@ const G = {
   spawnInterval: 120, spawnTimer: 0, baseDestroyed: false,
   keys: {}, map: [], player: null, basePos: null, playerSpawnPos: null,
   frameCount: 0, shakeTimer: 0, shakeIntensity: 0,
-  vsModeStartFrame: 0, // VS 模式開始時間，用於動態難度
+  vsModeStartFrame: 0,
   enemies: [], scorePopups: [], particles: [], trails: [],
-  playerStats: { weapon: 'NORMAL', pierce: false, speedMult: 1, maxHp: 3, hp: 3 }
+  playerStats: { weapon: 'NORMAL', pierce: false, speedMult: 1, maxHp: 3, hp: 3 },
+  // 手機輸入狀態
+  touch: { dir: -1, fire: false, joyActive: false, joyDx: 0, joyDy: 0 },
 };
 
 // ==================== 升級項目 ====================
@@ -309,7 +478,6 @@ class Pool {
   release(obj) { 
     if (this._pool.length < this._maxSize) this._pool.push(obj); 
   }
-  // 高效尾部交換清理
   sweep() {
     let writeIdx = 0;
     for (let i = 0; i < this.active.length; i++) {
@@ -340,7 +508,7 @@ const bulletsPool = new Pool(
     b.alive = true; 
     b.size = CONFIG.BULLET.SIZE; 
     b.pierce = false; 
-    b.hitTanks.length = 0; // 重用陣列，避免 GC
+    b.hitTanks.length = 0;
   }, 
   CONFIG.POOL.BULLET_INITIAL,
   CONFIG.POOL.BULLET_MAX
@@ -371,7 +539,6 @@ class SpatialGrid {
     }
   }
   
-  // 查詢一個矩形範圍內可能碰撞的實體
   queryRect(x, y, w, h, out) {
     out.length = 0;
     const cx1 = Math.max(0, (x / this.cellSize) | 0);
@@ -390,7 +557,7 @@ class SpatialGrid {
 }
 
 const spatialGrid = new SpatialGrid(W, H, CONFIG.GRID.CELL_SIZE);
-const _queryBuf = []; // 重用查詢緩衝區，避免 GC
+const _queryBuf = [];
 
 // ==================== 地圖生成 ====================
 function generateMap(level) {
@@ -462,7 +629,6 @@ function rectsOverlap(x1,y1,w1,h1, x2,y2,w2,h2) {
 }
 
 function clampPos(v) { 
-  // 四捨五入到 0.5 像素，防止浮點累積誤差
   return Math.round(v / CONFIG.GAMEPLAY.POSITION_PRECISION) * CONFIG.GAMEPLAY.POSITION_PRECISION; 
 }
 
@@ -472,7 +638,6 @@ function addScorePopup(x, y, text) {
   G.scorePopups.push({ x, y, text, life: 40, vy: -1 }); 
 }
 
-// 地形碰撞檢查(獨立函數,複用)
 function checkTileCollision(x, y, size) {
   const c1 = (x/TILE)|0, r1 = (y/TILE)|0;
   const c2 = ((x+size-1)/TILE)|0, r2 = ((y+size-1)/TILE)|0;
@@ -498,7 +663,7 @@ class Tank {
     this.flashTimer = 0; 
     this.aiChangeTimer = Math.random() * 50; 
     this.aiDir = dir;
-    this.lastDist = Infinity; // VS 模式追蹤距離
+    this.lastDist = Infinity;
     this.applyTypeStats();
   }
 
@@ -540,7 +705,6 @@ class Tank {
     if (this.flashTimer > 0) this.flashTimer--;
   }
 
-  // 使用空間網格優化的碰撞檢查
   _hasEntityCollision(nx, ny) {
     spatialGrid.queryRect(nx, ny, this.size, this.size, _queryBuf);
     Perf.collisionChecks += _queryBuf.length;
@@ -551,7 +715,6 @@ class Tank {
       if (rectsOverlap(nx, ny, this.size, this.size, o.x, o.y, o.size, o.size)) return true;
     }
     
-    // 與玩家獨立檢查（玩家不在網格中)
     if (!this.isPlayer && G.player && G.player.alive) {
       if (rectsOverlap(nx, ny, this.size, this.size, G.player.x, G.player.y, G.player.size, G.player.size)) return true;
     }
@@ -574,17 +737,14 @@ class Tank {
     let nx = clampPos(this.x + DX[dir] * this.speed);
     let ny = clampPos(this.y + DY[dir] * this.speed);
 
-    // 邊界
     if (nx < 1 || nx + this.size > W - 1 || ny < 1 || ny + this.size > H - 1) {
       if (this.isPlayer) this._trySlide(dir); 
       return;
     }
-    // 地形
     if (checkTileCollision(nx, ny, this.size)) {
       if (this.isPlayer) this._trySlide(dir); 
       return;
     }
-    // 實體
     if (this._hasEntityCollision(nx, ny)) {
       if (this.isPlayer) this._trySlide(dir); 
       return;
@@ -593,10 +753,8 @@ class Tank {
     this.x = nx; this.y = ny;
   }
 
-  // 改進的滑動機制 - 遞進式推動
   _trySlide(dir) {
     const nudges = [2, 3, 4, 6];
-    
     for (const nudge of nudges) {
       for (const sign of [-1, 1]) {
         let tx, ty;
@@ -654,13 +812,11 @@ class Tank {
     const cy = this.y + this.size / 2;
     const tw = this.type === 'BOSS' ? 6 : 4;
     
-    // 陰影
     ctx.fillStyle = 'rgba(0,0,0,0.35)'; 
     ctx.fillRect(this.x + 2, this.y + this.size - 1, this.size, 3);
     
     if (this.flashTimer > 0 && (G.frameCount & 2)) ctx.globalAlpha = 0.5;
 
-    // 履帶
     const trackDark = this.isPlayer ? '#2a4218' : '#3a0c0c';
     ctx.fillStyle = trackDark;
     if (this.dir === UP || this.dir === DOWN) {
@@ -671,24 +827,20 @@ class Tank {
       ctx.fillRect(this.x, this.y+this.size-tw, this.size, tw);
     }
     
-    // 車身
     ctx.fillStyle = this.color; 
     ctx.fillRect(this.x+tw, this.y+tw, this.size-tw*2, this.size-tw*2);
 
-    // 砲塔基座
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; 
     ctx.beginPath(); ctx.arc(cx, cy, tw+2, 0, Math.PI*2); ctx.fill();
     ctx.fillStyle = this.isPlayer ? '#a0d878' : '#ff6060'; 
     ctx.beginPath(); ctx.arc(cx, cy, tw, 0, Math.PI*2); ctx.fill();
     
-    // 砲管
     ctx.strokeStyle = this.isPlayer ? '#8bc06e' : '#ff5050'; 
     ctx.lineWidth = tw - 1; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(cx, cy); 
     ctx.lineTo(cx + DX[this.aimDir]*(this.size/2+2), cy + DY[this.aimDir]*(this.size/2+2)); 
     ctx.stroke();
 
-    // 血量條
     if (this.maxHp > 1) {
       ctx.fillStyle = 'rgba(0,0,0,0.8)'; 
       ctx.fillRect(this.x, this.y-8, this.size, 4);
@@ -696,7 +848,6 @@ class Tank {
       ctx.fillRect(this.x, this.y-8, this.size * (this.hp/this.maxHp), 4);
     }
     
-    // 重生無敵光圈
     if (this.isPlayer && this.flashTimer > 30) {
       ctx.globalAlpha = 0.5;
       ctx.strokeStyle = '#5cd8ff';
@@ -720,7 +871,6 @@ function updateBullet(b) {
     b.alive = false; return; 
   }
 
-  // 地形碰撞
   const bc = ((b.x + 3) / TILE) | 0, br = ((b.y + 3) / TILE) | 0;
   if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS) {
     const t = G.map[br][bc];
@@ -744,7 +894,6 @@ function updateBullet(b) {
     }
   }
 
-  // 實體碰撞 - 使用空間網格
   if (b.isPlayer) {
     spatialGrid.queryRect(b.x - 4, b.y - 4, b.size + 8, b.size + 8, _queryBuf);
     Perf.collisionChecks += _queryBuf.length;
@@ -759,7 +908,6 @@ function updateBullet(b) {
       }
     }
   } else {
-    // 敵方子彈：直接檢查玩家
     if (G.player && G.player.alive && G.player.flashTimer === 0) {
       Perf.collisionChecks++;
       if (rectsOverlap(b.x, b.y, b.size, b.size, G.player.x, G.player.y, G.player.size, G.player.size)) {
@@ -770,7 +918,6 @@ function updateBullet(b) {
 }
 
 function handleBulletHit(b, t) {
-  // 護盾機率閃避
   if (t.isPlayer && G.playerStats.shield && Math.random() < 0.3) {
     spawnExplosion(b.x, b.y, 'shield');
     b.alive = false;
@@ -797,7 +944,6 @@ function handleBulletHit(b, t) {
       if (G.playerStats.hp <= 0) {
         setTimeout(showGameOver, 1000);
       } else {
-        // 重生
         G.player.alive = true;
         G.player.flashTimer = CONFIG.GAMEPLAY.PLAYER_RESPAWN_INVUL;
         G.player.x = G.playerSpawnPos.x; 
@@ -852,11 +998,9 @@ function spawnExplosion(x, y, type) {
   }
 }
 
-// 批處理粒子渲染
 function updateAndDrawParticles() {
   const arr = particlesPool.active;
   
-  // 1. 先更新所有粒子
   for (let i = 0; i < arr.length; i++) {
     const p = arr[i]; 
     if (!p.alive) continue;
@@ -866,7 +1010,6 @@ function updateAndDrawParticles() {
     if (p.life <= 0) p.alive = false;
   }
   
-  // 2. 批處理 spark (lighter 模式)
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   for (let i = 0; i < arr.length; i++) {
@@ -879,7 +1022,6 @@ function updateAndDrawParticles() {
   }
   ctx.restore();
   
-  // 3. 批處理 smoke (普通模式)
   ctx.save();
   for (let i = 0; i < arr.length; i++) {
     const p = arr[i];
@@ -918,7 +1060,6 @@ function renderBullets() {
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   
-  // 批次1: 光暈
   for (let i = 0; i < bullets.length; i++) {
     const b = bullets[i];
     if (!b.alive) continue;
@@ -926,7 +1067,6 @@ function renderBullets() {
     ctx.drawImage(glowImg, b.x - 12 + b.size/2, b.y - 12 + b.size/2);
   }
   
-  // 批次2: 子彈本體
   for (let i = 0; i < bullets.length; i++) {
     const b = bullets[i];
     if (!b.alive) continue;
@@ -942,23 +1082,19 @@ function updateEnemyAI(e) {
   e.update();
   
   if (G.isVSMode && G.player && G.player.alive) {
-    // VS 模式：殭屍化追蹤
     if (G.frameCount % CONFIG.AI.VS_UPDATE_INTERVAL === 0 || e.aiChangeTimer <= 0) {
       const dx = G.player.x - e.x;
       const dy = G.player.y - e.y;
       const dist = Math.hypot(dx, dy);
       
-      // 有視野範圍限制
       if (dist <= CONFIG.AI.VISION_RANGE * 1.5) {
         e.aiDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? RIGHT : LEFT) : (dy > 0 ? DOWN : UP);
         
-        // 距離無變化代表卡住,改為換個方向繞路
         if (Math.abs(dist - e.lastDist) < 0.5) {
           e.aiDir = (e.aiDir + (Math.random() < 0.5 ? 1 : 3)) % 4;
         }
         e.lastDist = dist;
       } else {
-        // 超出視野隨機巡邏
         if (--e.aiChangeTimer <= 0) {
           e.aiDir = (Math.random() * 4) | 0;
           e.aiChangeTimer = CONFIG.AI.CHANGE_INTERVAL + Math.random() * 30;
@@ -971,7 +1107,6 @@ function updateEnemyAI(e) {
       const dy = G.basePos.r*TILE - e.y;
       e.aiDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? RIGHT : LEFT) : (dy > 0 ? DOWN : UP);
     } else { 
-      // 智能型敵人: 有機率往玩家或基地方向移動
       if (Math.random() < 0.4 && G.player && G.player.alive) {
         const dx = G.player.x - e.x;
         const dy = G.player.y - e.y;
@@ -985,21 +1120,18 @@ function updateEnemyAI(e) {
 
   e.move(e.aiDir);
   
-  // 射擊機率
   const shootChance = G.isVSMode ? 0.005 : 0.02;
   if (Math.random() < shootChance) e.shoot();
 }
 
 // ==================== 敵人生成 ====================
 function spawnEnemy() {
-  // 基地已破壞,停止生成
   if (G.baseDestroyed) return;
   
   let sx = -1, sy = -1;
   const isBoss = (!G.isVSMode && G.level % 5 === 0 && G.enemiesSpawned === G.maxEnemies - 1);
 
   if (G.isVSMode) {
-    // VS 模式:從邊緣湧出
     const edge = (Math.random() * 4) | 0;
     if (edge === 0) { sx = Math.random()*(W-TILE); sy = TILE; }
     else if (edge === 1) { sx = W-TILE*2; sy = Math.random()*(H-TILE); }
@@ -1008,7 +1140,6 @@ function spawnEnemy() {
     sx = ((sx/TILE)|0)*TILE; 
     sy = ((sy/TILE)|0)*TILE;
 
-    // 檢查重疊
     let free = true;
     spatialGrid.queryRect(sx, sy, TILE, TILE, _queryBuf);
     for (let i = 0; i < _queryBuf.length; i++) {
@@ -1055,10 +1186,9 @@ function spawnEnemy() {
 
   let type = 'NORMAL';
   if (G.isVSMode) {
-    // 動態類型分布
     const phase = Math.floor((G.frameCount - G.vsModeStartFrame) / 600);
     const rnd = Math.random();
-    if (phase >= 2 && rnd < 0.15) type = 'HEAVY';     // 30秒後出現重型
+    if (phase >= 2 && rnd < 0.15) type = 'HEAVY';
     else if (rnd < 0.35) type = 'FAST';
     else type = 'SUICIDE';
   } else if (isBoss) {
@@ -1120,14 +1250,10 @@ function applyUpgrade(id) {
   startLevel();
 }
 
-// ==================== 動態難度 ====================
 function updateVSModeDifficulty() {
-  if (!G.isVSMode || G.frameCount % 60 !== 0) return; // 每秒檢查一次
-  
+  if (!G.isVSMode || G.frameCount % 60 !== 0) return;
   const elapsed = G.frameCount - G.vsModeStartFrame;
-  const phase = Math.floor(elapsed / 600); // 每 10 秒升級
-  
-  // 動態調整生成速率
+  const phase = Math.floor(elapsed / 600);
   G.spawnInterval = Math.max(8, 18 - phase * 2);
 }
 
@@ -1158,9 +1284,10 @@ function startLevel() {
   cacheStaticMap();
   
   G.player = new Tank(G.playerSpawnPos.x, G.playerSpawnPos.y, UP, 'NORMAL', true);
-  G.player.flashTimer = 60; // 開局短暫無敵
+  G.player.flashTimer = 60;
   G.state = 'playing';
   document.getElementById('overlay').classList.add('hidden');
+  updateMobileControlsForMode();
   updateHUD();
 }
 
@@ -1171,8 +1298,10 @@ function restartGame() {
   document.getElementById('overlay').innerHTML = `
     <h1>TANK WARS v2</h1>
     <p>消滅敵軍,每 10 關進入生存割草模式!</p>
-    <p style="margin-top:12px; color:#ffd700;">WASD / 方向鍵 <b>移動</b></p>
-    <p style="color:#ffd700;">空白鍵 <b>射擊</b> · F3 <b>性能監測</b></p>
+    ${IS_MOBILE 
+      ? '<p style="margin-top:12px; color:#ffd700;">左搖桿 <b>移動</b></p><p style="color:#ffd700;">右按鈕 <b>射擊</b></p>'
+      : '<p style="margin-top:12px; color:#ffd700;">WASD / 方向鍵 <b>移動</b></p><p style="color:#ffd700;">空白鍵 <b>射擊</b> · F3 <b>性能監測</b></p>'
+    }
   `;
   startLevel();
 }
@@ -1184,7 +1313,9 @@ function showGameOver() {
   ov.innerHTML = `<h2>SYSTEM FAILURE</h2>
     <p>SCORE: <span style="color:#ffd700;">${G.score}</span></p>
     <p>LEVEL: <span style="color:#6cc3ff;">${G.level}</span></p>
-    <button class="start-btn" onclick="restartGame()">REBOOT</button>`;
+    <button class="start-btn" id="restartBtn">REBOOT</button>`;
+  document.getElementById('restartBtn').onclick = restartGame;
+  updateMobileControlsForMode();
 }
 
 function updateHUD() {
@@ -1210,7 +1341,7 @@ function updateHUD() {
   document.getElementById('powerStatus').innerHTML = chips.join('');
 }
 
-// ==================== 輸入控制 ====================
+// ==================== 鍵盤輸入 ====================
 document.addEventListener('keydown', e => { 
   G.keys[e.code] = true; 
   if (e.code === 'F3') { 
@@ -1222,30 +1353,202 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => G.keys[e.code] = false);
 document.getElementById('startBtn').addEventListener('click', restartGame);
 
+// ==================== 手機觸控輸入 ====================
+const MobileInput = {
+  joyArea: document.getElementById('joystickArea'),
+  joyBase: document.getElementById('joystickBase'),
+  joyStick: document.getElementById('joystickStick'),
+  fireBtn: document.getElementById('fireButton'),
+  
+  joyTouchId: null,
+  fireTouchId: null,
+  joyCenterX: 0,
+  joyCenterY: 0,
+  
+  init() {
+    if (!IS_MOBILE) return;
+    
+    // 預設位置
+    this._updateJoyCenter();
+    window.addEventListener('resize', () => this._updateJoyCenter());
+    window.addEventListener('orientationchange', () => setTimeout(() => this._updateJoyCenter(), 200));
+    
+    // 搖桿區域 (任意位置按下都算搖桿起點)
+    this.joyArea.addEventListener('touchstart', this._onJoyStart.bind(this), { passive: false });
+    this.joyArea.addEventListener('touchmove', this._onJoyMove.bind(this), { passive: false });
+    this.joyArea.addEventListener('touchend', this._onJoyEnd.bind(this), { passive: false });
+    this.joyArea.addEventListener('touchcancel', this._onJoyEnd.bind(this), { passive: false });
+    
+    // 射擊按鈕
+    this.fireBtn.addEventListener('touchstart', this._onFireStart.bind(this), { passive: false });
+    this.fireBtn.addEventListener('touchend', this._onFireEnd.bind(this), { passive: false });
+    this.fireBtn.addEventListener('touchcancel', this._onFireEnd.bind(this), { passive: false });
+    
+    // 防止 iOS 雙擊縮放
+    document.addEventListener('gesturestart', e => e.preventDefault());
+    document.addEventListener('dblclick', e => e.preventDefault());
+  },
+  
+  _updateJoyCenter() {
+    const rect = this.joyBase.getBoundingClientRect();
+    this.joyCenterX = rect.left + rect.width / 2;
+    this.joyCenterY = rect.top + rect.height / 2;
+  },
+  
+  _onJoyStart(e) {
+    e.preventDefault();
+    if (this.joyTouchId !== null) return;
+    
+    const touch = e.changedTouches[0];
+    this.joyTouchId = touch.identifier;
+    
+    // 動態搖桿: 觸摸點即為搖桿基座中心
+    const areaRect = this.joyArea.getBoundingClientRect();
+    let cx = touch.clientX;
+    let cy = touch.clientY;
+    
+    // 限制搖桿在區域內(避免被擠到角落)
+    cx = Math.max(areaRect.left + 70, Math.min(areaRect.right - 70, cx));
+    cy = Math.max(areaRect.top + 70, Math.min(areaRect.bottom - 70, cy));
+    
+    this.joyBase.style.left = (cx - areaRect.left - 65) + 'px';
+    this.joyBase.style.bottom = (window.innerHeight - cy - 65) + 'px';
+    this.joyCenterX = cx;
+    this.joyCenterY = cy;
+    
+    this._processJoy(touch.clientX, touch.clientY);
+  },
+  
+  _onJoyMove(e) {
+    if (this.joyTouchId === null) return;
+    e.preventDefault();
+    
+    for (const t of e.changedTouches) {
+      if (t.identifier === this.joyTouchId) {
+        this._processJoy(t.clientX, t.clientY);
+        break;
+      }
+    }
+  },
+  
+  _onJoyEnd(e) {
+    if (this.joyTouchId === null) return;
+    
+    for (const t of e.changedTouches) {
+      if (t.identifier === this.joyTouchId) {
+        e.preventDefault();
+        this.joyTouchId = null;
+        G.touch.dir = -1;
+        G.touch.joyActive = false;
+        G.touch.joyDx = 0;
+        G.touch.joyDy = 0;
+        // 搖桿回中
+        this.joyStick.style.left = '50%';
+        this.joyStick.style.top = '50%';
+        // 還原預設位置
+        this.joyBase.style.left = '30px';
+        this.joyBase.style.bottom = '30px';
+        this._updateJoyCenter();
+        break;
+      }
+    }
+  },
+  
+  _processJoy(touchX, touchY) {
+    const dx = touchX - this.joyCenterX;
+    const dy = touchY - this.joyCenterY;
+    const dist = Math.hypot(dx, dy);
+    const maxR = CONFIG.MOBILE.JOYSTICK_MAX_RADIUS;
+    
+    // 計算搖桿視覺位置
+    const clampedDist = Math.min(dist, maxR);
+    const ratio = dist > 0 ? clampedDist / dist : 0;
+    const visualDx = dx * ratio;
+    const visualDy = dy * ratio;
+    
+    this.joyStick.style.left = `calc(50% + ${visualDx}px)`;
+    this.joyStick.style.top = `calc(50% + ${visualDy}px)`;
+    
+    // 計算方向(歸一化)
+    const normDist = clampedDist / maxR;
+    if (normDist < CONFIG.MOBILE.JOYSTICK_DEADZONE) {
+      G.touch.dir = -1;
+      G.touch.joyActive = false;
+      G.touch.joyDx = 0;
+      G.touch.joyDy = 0;
+    } else {
+      G.touch.joyActive = true;
+      G.touch.joyDx = dx;
+      G.touch.joyDy = dy;
+      // 4 方向離散化
+      G.touch.dir = Math.abs(dx) > Math.abs(dy)
+        ? (dx > 0 ? RIGHT : LEFT)
+        : (dy > 0 ? DOWN : UP);
+    }
+  },
+  
+  _onFireStart(e) {
+    e.preventDefault();
+    if (this.fireTouchId !== null) return;
+    this.fireTouchId = e.changedTouches[0].identifier;
+    G.touch.fire = true;
+    this.fireBtn.classList.add('pressed');
+  },
+  
+  _onFireEnd(e) {
+    if (this.fireTouchId === null) return;
+    for (const t of e.changedTouches) {
+      if (t.identifier === this.fireTouchId) {
+        e.preventDefault();
+        this.fireTouchId = null;
+        G.touch.fire = false;
+        this.fireBtn.classList.remove('pressed');
+        break;
+      }
+    }
+  }
+};
+
+function updateMobileControlsForMode() {
+  if (!IS_MOBILE) return;
+  const fireBtn = MobileInput.fireBtn;
+  if (G.isVSMode) {
+    fireBtn.classList.add('auto');
+    fireBtn.textContent = 'AUTO';
+  } else {
+    fireBtn.classList.remove('auto');
+    fireBtn.textContent = 'FIRE';
+  }
+}
+
+MobileInput.init();
+
 // ==================== 主迴圈 ====================
 function gameLoop() {
   Perf.begin();
   G.frameCount++;
 
   if (G.state === 'playing') {
-    // 1. 更新空間網格
     spatialGrid.clear();
     for (let i = 0; i < G.enemies.length; i++) {
       spatialGrid.insert(G.enemies[i]);
     }
     
-    // 2. 玩家更新
     if (G.player && G.player.alive) {
       G.player.update();
       let moved = false;
+      
+      // 鍵盤輸入
       if (G.keys['ArrowUp'] || G.keys['KeyW']) { G.player.move(UP); moved = true; }
       else if (G.keys['ArrowRight'] || G.keys['KeyD']) { G.player.move(RIGHT); moved = true; }
       else if (G.keys['ArrowDown'] || G.keys['KeyS']) { G.player.move(DOWN); moved = true; }
       else if (G.keys['ArrowLeft'] || G.keys['KeyA']) { G.player.move(LEFT); moved = true; }
+      // 手機觸控輸入
+      else if (G.touch.dir >= 0) { G.player.move(G.touch.dir); moved = true; }
+      
       if (!moved) G.player.moving = false;
 
       if (G.isVSMode) {
-        // VS 模式: 自動鎖定最近敵人
         let nearest = null; 
         let minDist = Infinity;
         for (let i = 0; i < G.enemies.length; i++) {
@@ -1262,19 +1565,16 @@ function gameLoop() {
           G.player.shoot();
         }
       } else {
-        if (G.keys['Space'] || G.keys['KeyJ']) G.player.shoot();
+        if (G.keys['Space'] || G.keys['KeyJ'] || G.touch.fire) G.player.shoot();
       }
 
-      // 軌跡
       if (moved && G.frameCount % 4 === 0) {
         G.trails.push({ x: G.player.x, y: G.player.y, size: G.player.size, life: 30, maxLife: 30 });
       }
     }
 
-    // 3. 動態難度調整
     updateVSModeDifficulty();
     
-    // 4. 敵人生成
     const maxOnScreen = G.isVSMode ? CONFIG.GAMEPLAY.MAX_ENEMIES_ON_SCREEN_VS : CONFIG.GAMEPLAY.MAX_ENEMIES_ON_SCREEN;
     if (G.enemiesSpawned < G.maxEnemies && G.aliveEnemies < maxOnScreen) {
       if (--G.spawnTimer <= 0) { 
@@ -1283,17 +1583,14 @@ function gameLoop() {
       }
     }
     
-    // 5. 敵人 AI
     for (let i = 0; i < G.enemies.length; i++) {
       if (G.enemies[i].alive) updateEnemyAI(G.enemies[i]);
     }
 
-    // 6. 子彈更新
     const ba = bulletsPool.active;
     for (let i = 0; i < ba.length; i++) updateBullet(ba[i]);
     bulletsPool.sweep();
     
-    // 7. 立即清理死敵人 (尾部交換法,O(n) 不創新陣列)
     let writeIdx = 0;
     for (let i = 0; i < G.enemies.length; i++) {
       if (G.enemies[i].alive) {
@@ -1303,14 +1600,12 @@ function gameLoop() {
     }
     G.enemies.length = writeIdx;
     
-    // 8. Game Over 檢查
     if (G.baseDestroyed && !G.isVSMode) { 
       G.state = 'gameover'; 
       setTimeout(showGameOver, 1200); 
     }
   }
 
-  // ==================== 渲染 ====================
   ctx.save();
   ctx.fillStyle = '#050508'; 
   ctx.fillRect(0, 0, W, H);
@@ -1322,10 +1617,8 @@ function gameLoop() {
   }
 
   if (G.state !== 'menu') {
-    // 靜態地圖層
     ctx.drawImage(staticCanvas, 0, 0); 
     
-    // 動態地圖元素 (水/基地)
     const wave = Math.sin(G.frameCount * 0.05) * 2;
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
@@ -1347,7 +1640,6 @@ function gameLoop() {
     }
   }
 
-  // 軌跡
   for (let i = G.trails.length - 1; i >= 0; i--) {
     const t = G.trails[i];
     t.life--; 
@@ -1356,20 +1648,15 @@ function gameLoop() {
     ctx.fillRect(t.x+2, t.y+2, t.size-4, t.size-4);
   }
 
-  // 敵人 + 玩家
   for (let i = 0; i < G.enemies.length; i++) G.enemies[i].draw();
   if (G.player && G.state === 'playing') G.player.draw();
 
-  // 子彈 (批處理)
   renderBullets();
   
-  // 樹林層
   if (G.state !== 'menu') ctx.drawImage(forestCanvas, 0, 0);
   
-  // 粒子 (批處理)
   updateAndDrawParticles();
   
-  // 分數彈跳
   if (G.state !== 'menu') updateScorePopups();
 
   ctx.restore();
