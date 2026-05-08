@@ -1,367 +1,96 @@
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>坦克大戰 - Optimized</title>
+<title>坦克大戰 - 終極升級與特效版</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    background:
-      radial-gradient(ellipse at 50% 30%, #1a1a26 0%, #0a0a10 50%, #050508 100%),
-      #0a0a0e;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 100vh;
-    font-family: 'Press Start 2P', 'Courier New', monospace;
-    flex-direction: column;
-    overflow: hidden;
-    user-select: none;
-    -webkit-user-select: none;
-    position: relative;
+    background: radial-gradient(ellipse at 50% 30%, #1a1a26 0%, #0a0a10 50%, #050508 100%), #0a0a0e;
+    display: flex; justify-content: center; align-items: center;
+    min-height: 100vh; font-family: 'Press Start 2P', 'Courier New', monospace;
+    flex-direction: column; overflow: hidden; user-select: none; position: relative;
   }
+  
+  /* CRT 螢幕掃描線特效 */
   body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background-image:
-      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-    background-size: 40px 40px;
-    pointer-events: none;
-    z-index: 0;
+    content: ''; position: fixed; inset: 0;
+    background-image: linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 4px 4px; pointer-events: none; z-index: 100;
   }
   body::after {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.6) 100%);
-    pointer-events: none;
-    z-index: 1;
+    content: ''; position: fixed; inset: 0;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.7) 100%); pointer-events: none; z-index: 101;
   }
+
   #hud, #powerStatus, #gameContainer, #controls { position: relative; z-index: 2; }
   #gameContainer {
-    position: relative;
-    border-radius: 6px;
-    box-shadow:
-      0 0 0 1px rgba(255,215,0,0.08),
-      0 0 30px rgba(255,170,0,0.08),
-      0 0 60px rgba(0,0,0,0.85),
-      inset 0 0 40px rgba(0,0,0,0.3);
-    z-index: 2;
+    position: relative; border-radius: 6px;
+    box-shadow: 0 0 0 1px rgba(255,215,0,0.08), 0 0 30px rgba(255,170,0,0.1), 0 0 60px rgba(0,0,0,0.85);
   }
-  canvas {
-    display: block;
-    border: 3px solid;
-    border-image: linear-gradient(180deg, #3a3a45, #1a1a22) 1;
-    border-top: none;
-    background-color: #000;
-    image-rendering: pixelated;
-    image-rendering: crisp-edges;
+  canvas { 
+    display: block; border: 3px solid; border-image: linear-gradient(180deg, #3a3a45, #1a1a22) 1; 
+    border-top: none; background-color: #000; image-rendering: pixelated; 
   }
+  
+  /* 頂部資訊列 */
   #hud {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    width: 520px;
-    padding: 10px 14px;
-    background:
-      linear-gradient(180deg, #1e1e28 0%, #14141c 60%, #0e0e15 100%);
-    color: #fff;
-    font-size: 11px;
-    border: 3px solid;
-    border-image: linear-gradient(180deg, #3a3a45, #1a1a22) 1;
-    border-bottom: 1px solid #222;
-    border-radius: 6px 6px 0 0;
-    letter-spacing: 0.5px;
-    gap: 8px;
-    position: relative;
+    display: flex; justify-content: space-between; align-items: center; width: 520px; padding: 10px 14px;
+    background: linear-gradient(180deg, #1e1e28 0%, #14141c 60%, #0e0e15 100%); color: #fff; font-size: 11px;
+    border: 3px solid; border-image: linear-gradient(180deg, #3a3a45, #1a1a22) 1; border-bottom: 1px solid #222; border-radius: 6px 6px 0 0;
   }
-  #hud::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent 30%);
-    border-radius: 6px 6px 0 0;
-  }
-  .hud-item { display: flex; align-items: center; gap: 6px; position: relative; }
-  .label { color: #6a6a78; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; }
-  .value { color: #fff; font-weight: bold; text-shadow: 0 0 8px rgba(255,255,255,0.3); }
+  .hud-item { display: flex; align-items: center; gap: 6px; }
+  .label { color: #6a6a78; font-size: 9px; }
+  .value { font-weight: bold; }
   .value.lives { color: #ff6b6b; text-shadow: 0 0 10px rgba(255,107,107,0.6); }
   .value.level { color: #6cc3ff; text-shadow: 0 0 10px rgba(108,195,255,0.6); }
   .value.score { color: #ffdd55; text-shadow: 0 0 12px rgba(255,221,85,0.7); }
-  .value.high { color: #c8aaff; text-shadow: 0 0 10px rgba(200,170,255,0.6); }
-
+  
+  /* 升級模組狀態列 */
   #powerStatus {
-    width: 520px;
-    height: 26px;
-    box-sizing: border-box;
-    padding: 0 14px;
-    background:
-      linear-gradient(180deg, #0a0a10 0%, #0e0e16 100%);
-    border-left: 3px solid;
-    border-right: 3px solid;
-    border-image: linear-gradient(180deg, #3a3a45, #1a1a22) 1;
-    color: #fff;
-    font-size: 9px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    letter-spacing: 0.5px;
-    overflow: hidden;
+    width: 520px; height: 26px; padding: 0 14px; background: linear-gradient(180deg, #0a0a10, #0e0e16);
+    border-left: 3px solid; border-right: 3px solid; border-image: linear-gradient(180deg, #3a3a45, #1a1a22) 1;
+    color: #fff; font-size: 9px; display: flex; align-items: center; gap: 8px;
   }
-  #powerStatus:empty::before {
-    content: '◇ STAND BY';
-    color: #2a2a35;
-    letter-spacing: 3px;
+  #powerStatus:empty::before { content: '◇ SYSTEM STANDBY'; color: #2a2a35; letter-spacing: 2px; }
+  .power-chip { display: inline-flex; padding: 2px 8px; border-radius: 9px; background: #111; border: 1px solid #2a2a35; color: #5cd8ff; }
+  
+  /* 浮蓋 UI (首頁、升級、Game Over) */
+  #overlay, #upgradeUI {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column;
+    justify-content: center; align-items: center; background: rgba(0,0,0,0.85); color: #fff; z-index: 10; backdrop-filter: blur(4px);
   }
-  .power-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    height: 18px;
-    padding: 0 8px;
-    border-radius: 9px;
-    background: linear-gradient(180deg, #181822, #11111a);
-    border: 1px solid #2a2a35;
-    line-height: 1;
-    box-shadow: 0 0 0 1px rgba(0,0,0,0.4) inset;
+  #overlay.hidden, #upgradeUI.hidden { display: none !important; }
+  #overlay h1, #upgradeUI h1 { font-size: 32px; color: #ffd700; text-shadow: 3px 3px 0 #8b0000; margin-bottom: 8px; animation: titlePulse 2.4s infinite; }
+  @keyframes titlePulse { 0%,100% { transform: scale(1); text-shadow: 3px 3px 0 #8b0000, 0 0 35px rgba(255,215,0,0.5); } 50% { transform: scale(1.03); text-shadow: 3px 3px 0 #8b0000, 0 0 60px rgba(255,215,0,0.8); } }
+  #overlay h2 { font-size: 24px; color: #ff5050; margin-bottom: 14px; text-shadow: 2px 2px 0 #500; }
+  #overlay p { font-size: 10px; color: #aaa; margin: 6px 0; line-height: 1.8; }
+  
+  /* Roguelike 升級卡片 UI */
+  .card-container { display: flex; gap: 15px; margin-top: 25px; flex-wrap: wrap; justify-content: center; max-width: 480px; }
+  .upgrade-card {
+    background: linear-gradient(180deg, #1e1e28, #111); border: 2px solid #3a3a45; padding: 20px 15px; width: 140px;
+    border-radius: 6px; cursor: pointer; transition: all 0.2s ease; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
   }
-  .power-chip.shield {
-    color: #5cd8ff;
-    border-color: rgba(92,216,255,0.5);
-    box-shadow: 0 0 8px rgba(92,216,255,0.25), 0 0 0 1px rgba(0,0,0,0.4) inset;
-  }
-  .power-chip.speed {
-    color: #ffd700;
-    border-color: rgba(255,215,0,0.5);
-    box-shadow: 0 0 8px rgba(255,215,0,0.25), 0 0 0 1px rgba(0,0,0,0.4) inset;
-  }
-  .power-chip.power {
-    color: #ff8855;
-    border-color: rgba(255,119,51,0.5);
-    box-shadow: 0 0 8px rgba(255,119,51,0.3), 0 0 0 1px rgba(0,0,0,0.4) inset;
-  }
-  .power-bar { width: 32px; height: 3px; background: rgba(0,0,0,0.6); border-radius: 2px; overflow: hidden; }
-  .power-bar > i {
-    display: block;
-    height: 100%;
-    background: currentColor;
-    box-shadow: 0 0 4px currentColor;
-    border-radius: 2px;
-  }
+  .upgrade-card:hover { border-color: #ffd700; transform: translateY(-5px); box-shadow: 0 8px 20px rgba(255,215,0,0.3); }
+  .card-title { color: #5cd8ff; font-size: 11px; margin-bottom: 12px; line-height: 1.4; text-shadow: 0 0 5px rgba(92,216,255,0.4); }
+  .card-desc { color: #888; font-size: 8px; line-height: 1.6; }
 
-  #overlay {
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    background: rgba(0,0,0,0.92);
-    color: #fff;
-    z-index: 10;
-    backdrop-filter: blur(2px);
-  }
-  #overlay.hidden { display: none; }
-  #overlay.translucent { background: rgba(0,0,0,0.55); backdrop-filter: blur(1px); }
-  #overlay .badge {
-    margin-top: 10px;
-    padding: 5px 12px;
-    background: linear-gradient(180deg, #ffe14d, #ffb700);
-    color: #000;
-    font-size: 9px;
-    letter-spacing: 2px;
-    border-radius: 2px;
-    box-shadow: 0 0 18px rgba(255,215,0,0.6), 0 2px 0 #8b6500;
-    text-shadow: none;
-    animation: badgePulse 1.2s ease-in-out infinite;
-  }
-  @keyframes badgePulse {
-    0%,100% { transform: scale(1); box-shadow: 0 0 18px rgba(255,215,0,0.55), 0 2px 0 #8b6500; }
-    50% { transform: scale(1.06); box-shadow: 0 0 28px rgba(255,215,0,0.9), 0 2px 0 #8b6500; }
-  }
-  #overlay .high {
-    margin-top: 4px;
-    font-size: 9px;
-    color: #b497ff;
-    letter-spacing: 1px;
-  }
-  #overlay h1 {
-    font-size: 32px;
-    color: #ffd700;
-    text-shadow:
-      3px 3px 0 #8b0000,
-      4px 4px 0 #5a0000,
-      0 0 35px rgba(255,215,0,0.5);
-    margin-bottom: 8px;
-    letter-spacing: 4px;
-    animation: titlePulse 2.4s ease-in-out infinite;
-  }
-  #overlay .subtitle {
-    color: #6a6a78;
-    font-size: 8px;
-    letter-spacing: 6px;
-    margin-bottom: 24px;
-  }
-  @keyframes titlePulse {
-    0%,100% { transform: scale(1); text-shadow: 3px 3px 0 #8b0000, 4px 4px 0 #5a0000, 0 0 35px rgba(255,215,0,0.5); }
-    50% { transform: scale(1.03); text-shadow: 3px 3px 0 #8b0000, 4px 4px 0 #5a0000, 0 0 60px rgba(255,215,0,0.8); }
-  }
-  #overlay h2 {
-    font-size: 24px;
-    color: #ff5050;
-    margin-bottom: 14px;
-    letter-spacing: 3px;
-    text-shadow: 2px 2px 0 #500, 0 0 25px rgba(255,80,80,0.5);
-  }
-  #overlay p { font-size: 10px; color: #aaa; margin: 6px 0; line-height: 1.9; }
-  #overlay p b { color: #ffd700; text-shadow: 0 0 8px rgba(255,215,0,0.4); }
   .start-btn {
-    margin-top: 28px;
-    padding: 14px 40px;
-    font-size: 14px;
-    font-family: 'Press Start 2P', monospace;
-    background: linear-gradient(180deg, rgba(255,215,0,0.08), rgba(255,170,0,0.02));
-    color: #ffd700;
-    border: 2px solid #ffd700;
-    border-radius: 4px;
-    cursor: pointer;
-    letter-spacing: 3px;
-    transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease, color 0.2s ease;
-    position: relative;
-    overflow: hidden;
-    box-shadow:
-      0 0 0 1px rgba(0,0,0,0.6) inset,
-      0 0 20px rgba(255,215,0,0.18);
-    text-shadow: 0 0 8px rgba(255,215,0,0.5);
+    margin-top: 28px; padding: 14px 40px; font-size: 14px; font-family: 'Press Start 2P', monospace;
+    background: linear-gradient(180deg, rgba(255,215,0,0.08), rgba(255,170,0,0.02)); color: #ffd700;
+    border: 2px solid #ffd700; border-radius: 4px; cursor: pointer; text-shadow: 0 0 8px rgba(255,215,0,0.5);
   }
-  .start-btn::before {
-    content: '';
-    position: absolute;
-    top: 0; left: -100%;
-    width: 100%; height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255,215,0,0.25), transparent);
-    animation: btnShine 2.2s infinite;
-  }
-  @keyframes btnShine { to { left: 100%; } }
-  .start-btn:hover {
-    background: linear-gradient(180deg, #ffe14d, #ffb700);
-    color: #000;
-    text-shadow: none;
-    box-shadow: 0 0 0 1px #fff inset, 0 0 25px rgba(255,215,0,0.7), 0 4px 0 #8b6500;
-    transform: translateY(-2px);
-  }
-  .start-btn:active { transform: translateY(0) scale(0.97); box-shadow: 0 0 0 1px #fff inset, 0 0 12px rgba(255,215,0,0.5); }
-  #controls {
-    color: #3a3a45;
-    font-size: 8px;
-    margin-top: 12px;
-    text-align: center;
-    letter-spacing: 2px;
-  }
-  #controls b { color: #6a6a78; }
-
-  /* Floating canvas-corner controls */
-  .canvas-btn {
-    position: absolute;
-    top: 6px;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: rgba(0,0,0,0.55);
-    border: 1px solid rgba(255,255,255,0.3);
-    color: #fff;
-    font-size: 14px;
-    z-index: 30;
-    -webkit-tap-highlight-color: transparent;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.15s, transform 0.1s;
-  }
-  .canvas-btn:hover { background: rgba(255,255,255,0.18); }
-  .canvas-btn:active { background: rgba(255,255,255,0.25); transform: scale(0.95); }
-  #soundBtn { left: 6px; }
-  #pauseBtn { right: 6px; display: none; }
-
-  /* Touch controls for mobile */
-  #touchControls {
-    display: none;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    padding: 10px;
-    justify-content: space-between;
-    align-items: flex-end;
-    z-index: 20;
-    pointer-events: none;
-  }
-  .dpad {
-    display: grid;
-    grid-template-columns: 60px 60px 60px;
-    grid-template-rows: 60px 60px 60px;
-    gap: 4px;
-    pointer-events: auto;
-  }
-  .dpad-btn {
-    background: rgba(255,255,255,0.15);
-    border: 1px solid rgba(255,255,255,0.3);
-    border-radius: 8px;
-    color: #fff;
-    font-size: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-  }
-  .dpad-btn:active { background: rgba(255,255,255,0.35); transform: scale(0.95); }
-  .dpad-btn.empty { background: none; border: none; }
-  .fire-btn {
-    width: 90px;
-    height: 90px;
-    border-radius: 50%;
-    background: rgba(255,68,0,0.3);
-    border: 3px solid rgba(255,100,0,0.6);
-    color: #ff6432;
-    font-size: 12px;
-    font-family: 'Press Start 2P', monospace;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: auto;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-  }
-  .fire-btn:active { background: rgba(255,68,0,0.6); transform: scale(0.95); }
-
-  @media (max-width: 600px) {
-    body { justify-content: flex-start; padding-top: 4px; }
-    #hud { width: 100vw; font-size: 9px; padding: 8px 10px; border-radius: 0; gap: 4px; }
-    #powerStatus { width: 100vw; height: 22px; padding: 0 10px; font-size: 8px; }
-    canvas { width: 100vw; height: 100vw; max-width: 520px; max-height: 520px; }
-    #touchControls { display: flex; }
-    #pauseBtn { display: flex; }
-    #controls { display: none; }
-  }
-  @media (pointer: coarse) {
-    #pauseBtn { display: flex; }
-  }
+  .start-btn:hover { background: linear-gradient(180deg, #ffe14d, #ffb700); color: #000; text-shadow: none; box-shadow: 0 0 25px rgba(255,215,0,0.7); }
+  #controls { color: #6a6a78; font-size: 8px; margin-top: 12px; text-align: center; letter-spacing: 2px; }
 </style>
 </head>
 <body>
 
 <div id="hud">
   <div class="hud-item"><span class="label">SCR</span><span class="value score" id="scoreDisplay">0</span></div>
-  <div class="hud-item"><span class="label">HI</span><span class="value high" id="highScoreDisplay">0</span></div>
   <div class="hud-item"><span class="label">LV</span><span class="value level" id="levelDisplay">1</span></div>
   <div class="hud-item"><span class="label">HP</span><span class="value lives" id="livesDisplay">♥♥♥</span></div>
   <div class="hud-item"><span class="label">EN</span><span class="value" id="enemiesDisplay">0</span></div>
@@ -370,39 +99,25 @@
 
 <div id="gameContainer">
   <canvas id="gameCanvas" width="520" height="520"></canvas>
-  <button id="soundBtn" class="canvas-btn" type="button" aria-label="Toggle sound">🔊</button>
-  <button id="pauseBtn" class="canvas-btn" type="button" aria-label="Pause">⏸</button>
+  
   <div id="overlay">
     <h1>TANK WARS</h1>
-    <div class="subtitle">— BATTLE CITY —</div>
-    <p>消滅所有敵方坦克，保護你的基地！</p>
-    <p style="margin-top:12px;"><b>WASD / 方向鍵</b> 移動</p>
-    <p><b>空白鍵 / J</b> 射擊</p>
-    <p><b>P</b> 暫停</p>
-    <p class="high" id="menuHigh"></p>
+    <p>消滅所有敵方坦克，保護基地！</p>
+    <p style="margin-top:12px; color:#ffd700;">WASD / 方向鍵 <b>移動</b></p>
+    <p style="color:#ffd700;">空白鍵 <b>射擊</b></p>
     <button class="start-btn" id="startBtn">START</button>
   </div>
-</div>
-<div id="controls"><b>WASD / ARROWS</b> MOVE &nbsp; · &nbsp; <b>SPACE / J</b> FIRE &nbsp; · &nbsp; <b>P</b> PAUSE &nbsp; · &nbsp; <b>M</b> MUTE</div>
 
-<!-- Mobile touch controls -->
-<div id="touchControls">
-  <div class="dpad">
-    <div class="dpad-btn empty"></div>
-    <div class="dpad-btn" data-dir="0">▲</div>
-    <div class="dpad-btn empty"></div>
-    <div class="dpad-btn" data-dir="3">◄</div>
-    <div class="dpad-btn empty"></div>
-    <div class="dpad-btn" data-dir="1">►</div>
-    <div class="dpad-btn empty"></div>
-    <div class="dpad-btn" data-dir="2">▼</div>
-    <div class="dpad-btn empty"></div>
+  <div id="upgradeUI" class="hidden">
+    <h1>LEVEL CLEAR</h1>
+    <p style="color: #6cc3ff;">選擇安裝升級模組</p>
+    <div class="card-container" id="cards"></div>
   </div>
-  <button class="fire-btn" id="fireBtn">FIRE</button>
 </div>
+<div id="controls">WASD / ARROWS MOVE &nbsp; · &nbsp; SPACE FIRE</div>
 
 <script>
-// ==================== CONSTANTS ====================
+// ==================== 常數與引擎設定 ====================
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d', { alpha: false });
 const W = 520, H = 520, TILE = 26;
@@ -412,186 +127,87 @@ const EMPTY = 0, BRICK = 1, STEEL = 2, WATER = 3, FOREST = 4, BASE = 5, BASE_DEA
 const UP = 0, RIGHT = 1, DOWN = 2, LEFT = 3;
 const DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0];
 
-// Pre-computed sin/cos tables for particle angles
-const ANGLE_COUNT = 32;
-const COS_T = new Float32Array(ANGLE_COUNT);
-const SIN_T = new Float32Array(ANGLE_COUNT);
-for (let i = 0; i < ANGLE_COUNT; i++) {
-  const a = (i / ANGLE_COUNT) * Math.PI * 2;
-  COS_T[i] = Math.cos(a);
-  SIN_T[i] = Math.sin(a);
-}
-
-// Off-screen canvas for static tiles (brick + steel)
 const staticCanvas = document.createElement('canvas');
 staticCanvas.width = W; staticCanvas.height = H;
 const staticCtx = staticCanvas.getContext('2d');
 
-// Off-screen canvas for forest overlay (drawn on top of tanks)
 const forestCanvas = document.createElement('canvas');
 forestCanvas.width = W; forestCanvas.height = H;
 const forestCtx = forestCanvas.getContext('2d');
 
-// ==================== AUDIO ====================
-const SFX = {
-  ctx: null,
-  master: null,
-  muted: localStorage.getItem('tankWars.muted') === '1',
+// ==================== 1. 預渲染光暈 (Render Cache) ====================
+const RenderCache = {
+  glows: {},
   init() {
-    if (this.ctx) return;
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    try {
-      this.ctx = new Ctx();
-      this.master = this.ctx.createGain();
-      this.master.gain.value = this.muted ? 0 : 0.7;
-      this.master.connect(this.ctx.destination);
-    } catch (_) { this.ctx = null; }
+    this.glows.bullet = this.createGlow('#ffaa00', 12);       // 玩家子彈 (黃橘)
+    this.glows.enemyBullet = this.createGlow('#ff5050', 12);  // 敵人子彈 (紅)
+    this.glows.explosion = this.createGlow('#ff7700', 30);    // 爆炸高光
   },
-  resume() {
-    this.init();
-    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
-  },
-  setMuted(m) {
-    this.muted = m;
-    localStorage.setItem('tankWars.muted', m ? '1' : '0');
-    if (this.master) this.master.gain.value = m ? 0 : 0.7;
-  },
-  toggleMute() { this.setMuted(!this.muted); return this.muted; },
+  createGlow(color, radius) {
+    const c = document.createElement('canvas');
+    c.width = radius * 2; c.height = radius * 2;
+    const cx = c.getContext('2d');
+    const grd = cx.createRadialGradient(radius, radius, 0, radius, radius, radius);
+    grd.addColorStop(0, color);
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    cx.fillStyle = grd; 
+    cx.fillRect(0, 0, radius * 2, radius * 2);
+    return c;
+  }
+};
+RenderCache.init(); // 遊戲啟動前初始化
 
-  _osc(type, f0, f1, when, dur, peak) {
-    const c = this.ctx, o = c.createOscillator(), g = c.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(f0, when);
-    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), when + dur);
-    g.gain.setValueAtTime(0.0001, when);
-    g.gain.exponentialRampToValueAtTime(peak, when + 0.005);
-    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
-    o.connect(g).connect(this.master);
-    o.start(when); o.stop(when + dur + 0.04);
-  },
-  _noise(when, dur, lp0, lp1, peak) {
-    const c = this.ctx;
-    const buf = c.createBuffer(1, Math.max(1, c.sampleRate * dur | 0), c.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-    const src = c.createBufferSource(); src.buffer = buf;
-    const filt = c.createBiquadFilter(); filt.type = 'lowpass';
-    filt.frequency.setValueAtTime(lp0, when);
-    filt.frequency.exponentialRampToValueAtTime(Math.max(80, lp1), when + dur);
-    const g = c.createGain();
-    g.gain.setValueAtTime(peak, when);
-    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
-    src.connect(filt).connect(g).connect(this.master);
-    src.start(when); src.stop(when + dur + 0.04);
-  },
-  _seq(notes, type, peak, gap) {
-    const c = this.ctx, t0 = c.currentTime;
-    notes.forEach((f, i) => this._osc(type, f, f, t0 + i * gap, gap * 1.6, peak));
-  },
-
-  play(name) {
-    if (this.muted || !this.ctx) return;
-    const c = this.ctx, t = c.currentTime;
-    switch (name) {
-      case 'shootPlayer': this._osc('square', 460, 110, t, 0.09, 0.08); break;
-      case 'shootEnemy':  this._osc('triangle', 300, 90, t, 0.08, 0.05); break;
-      case 'brick':       this._noise(t, 0.09, 1800, 400, 0.10); break;
-      case 'steel':
-        this._noise(t, 0.06, 5500, 2000, 0.06);
-        this._osc('sine', 2200, 1500, t, 0.06, 0.04);
-        break;
-      case 'explode':
-        this._noise(t, 0.35, 2400, 200, 0.18);
-        this._osc('sine', 130, 40, t, 0.32, 0.10);
-        break;
-      case 'bigExplode':
-        this._noise(t, 0.7, 3200, 100, 0.22);
-        this._osc('sawtooth', 90, 28, t, 0.65, 0.14);
-        break;
-      case 'pickup':     this._seq([523, 659, 784], 'square', 0.06, 0.06); break;
-      case 'oneUp':      this._seq([523, 659, 784, 1047], 'square', 0.06, 0.08); break;
-      case 'levelClear': this._seq([392, 523, 659, 784, 1047], 'square', 0.05, 0.1); break;
-      case 'gameOver':   this._seq([659, 587, 494, 392, 330], 'triangle', 0.07, 0.18); break;
-      case 'click':      this._osc('square', 880, 880, t, 0.04, 0.04); break;
-    }
-  },
+// ==================== 全域狀態 (GameState) ====================
+const G = {
+  state: 'menu', score: 0, level: 1, 
+  enemiesRemaining: 0, enemiesSpawned: 0, maxEnemies: 10, aliveEnemies: 0,
+  spawnInterval: 120, spawnTimer: 0, baseDestroyed: false,
+  keys: {}, map: [], player: null, basePos: null, playerSpawnPos: null,
+  frameCount: 0, shakeTimer: 0, shakeIntensity: 0,
+  enemies: [], scorePopups: [], bullets: [], particles: [], trails: [],
+  
+  // 玩家跨關卡狀態繼承
+  playerStats: { weapon: 'NORMAL', pierce: false, speedMult: 1, maxHp: 3, hp: 3 }
 };
 
-// ==================== OBJECT POOLS ====================
+const UPGRADES = [
+  { id: 'TWIN', title: '雙管火炮', desc: '平行發射兩發子彈' },
+  { id: 'SPREAD', title: '散彈核心', desc: '扇形發射三發子彈' },
+  { id: 'PIERCE', title: '穿甲彈頭', desc: '子彈可貫穿敵方裝甲' },
+  { id: 'SPEED', title: '引擎增壓', desc: '機體移動速度提升 20%' },
+  { id: 'HEAL', title: '裝甲修復', desc: '最大生命+1，並回滿血量' }
+];
+
+// ==================== 物件池 (Object Pools) ====================
 class Pool {
-  constructor(factory, reset, initial = 64) {
-    this._factory = factory;
-    this._reset = reset;
-    this._pool = [];
-    this.active = [];
+  constructor(factory, reset, initial) {
+    this._factory = factory; this._reset = reset;
+    this._pool = []; this.active = [];
     for (let i = 0; i < initial; i++) this._pool.push(factory());
   }
   acquire() {
     const obj = this._pool.length > 0 ? this._pool.pop() : this._factory();
-    this._reset(obj);
-    this.active.push(obj);
-    return obj;
+    this._reset(obj); this.active.push(obj); return obj;
   }
   release(obj) { this._pool.push(obj); }
   sweep() {
     for (let i = this.active.length - 1; i >= 0; i--) {
-      if (!this.active[i].alive) {
-        this.release(this.active[i]);
-        this.active.splice(i, 1);
-      }
+      if (!this.active[i].alive) { this.release(this.active[i]); this.active.splice(i, 1); }
     }
   }
-  clear() {
-    for (const obj of this.active) this._pool.push(obj);
-    this.active.length = 0;
-  }
+  clear() { for (const obj of this.active) this._pool.push(obj); this.active.length = 0; }
 }
 
-// ==================== GAME STATE ====================
-const HIGH_SCORE_KEY = 'tankWars.highScore';
-const G = {
-  state: 'menu', score: 0, lives: 3, level: 1,
-  highScore: +(localStorage.getItem(HIGH_SCORE_KEY) || 0) || 0,
-  enemiesRemaining: 0, enemiesSpawned: 0, maxEnemies: 12, aliveEnemies: 0,
-  spawnInterval: 180, spawnTimer: 0, baseDestroyed: false,
-  keys: {}, map: [], player: null, basePos: null, playerSpawnPos: null,
-  frameCount: 0, levelTransition: 0, shakeTimer: 0, shakeIntensity: 0,
-  touchDir: -1, touchFire: false,
-  combo: 0, comboTimer: 0,
-  pickupBanner: null,
-  enemies: [],
-  powerUps: [],
-  scorePopups: [],
-  bloomFlashes: [],
-};
-
-function registerCombo() {
-  G.combo++;
-  G.comboTimer = 180;
-  if (G.combo <= 1) return 0;
-  return Math.min(400, (G.combo - 1) * 50);
-}
-function resetCombo() { G.combo = 0; G.comboTimer = 0; }
-function tickCombo() {
-  if (G.comboTimer > 0 && --G.comboTimer === 0) G.combo = 0;
-}
-
-// Particle pool
-const particles = new Pool(
-  () => ({ x:0,y:0,vx:0,vy:0,life:0,maxLife:0,size:0,color:'#fff',alive:false }),
-  (p) => { p.alive = true; },
-  200
+const particlesPool = new Pool(
+  () => ({ type:'', x:0,y:0,vx:0,vy:0,life:0,maxLife:0,size:0,color:'#fff',alive:false }),
+  (p) => { p.alive = true; }, 300
+);
+const bulletsPool = new Pool(
+  () => ({ x:0,y:0,dir:0,vx:0,vy:0,isPlayer:false,speed:0,size:6,alive:false,power:1,pierce:false,hitTanks:[] }),
+  (b) => { b.alive = true; b.size = 6; b.pierce = false; b.hitTanks = []; }, 80
 );
 
-// Bullet pool
-const bullets = new Pool(
-  () => ({ x:0,y:0,dir:0,isPlayer:false,speed:0,size:6,alive:false,power:1 }),
-  (b) => { b.alive = true; b.size = 6; },
-  40
-);
-
-// ==================== MAP GENERATION ====================
+// ==================== 地圖生成與快取 ====================
 function generateMap(level) {
   const map = Array.from({length: ROWS}, () => new Uint8Array(COLS));
   const baseR = ROWS - 2, baseC = COLS / 2 | 0;
@@ -599,1029 +215,579 @@ function generateMap(level) {
   G.playerSpawnPos = { x: (baseC - 3) * TILE, y: (ROWS - 2) * TILE };
 
   map[baseR][baseC] = BASE;
-  // Base walls
-  for (const [dr,dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1]]) {
-    const r = baseR + dr, c = baseC + dc;
-    if (r >= 0 && r < ROWS && c >= 0 && c < COLS) map[r][c] = BRICK;
-  }
-
-  const bp = 0.12 - level * 0.015;
-  const sp = 0.02 + level * 0.005;
-  const wp = level >= 2 ? 0.015 : 0;
-  const fp = level >= 2 ? 0.015 : 0;
-  const sum = bp + sp + wp + fp;
+  [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1]].forEach(([dr,dc]) => map[baseR+dr][baseC+dc] = BRICK);
 
   for (let r = 2; r < ROWS - 2; r++) {
     for (let c = 1; c < COLS - 1; c++) {
       if (r >= ROWS - 4 && c >= baseC - 3 && c <= baseC + 3) continue;
       const rnd = Math.random();
-      if (rnd < bp) map[r][c] = BRICK;
-      else if (rnd < bp + sp) map[r][c] = STEEL;
-      else if (rnd < bp + sp + wp) map[r][c] = WATER;
-      else if (rnd < sum) map[r][c] = FOREST;
+      if (rnd < 0.12) map[r][c] = BRICK;
+      else if (rnd < 0.18) map[r][c] = STEEL;
+      else if (rnd < 0.22) map[r][c] = WATER;
+      else if (rnd < 0.26) map[r][c] = FOREST;
     }
-  }
-
-  // Clear safe zones around spawn points
-  const safe = [[0,0],[0,COLS/2|0],[0,COLS-2],[ROWS-2,baseC-3],[ROWS-2,baseC+3]];
-  for (const [sr,sc] of safe) {
-    for (let r = Math.max(0,sr-1); r <= Math.min(ROWS-1,sr+2); r++)
-      for (let c = Math.max(0,sc-1); c <= Math.min(COLS-1,sc+2); c++)
-        if (map[r][c] !== BASE) map[r][c] = EMPTY;
   }
   return map;
 }
 
-// ==================== STATIC MAP CACHING ====================
-function drawBrick(target, x, y) {
-  target.fillStyle = '#8b4513'; target.fillRect(x, y, TILE, TILE);
-  target.fillStyle = '#a0522d';
-  target.fillRect(x+1,y+1,TILE/2-2,TILE/2-2);
-  target.fillRect(x+TILE/2,y+TILE/2,TILE/2-2,TILE/2-2);
-  target.fillStyle = '#6b3410';
-  target.fillRect(x+TILE/2,y+1,TILE/2-2,TILE/2-2);
-  target.fillRect(x+1,y+TILE/2,TILE/2-2,TILE/2-2);
-  target.strokeStyle = '#1a1a1a'; target.lineWidth = 0.5;
-  target.strokeRect(x+0.5,y+0.5,TILE-1,TILE-1);
-}
-
-function drawSteel(target, x, y) {
-  target.fillStyle = '#888'; target.fillRect(x,y,TILE,TILE);
-  target.fillStyle = '#bbb'; target.fillRect(x+2,y+2,TILE-4,TILE-4);
-  target.fillStyle = '#ddd'; target.fillRect(x+4,y+4,3,3);
-  target.strokeStyle = '#555'; target.lineWidth = 0.5;
-  target.beginPath();
-  target.moveTo(x,y); target.lineTo(x+TILE,y+TILE);
-  target.moveTo(x+TILE,y); target.lineTo(x,y+TILE);
-  target.stroke();
-}
-
 function cacheStaticMap() {
-  staticCtx.clearRect(0,0,W,H);
-  forestCtx.clearRect(0,0,W,H);
+  staticCtx.clearRect(0,0,W,H); forestCtx.clearRect(0,0,W,H);
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const t = G.map[r][c], x = c*TILE, y = r*TILE;
-      if (t === BRICK) drawBrick(staticCtx, x, y);
-      else if (t === STEEL) drawSteel(staticCtx, x, y);
-      else if (t === FOREST) drawForestTile(forestCtx, x, y);
+      if (t === BRICK) {
+        staticCtx.fillStyle = '#8b4513'; staticCtx.fillRect(x,y,TILE,TILE);
+        staticCtx.fillStyle = '#a0522d'; staticCtx.fillRect(x+1,y+1,TILE/2-2,TILE/2-2);
+        staticCtx.fillRect(x+TILE/2,y+TILE/2,TILE/2-2,TILE/2-2);
+        staticCtx.strokeStyle = '#1a1a1a'; staticCtx.strokeRect(x+0.5,y+0.5,TILE-1,TILE-1);
+      } else if (t === STEEL) {
+        staticCtx.fillStyle = '#888'; staticCtx.fillRect(x,y,TILE,TILE);
+        staticCtx.fillStyle = '#bbb'; staticCtx.fillRect(x+2,y+2,TILE-4,TILE-4);
+      } else if (t === FOREST) {
+        forestCtx.fillStyle = '#0a4a0a'; forestCtx.fillRect(x,y,TILE,TILE);
+        forestCtx.fillStyle = '#1a6a1a'; forestCtx.beginPath(); forestCtx.arc(x+13,y+13,8,0,Math.PI*2); forestCtx.fill();
+      }
     }
   }
 }
+function breakTile(c, r) { G.map[r][c] = EMPTY; staticCtx.clearRect(c*TILE, r*TILE, TILE, TILE); }
 
-function breakTile(c, r) {
-  G.map[r][c] = EMPTY;
-  staticCtx.clearRect(c*TILE, r*TILE, TILE, TILE);
-}
-
-function drawForestTile(target, x, y) {
-  target.fillStyle = '#0a4a0a'; target.fillRect(x,y,TILE,TILE);
-  target.fillStyle = '#1a6a1a';
-  target.beginPath(); target.arc(x+7,y+7,6,0,Math.PI*2); target.fill();
-  target.beginPath(); target.arc(x+19,y+19,6,0,Math.PI*2); target.fill();
-  target.fillStyle = '#0d550d';
-  target.beginPath(); target.arc(x+18,y+7,4,0,Math.PI*2); target.fill();
-  target.beginPath(); target.arc(x+7,y+19,5,0,Math.PI*2); target.fill();
-}
-
-// ==================== RENDERING HELPERS ====================
-function drawWater(x, y) {
-  const wave = Math.sin(G.frameCount * 0.04 + x * 0.1) * 2;
-  ctx.fillStyle = '#0a3060'; ctx.fillRect(x,y,TILE,TILE);
-  ctx.fillStyle = '#1a5090'; ctx.fillRect(x, y+6+wave, TILE, 3);
-  ctx.fillStyle = '#0e4070'; ctx.fillRect(x, y+16-wave, TILE, 2);
-}
-
-function drawBase(x, y, dead) {
-  ctx.fillStyle = dead ? '#1a0000' : '#222';
-  ctx.fillRect(x,y,TILE,TILE);
-  if (dead) {
-    ctx.fillStyle = '#f00'; ctx.font = '18px monospace';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('✕', x+TILE/2, y+TILE/2);
-  } else {
-    // Eagle icon
-    ctx.fillStyle = '#ccc';
-    ctx.beginPath();
-    ctx.moveTo(x+TILE/2, y+3);
-    ctx.lineTo(x+TILE-3, y+TILE-5);
-    ctx.lineTo(x+3, y+TILE-5);
-    ctx.fill();
-    ctx.fillStyle = '#e90';
-    ctx.fillRect(x+TILE/2-2, y+10, 4, 10);
-  }
-}
-
-// ==================== TANK ====================
+// ==================== 坦克類別 ====================
 class Tank {
-  constructor(x, y, dir, color, isPlayer) {
-    this.x = x; this.y = y; this.dir = dir;
-    this.color = color; this.isPlayer = isPlayer;
-    this.speed = isPlayer ? 2.5 : 0.8 + Math.random() * 0.5;
-    this.size = TILE - 4;
-    this.bulletTimer = 0;
-    this.bulletCooldown = isPlayer ? 14 : 80;
-    this.alive = true; this.moving = false;
-    this.hp = isPlayer ? 3 : 1;
-    this.maxHp = this.hp;
-    this.flashTimer = 0;
-    this.shieldTimer = isPlayer ? 150 : 0;
-    this.speedBoostTimer = 0;
-    this.bulletPower = 1;
-    this.animFrame = 0;
-    // AI state
-    this.aiDir = dir;
-    this.aiChangeTimer = 60 + (Math.random() * 60 | 0);
-    this.aiShootTimer = 30 + (Math.random() * 60 | 0);
-    this.aiStuckTimer = 0;
-    this.lastX = x; this.lastY = y;
+  constructor(x, y, dir, type, isPlayer) {
+    this.x = x; this.y = y; this.dir = dir; this.isPlayer = isPlayer;
+    this.type = type; this.size = TILE - 4;
+    this.bulletTimer = 0; this.alive = true; this.moving = false;
+    this.flashTimer = 0; this.aiChangeTimer = Math.random()*50; this.aiDir = dir;
+    this.applyTypeStats();
+  }
+
+  applyTypeStats() {
+    if (this.isPlayer) {
+      this.maxHp = G.playerStats.maxHp; this.hp = G.playerStats.hp;
+      this.speed = 2.5 * G.playerStats.speedMult;
+      this.weapon = G.playerStats.weapon; this.pierce = G.playerStats.pierce;
+      this.color = '#4a7a2e'; this.bulletCooldown = 14;
+    } else {
+      this.weapon = 'NORMAL'; this.pierce = false;
+      if (this.type === 'FAST') { this.speed = 2.0; this.color = '#d4d'; this.hp = this.maxHp = 1; this.bulletCooldown = 60;}
+      else if (this.type === 'HEAVY') { this.speed = 0.8; this.color = '#38a'; this.hp = this.maxHp = 4; this.bulletCooldown = 70;}
+      else if (this.type === 'SNIPER') { this.speed = 1.0; this.color = '#aa3'; this.hp = this.maxHp = 2; this.bulletCooldown = 90;}
+      else if (this.type === 'BOSS') { 
+        this.speed = 0.6; this.color = '#800'; this.hp = this.maxHp = 15 + G.level*5; 
+        this.size = TILE * 1.5; this.weapon = 'SPREAD'; this.bulletCooldown = 45;
+      }
+      else { 
+        this.speed = 1.0 + Math.random()*0.5; this.color = '#c33'; this.hp = this.maxHp = 1; this.bulletCooldown = 70;
+        if (G.level >= 2 && Math.random() < 0.2) { this.color = '#8a38a0'; this.hp = this.maxHp = 2; }
+      }
+    }
   }
 
   update() {
     if (!this.alive) return;
     if (this.bulletTimer > 0) this.bulletTimer--;
     if (this.flashTimer > 0) this.flashTimer--;
-    if (this.shieldTimer > 0) this.shieldTimer--;
-    if (this.speedBoostTimer > 0) this.speedBoostTimer--;
-    if (this.moving) this.animFrame++;
   }
 
   move(dir) {
     if (!this.alive) return;
-    this.dir = dir;
-    this.moving = true;
-    const spd = this.speedBoostTimer > 0 ? this.speed * 1.5 : this.speed;
-    let nx = this.x + DX[dir] * spd;
-    let ny = this.y + DY[dir] * spd;
+    this.dir = dir; this.moving = true;
+    let nx = this.x + DX[dir] * this.speed; let ny = this.y + DY[dir] * this.speed;
 
-    // Boundary
+    // 邊界與障礙物檢查
     if (nx < 1 || nx + this.size > W - 1 || ny < 1 || ny + this.size > H - 1) {
-      // Corner-slide assist for player
-      if (this.isPlayer) return this._trySlide(dir, spd);
-      return;
+      if (this.isPlayer) this._trySlide(dir); return;
     }
-
-    // Terrain collision
-    const c1 = nx / TILE | 0, r1 = ny / TILE | 0;
-    const c2 = (nx + this.size - 1) / TILE | 0, r2 = (ny + this.size - 1) / TILE | 0;
+    const c1 = nx/TILE|0, r1 = ny/TILE|0, c2 = (nx+this.size-1)/TILE|0, r2 = (ny+this.size-1)/TILE|0;
     for (let r = r1; r <= r2; r++) {
       for (let c = c1; c <= c2; c++) {
-        if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+        if (r>=0 && r<ROWS && c>=0 && c<COLS) {
           const t = G.map[r][c];
-          if (t === BRICK || t === STEEL || t === WATER || t === BASE || t === BASE_DEAD) {
-            if (this.isPlayer) return this._trySlide(dir, spd);
-            return;
+          if (t===BRICK || t===STEEL || t===WATER || t===BASE || t===BASE_DEAD) {
+            if (this.isPlayer) this._trySlide(dir); return;
           }
         }
       }
     }
-
-    // Tank collision
-    const tanks = G.enemies;
-    for (let i = 0; i < tanks.length; i++) {
-      const o = tanks[i];
-      if (!o.alive || o === this) continue;
+    // 坦克互撞檢查
+    for (let i = 0; i < G.enemies.length; i++) {
+      const o = G.enemies[i]; if (!o.alive || o === this) continue;
       if (rectsOverlap(nx,ny,this.size,this.size, o.x,o.y,o.size,o.size)) {
-        if (this.isPlayer) return this._trySlide(dir, spd);
-        return;
+        if (this.isPlayer) this._trySlide(dir); return;
       }
     }
     if (!this.isPlayer && G.player && G.player.alive) {
       if (rectsOverlap(nx,ny,this.size,this.size, G.player.x,G.player.y,G.player.size,G.player.size)) return;
     }
-
     this.x = nx; this.y = ny;
   }
 
-  // Player corner-sliding: nudge perpendicular to unblock
-  _trySlide(dir, spd) {
-    if (!this.isPlayer) return;
+  _trySlide(dir) {
     const nudge = 2;
-    if (dir === UP || dir === DOWN) {
-      // Try nudging left/right
-      for (const sign of [-1, 1]) {
-        const tx = this.x + sign * nudge;
-        const ty = this.y + DY[dir] * spd;
-        if (tx < 1 || tx + this.size > W-1 || ty < 1 || ty + this.size > H-1) continue;
-        if (this._canMoveTo(tx, ty)) { this.x = tx; this.y = ty; return; }
-      }
-    } else {
-      for (const sign of [-1, 1]) {
-        const tx = this.x + DX[dir] * spd;
-        const ty = this.y + sign * nudge;
-        if (tx < 1 || tx + this.size > W-1 || ty < 1 || ty + this.size > H-1) continue;
-        if (this._canMoveTo(tx, ty)) { this.x = tx; this.y = ty; return; }
-      }
+    for (const sign of [-1, 1]) {
+      const tx = this.x + (dir===UP||dir===DOWN ? sign*nudge : DX[dir]*this.speed);
+      const ty = this.y + (dir===UP||dir===DOWN ? DY[dir]*this.speed : sign*nudge);
+      if (this._canMoveTo(tx, ty)) { this.x = tx; this.y = ty; return; }
     }
   }
 
   _canMoveTo(nx, ny) {
-    const c1 = nx/TILE|0, r1 = ny/TILE|0;
-    const c2 = (nx+this.size-1)/TILE|0, r2 = (ny+this.size-1)/TILE|0;
+    if (nx < 1 || nx + this.size > W - 1 || ny < 1 || ny + this.size > H - 1) return false;
+    const c1 = nx/TILE|0, r1 = ny/TILE|0, c2 = (nx+this.size-1)/TILE|0, r2 = (ny+this.size-1)/TILE|0;
     for (let r = r1; r <= r2; r++)
       for (let c = c1; c <= c2; c++)
-        if (r>=0 && r<ROWS && c>=0 && c<COLS) {
-          const t = G.map[r][c];
-          if (t===BRICK||t===STEEL||t===WATER||t===BASE||t===BASE_DEAD) return false;
+        if (r>=0&&r<ROWS&&c>=0&&c<COLS) {
+          const t = G.map[r][c]; if (t===BRICK||t===STEEL||t===WATER||t===BASE||t===BASE_DEAD) return false;
         }
-    // Tank collision check
-    const tanks = G.enemies;
-    for (let i = 0; i < tanks.length; i++) {
-      if (!tanks[i].alive || tanks[i] === this) continue;
-      if (rectsOverlap(nx,ny,this.size,this.size, tanks[i].x,tanks[i].y,tanks[i].size,tanks[i].size)) return false;
+    for (let o of G.enemies) {
+      if (o.alive && o !== this && rectsOverlap(nx,ny,this.size,this.size, o.x,o.y,o.size,o.size)) return false;
     }
     return true;
   }
 
   shoot() {
     if (!this.alive || this.bulletTimer > 0) return;
-    const hs = this.size / 2;
-    const bx = this.x + hs - 3 + DX[this.dir] * (hs + 4);
-    const by = this.y + hs - 3 + DY[this.dir] * (hs + 4);
-    const b = bullets.acquire();
-    b.x = bx; b.y = by; b.dir = this.dir;
-    b.isPlayer = this.isPlayer;
-    b.speed = this.isPlayer ? 6 : 3.5;
-    b.power = this.bulletPower;
+    const hs = this.size / 2; const cx = this.x + hs; const cy = this.y + hs;
+    
+    // 計算升級模組的偏移與散射角
+    const offsets = this.weapon === 'TWIN' ? [-4, 4] : [0];
+    const spreads = this.weapon === 'SPREAD' ? [-0.2, 0, 0.2] : [0];
+
+    for (let o of offsets) {
+      for (let s of spreads) {
+        const b = bulletsPool.acquire();
+        b.x = cx - 3 + DX[this.dir]*(hs+2) + (this.dir%2===0 ? o : 0);
+        b.y = cy - 3 + DY[this.dir]*(hs+2) + (this.dir%2!==0 ? o : 0);
+        b.dir = this.dir; b.isPlayer = this.isPlayer; b.pierce = this.pierce;
+        b.speed = this.isPlayer ? 6 : (this.type==='BOSS' ? 4 : 3.5);
+        
+        let vx = DX[this.dir], vy = DY[this.dir];
+        if (this.dir%2===0) vx += s; else vy += s;
+        const len = Math.hypot(vx, vy) || 1;
+        b.vx = vx/len; b.vy = vy/len;
+      }
+    }
     this.bulletTimer = this.bulletCooldown;
-    SFX.play(this.isPlayer ? 'shootPlayer' : 'shootEnemy');
+    if (this.isPlayer) triggerShake(2,1);
   }
 
   draw() {
     if (!this.alive) return;
     ctx.save();
+    const cx = this.x + this.size / 2, cy = this.y + this.size / 2, tw = this.type==='BOSS' ? 6 : 4;
+    
+    // 底部陰影
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(this.x + 2, this.y + this.size - 1, this.size, 3);
+    if (this.flashTimer > 0 && (G.frameCount & 2)) ctx.globalAlpha = 0.5;
 
-    const cx = this.x + this.size / 2;
-    const cy = this.y + this.size / 2;
-    const tw = 4;
-
-    // Drop shadow under tank
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(this.x + 2, this.y + this.size - 1, this.size, 2);
-
-    // Shield effect
-    if (this.shieldTimer > 0) {
-      const alpha = 0.35 + Math.sin(G.frameCount * 0.3) * 0.25;
-      ctx.save();
-      ctx.shadowColor = '#5cd8ff';
-      ctx.shadowBlur = 10;
-      ctx.strokeStyle = `rgba(120,230,255,${alpha})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(cx, cy, this.size/2 + 5, 0, Math.PI*2);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // Flash on damage
-    if (this.flashTimer > 0 && (G.frameCount & 2)) { ctx.globalAlpha = 0.4; }
-
-    // Tracks (with subtle highlight)
-    const anim = (this.moving && (this.animFrame & 4)) ? 2 : 0;
+    // 履帶與機身
     const trackDark = this.isPlayer ? '#2a4218' : '#3a0c0c';
-    const trackLight = this.isPlayer ? '#4a7028' : '#601818';
     if (this.dir === UP || this.dir === DOWN) {
-      ctx.fillStyle = trackDark;
-      ctx.fillRect(this.x, this.y+anim, tw, this.size-anim);
-      ctx.fillRect(this.x+this.size-tw, this.y+(2-anim), tw, this.size-(2-anim));
-      ctx.fillStyle = trackLight;
-      ctx.fillRect(this.x+1, this.y+anim, 1, this.size-anim);
-      ctx.fillRect(this.x+this.size-tw+1, this.y+(2-anim), 1, this.size-(2-anim));
+      ctx.fillStyle = trackDark; ctx.fillRect(this.x, this.y, tw, this.size); ctx.fillRect(this.x+this.size-tw, this.y, tw, this.size);
     } else {
-      ctx.fillStyle = trackDark;
-      ctx.fillRect(this.x+anim, this.y, this.size-anim, tw);
-      ctx.fillRect(this.x+(2-anim), this.y+this.size-tw, this.size-(2-anim), tw);
-      ctx.fillStyle = trackLight;
-      ctx.fillRect(this.x+anim, this.y+1, this.size-anim, 1);
-      ctx.fillRect(this.x+(2-anim), this.y+this.size-tw+1, this.size-(2-anim), 1);
+      ctx.fillStyle = trackDark; ctx.fillRect(this.x, this.y, this.size, tw); ctx.fillRect(this.x, this.y+this.size-tw, this.size, tw);
     }
+    ctx.fillStyle = this.color; ctx.fillRect(this.x+tw, this.y+tw, this.size-tw*2, this.size-tw*2);
 
-    // Body with gradient highlight
-    const body = this.color;
-    ctx.fillStyle = body;
-    ctx.fillRect(this.x+tw, this.y+tw, this.size-tw*2, this.size-tw*2);
-    // highlight stripe
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.fillRect(this.x+tw, this.y+tw, this.size-tw*2, 2);
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    ctx.fillRect(this.x+tw, this.y+this.size-tw-2, this.size-tw*2, 2);
+    // 炮塔中心
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(cx, cy, tw+2, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = this.isPlayer ? '#a0d878' : '#ff6060'; ctx.beginPath(); ctx.arc(cx, cy, tw, 0, Math.PI*2); ctx.fill();
+    
+    // 炮管
+    ctx.strokeStyle = this.isPlayer ? '#8bc06e' : '#ff5050'; ctx.lineWidth = tw-1; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + DX[this.dir]*(this.size/2+2), cy + DY[this.dir]*(this.size/2+2)); ctx.stroke();
 
-    // Turret base ring
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = this.isPlayer ? '#6dad48' : '#c83232';
-    ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = this.isPlayer ? '#a0d878' : '#ff6060';
-    ctx.beginPath(); ctx.arc(cx-1, cy-1, 2, 0, Math.PI*2); ctx.fill();
-
-    // Barrel
-    ctx.strokeStyle = this.isPlayer ? '#8bc06e' : '#ff5050';
-    ctx.lineWidth = 3; ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + DX[this.dir]*13, cy + DY[this.dir]*13);
-    ctx.stroke();
-    ctx.strokeStyle = this.isPlayer ? '#cdf0a8' : '#ffa0a0';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + DX[this.dir]*13, cy + DY[this.dir]*13);
-    ctx.stroke();
-
-    // Muzzle flash
-    if (this.bulletTimer > this.bulletCooldown - 5 && this.bulletTimer > 0) {
-      const t = (this.bulletCooldown - this.bulletTimer) / 5;
-      const fade = 1 - t;
-      const fx = cx + DX[this.dir] * 14;
-      const fy = cy + DY[this.dir] * 14;
-      ctx.save();
-      ctx.globalAlpha = fade;
-      ctx.fillStyle = '#fff8a0';
-      ctx.beginPath(); ctx.arc(fx, fy, 5 - t*2, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = '#ffaa00';
-      ctx.beginPath(); ctx.arc(fx, fy, 3 - t*1.5, 0, Math.PI*2); ctx.fill();
-      ctx.restore();
-    }
-
-    // HP bar
+    // HP 血條
     if (this.maxHp > 1) {
-      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(this.x-1, this.y-8, this.size+2, 4);
-      const ratio = this.hp / this.maxHp;
-      const grad = ctx.createLinearGradient(this.x, 0, this.x + this.size, 0);
-      if (this.isPlayer) { grad.addColorStop(0, '#5cff5c'); grad.addColorStop(1, '#0fa00f'); }
-      else { grad.addColorStop(0, '#ff7070'); grad.addColorStop(1, '#a02020'); }
-      ctx.fillStyle = grad;
-      ctx.fillRect(this.x, this.y-7, this.size*ratio, 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(this.x, this.y-8, this.size, 4);
+      ctx.fillStyle = this.isPlayer ? '#0f0' : '#f00'; ctx.fillRect(this.x, this.y-8, this.size * (this.hp/this.maxHp), 4);
     }
-
     ctx.restore();
   }
 }
 
-// ==================== BULLET UPDATE ====================
+// ==================== 2. 子彈邏輯與混合渲染 (Bullet & Rendering) ====================
 function updateBullet(b) {
   if (!b.alive) return;
-  b.x += DX[b.dir] * b.speed;
-  b.y += DY[b.dir] * b.speed;
+  b.x += b.vx * b.speed; b.y += b.vy * b.speed;
 
   if (b.x < 0 || b.x > W || b.y < 0 || b.y > H) { b.alive = false; return; }
 
-  const bc = (b.x + 3) / TILE | 0;
-  const br = (b.y + 3) / TILE | 0;
+  // 擊中地形
+  const bc = (b.x + 3) / TILE | 0, br = (b.y + 3) / TILE | 0;
   if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS) {
     const t = G.map[br][bc];
-    if (t === BRICK) {
-      b.alive = false; breakTile(bc, br);
-      spawnExplosion(b.x, b.y, 'brick'); SFX.play('brick'); return;
-    }
-    if (t === STEEL) {
-      b.alive = false; spawnExplosion(b.x, b.y, 'spark');
-      SFX.play('steel');
-      if (b.power >= 2) breakTile(bc, br);
-      return;
-    }
+    if (t === BRICK) { b.alive = false; breakTile(bc, br); spawnExplosion(b.x, b.y, 'spark'); return; }
+    if (t === STEEL) { b.alive = false; spawnExplosion(b.x, b.y, 'spark'); return; }
     if (t === BASE) {
-      b.alive = false; G.map[br][bc] = BASE_DEAD;
-      G.baseDestroyed = true;
-      spawnExplosion(bc*TILE+TILE/2, br*TILE+TILE/2, 'big');
-      SFX.play('bigExplode');
-      triggerShake(20, 8);
-      return;
+      b.alive = false; G.map[br][bc] = BASE_DEAD; G.baseDestroyed = true;
+      spawnExplosion(bc*TILE+13, br*TILE+13, 'big'); triggerShake(20, 8); return;
     }
   }
 
-  // Hit tanks
+  // 擊中坦克
   const targets = b.isPlayer ? G.enemies : (G.player ? [G.player] : []);
   for (let i = 0; i < targets.length; i++) {
-    const t = targets[i];
-    if (!t || !t.alive) continue;
+    const t = targets[i]; if (!t || !t.alive || b.hitTanks.includes(t)) continue;
     if (rectsOverlap(b.x,b.y,b.size,b.size, t.x,t.y,t.size,t.size)) {
-      b.alive = false;
-      if (t.shieldTimer > 0) { spawnExplosion(b.x,b.y,'shield'); return; }
+      b.hitTanks.push(t);
+      if (!b.pierce) b.alive = false; // 穿甲彈可貫穿
+      
       t.hp -= b.power; t.flashTimer = 8;
-      spawnExplosion(b.x, b.y, 'spark');
+      spawnExplosion(b.x, b.y, 'spark'); // 擊中裝甲產生火花
+      
       if (t.hp <= 0) {
         t.alive = false;
-        spawnExplosion(t.x+t.size/2, t.y+t.size/2, 'tank');
-        SFX.play('explode');
+        spawnExplosion(t.x+t.size/2, t.y+t.size/2, t.type==='BOSS'?'big':'tank');
+        if (t.type === 'BOSS') triggerShake(15, 6);
+
         if (!b.isPlayer && t === G.player) {
-          G.lives--; triggerShake(10,5); updateHUD();
-          G.aliveEnemies = 0; for (const e of G.enemies) if (e.alive) G.aliveEnemies++;
-          resetCombo();
-          if (G.lives > 0) setTimeout(respawnPlayer, 1200);
+          G.playerStats.hp = 0; triggerShake(10,5); updateHUD();
+          setTimeout(showGameOver, 1000);
         } else {
           G.aliveEnemies--;
-          const base = 100;
-          const bonus = registerCombo();
-          const gain = base + bonus;
-          G.score += gain; triggerShake(3,2); updateHUD();
-          addScorePopup(t.x + t.size/2, t.y, bonus > 0 ? `+${gain} x${G.combo}` : `+${gain}`);
-          if (Math.random() < 0.18) spawnPowerUp(t.x, t.y);
+          const pts = t.type==='BOSS' ? 1000 : 100;
+          G.score += pts; updateHUD();
+          addScorePopup(t.x, t.y, `+${pts}`);
           checkLevelComplete();
         }
       }
       return;
     }
   }
+}
 
-  // Bullet vs bullet
-  const ba = bullets.active;
-  for (let i = 0; i < ba.length; i++) {
-    const o = ba[i];
-    if (o === b || !o.alive || o.isPlayer === b.isPlayer) continue;
-    if (rectsOverlap(b.x,b.y,b.size,b.size, o.x,o.y,o.size,o.size)) {
-      b.alive = false; o.alive = false;
-      spawnExplosion(b.x, b.y, 'spark'); return;
+function renderBullets(ctx, bullets) {
+  // 開啟加法混合模式 (顏色重疊會變白亮)
+  ctx.globalCompositeOperation = 'lighter';
+  bullets.forEach(b => {
+    // 畫高溫核心
+    ctx.fillStyle = b.isPlayer ? '#ffffcc' : '#ffcccc';
+    ctx.fillRect(b.x, b.y, b.size, b.size);
+    // 疊加光暈圖
+    const glowImg = b.isPlayer ? RenderCache.glows.bullet : RenderCache.glows.enemyBullet;
+    ctx.drawImage(glowImg, b.x - 12 + b.size/2, b.y - 12 + b.size/2);
+  });
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+// ==================== 3. 動態粒子與煙霧系統 (Sparks & Smoke) ====================
+function spawnExplosion(x, y, type) {
+  const count = type === 'big' ? 30 : (type === 'tank' ? 15 : 6);
+  
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = Math.random() * (type === 'big' ? 4 : 2) + 0.5;
+
+    // 1. 火花粒子 (Spark)
+    const spark = particlesPool.acquire();
+    spark.type = 'spark';
+    spark.x = x; spark.y = y;
+    spark.vx = Math.cos(angle) * speed;
+    spark.vy = Math.sin(angle) * speed;
+    spark.life = spark.maxLife = 15 + Math.random() * 20;
+    spark.size = Math.random() * 3 + 1.5;
+    spark.color = Math.random() > 0.5 ? '#ffaa00' : '#ff3300';
+
+    // 2. 煙霧粒子 (Smoke) - 打中裝甲或爆炸時才噴煙霧
+    if (type === 'big' || type === 'tank') {
+      const smoke = particlesPool.acquire();
+      smoke.type = 'smoke';
+      smoke.x = x; smoke.y = y;
+      smoke.vx = Math.cos(angle) * speed * 0.3;
+      smoke.vy = Math.sin(angle) * speed * 0.3 - 0.5; // 熱氣上升
+      smoke.life = smoke.maxLife = 30 + Math.random() * 30;
+      smoke.size = Math.random() * 4 + 4;
+      smoke.color = 'rgba(100, 100, 100, 0.5)';
     }
   }
 }
 
-function drawBullet(b) {
-  if (!b.alive) return;
-  const main = b.isPlayer ? '#ffd06b' : '#ff5050';
-  const glow = b.isPlayer ? 'rgba(255,200,80,0.9)' : 'rgba(255,80,80,0.9)';
-  ctx.save();
-  // outer glow
-  ctx.shadowColor = glow; ctx.shadowBlur = 8;
-  ctx.fillStyle = main;
-  ctx.beginPath(); ctx.arc(b.x+3, b.y+3, 3, 0, Math.PI*2); ctx.fill();
-  ctx.shadowBlur = 0;
-  // hot core
-  ctx.fillStyle = '#fff';
-  ctx.beginPath(); ctx.arc(b.x+3, b.y+3, 1.4, 0, Math.PI*2); ctx.fill();
-  // trail
-  ctx.globalAlpha = 0.45;
-  ctx.fillStyle = main;
-  ctx.beginPath(); ctx.arc(b.x+3-DX[b.dir]*5, b.y+3-DY[b.dir]*5, 2, 0, Math.PI*2); ctx.fill();
-  ctx.globalAlpha = 0.22;
-  ctx.beginPath(); ctx.arc(b.x+3-DX[b.dir]*9, b.y+3-DY[b.dir]*9, 1.5, 0, Math.PI*2); ctx.fill();
-  ctx.restore();
-}
-
-// ==================== PARTICLES ====================
-const EXPLOSION_COLORS = {
-  brick: ['#a0522d','#6b3410','#8b4513'],
-  steel: ['#fff','#ccc','#888'],
-  tank:  ['#f40','#fa0','#ff0','#444'],
-  big:   ['#f00','#fa0','#ff0','#fff'],
-  spark: ['#ff0','#fff'],
-  shield:['#0df','#fff'],
-};
-const EXPLOSION_COUNTS = { brick:8, steel:6, tank:20, big:35, spark:5, shield:6 };
-
-function spawnExplosion(x, y, type) {
-  const colors = EXPLOSION_COLORS[type] || ['#ff0'];
-  const count = EXPLOSION_COUNTS[type] || 8;
-  const scale = type === 'big' ? 2 : 1;
-  for (let i = 0; i < count; i++) {
-    const ai = (Math.random() * ANGLE_COUNT) | 0;
-    const spd = (0.8 + Math.random() * 2) * scale;
-    const p = particles.acquire();
-    p.x = x; p.y = y;
-    p.vx = COS_T[ai] * spd; p.vy = SIN_T[ai] * spd;
-    p.life = 12 + (Math.random() * 15 | 0);
-    p.maxLife = p.life;
-    p.size = 1.5 + Math.random() * 3;
-    p.color = colors[(Math.random() * colors.length) | 0];
-  }
-  // Bloom flash for the bigger explosions
-  if (type === 'tank' || type === 'big') {
-    G.bloomFlashes.push({ x, y, life: type === 'big' ? 18 : 12, max: type === 'big' ? 18 : 12, radius: type === 'big' ? 60 : 30 });
-  }
-}
-
-function drawBloomFlashes() {
-  if (!G.bloomFlashes.length) return;
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  for (let i = G.bloomFlashes.length - 1; i >= 0; i--) {
-    const f = G.bloomFlashes[i];
-    if (--f.life <= 0) { G.bloomFlashes.splice(i, 1); continue; }
-    const t = f.life / f.max;
-    const r = f.radius * (1.05 - t * 0.6);
-    const grd = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, r);
-    grd.addColorStop(0, `rgba(255,240,180,${0.55 * t})`);
-    grd.addColorStop(0.4, `rgba(255,140,40,${0.3 * t})`);
-    grd.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = grd;
-    ctx.fillRect(f.x - r, f.y - r, r * 2, r * 2);
-  }
-  ctx.restore();
-}
-
-function updateDrawParticles() {
-  const arr = particles.active;
+function updateAndDrawParticles(ctx) {
+  const arr = particlesPool.active;
   for (let i = arr.length - 1; i >= 0; i--) {
     const p = arr[i];
     p.x += p.vx; p.y += p.vy;
-    p.vx *= 0.92; p.vy *= 0.92;
-    if (--p.life <= 0) { p.alive = false; continue; }
-    ctx.globalAlpha = p.life / p.maxLife;
+    p.life--;
+
+    // 物理空氣阻力 (摩擦力)
+    p.vx *= 0.92;
+    p.vy *= 0.92;
+
+    if (p.type === 'smoke') p.size += 0.15; // 煙霧膨脹
+
+    if (p.life <= 0) { p.alive = false; continue; }
+
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, p.life / p.maxLife); // Fade out
+
+    if (p.type === 'spark') {
+      ctx.globalCompositeOperation = 'lighter';
+      // 將預渲染的光暈中心點對齊粒子
+      ctx.drawImage(RenderCache.glows.explosion, p.x - 15, p.y - 15);
+    } 
+
     ctx.fillStyle = p.color;
     ctx.fillRect(p.x, p.y, p.size, p.size);
-  }
-  ctx.globalAlpha = 1;
-  particles.sweep();
-}
-
-// ==================== UTILITY ====================
-function rectsOverlap(x1,y1,w1,h1, x2,y2,w2,h2) {
-  return x1 < x2+w2 && x1+w1 > x2 && y1 < y2+h2 && y1+h1 > y2;
-}
-
-function triggerShake(f, i) { G.shakeTimer = f; G.shakeIntensity = i; }
-
-function addScorePopup(x, y, text) {
-  G.scorePopups.push({ x, y, text, life: 45, vy: -1.2 });
-}
-
-function updateScorePopups() {
-  for (let i = G.scorePopups.length - 1; i >= 0; i--) {
-    const p = G.scorePopups[i];
-    p.y += p.vy;
-    p.vy *= 0.95;
-    p.life--;
-    if (p.life <= 0) { G.scorePopups.splice(i, 1); continue; }
-    const a = p.life / 45;
-    ctx.save();
-    ctx.globalAlpha = a;
-    ctx.font = 'bold 12px "Press Start 2P", monospace';
-    ctx.textAlign = 'center';
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-    ctx.strokeText(p.text, p.x, p.y);
-    ctx.shadowColor = '#ffaa00'; ctx.shadowBlur = 8;
-    ctx.fillStyle = '#ffe680';
-    ctx.fillText(p.text, p.x, p.y);
     ctx.restore();
   }
-  ctx.globalAlpha = 1;
+  particlesPool.sweep();
 }
 
-// ==================== ENEMY AI ====================
+// ==================== 輔助系統與 AI ====================
+function rectsOverlap(x1,y1,w1,h1, x2,y2,w2,h2) { return x1<x2+w2 && x1+w1>x2 && y1<y2+h2 && y1+h1>y2; }
+function triggerShake(f, i) { G.shakeTimer = f; G.shakeIntensity = i; }
+function addScorePopup(x, y, text) { G.scorePopups.push({ x, y, text, life: 40, vy: -1 }); }
+function updateScorePopups() {
+  for (let i = G.scorePopups.length - 1; i >= 0; i--) {
+    const p = G.scorePopups[i]; p.y += p.vy; p.vy *= 0.95; p.life--;
+    if (p.life <= 0) { G.scorePopups.splice(i, 1); continue; }
+    ctx.save(); ctx.globalAlpha = p.life / 40; ctx.font = '10px "Press Start 2P"';
+    ctx.fillStyle = '#ffe680'; ctx.fillText(p.text, p.x, p.y); ctx.restore();
+  }
+}
+
 function updateEnemyAI(e) {
   e.update();
-
-  // Stuck detection
-  if (Math.abs(e.x - e.lastX) < 0.1 && Math.abs(e.y - e.lastY) < 0.1) {
-    e.aiStuckTimer++;
-  } else {
-    e.aiStuckTimer = 0;
-  }
-  e.lastX = e.x; e.lastY = e.y;
-
-  if (--e.aiChangeTimer <= 0 || e.aiStuckTimer > 20) {
-    e.aiStuckTimer = 0;
-    // Smarter targeting: 40% chance aim at player, 15% aim at base
-    const rnd = Math.random();
-    if (rnd < 0.4 && G.player && G.player.alive) {
-      const dx = G.player.x - e.x, dy = G.player.y - e.y;
-      e.aiDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? RIGHT : LEFT) : (dy > 0 ? DOWN : UP);
-    } else if (rnd < 0.55 && G.basePos) {
-      const bx = G.basePos.c * TILE - e.x, by = G.basePos.r * TILE - e.y;
-      e.aiDir = Math.abs(bx) > Math.abs(by) ? (bx > 0 ? RIGHT : LEFT) : (by > 0 ? DOWN : UP);
-    } else {
-      e.aiDir = Math.random() * 4 | 0;
-    }
-    e.aiChangeTimer = 25 + (Math.random() * 50 | 0);
+  if (--e.aiChangeTimer <= 0) {
+    if (e.type === 'SUICIDE' && G.basePos) {
+      const dx = G.basePos.c*TILE - e.x, dy = G.basePos.r*TILE - e.y;
+      e.aiDir = Math.abs(dx)>Math.abs(dy) ? (dx>0?RIGHT:LEFT) : (dy>0?DOWN:UP);
+    } else { e.aiDir = Math.random() * 4 | 0; }
+    e.aiChangeTimer = 30 + Math.random()*50;
   }
   e.move(e.aiDir);
-  e.moving = true;
-
-  if (--e.aiShootTimer <= 0) {
-    e.shoot();
-    e.aiShootTimer = 35 + (Math.random() * 50 | 0);
-  }
-}
-
-// ==================== SPAWNING ====================
-const SPAWN_PTS = [[0,0],[0,(COLS/2|0)*TILE],[0,(COLS-1)*TILE]];
-
-function spawnPointFree(sx, sy) {
-  for (const e of G.enemies) {
-    if (e.alive && Math.abs(e.x - sx) < TILE && Math.abs(e.y - sy) < TILE) return false;
-  }
-  if (G.player && G.player.alive &&
-      rectsOverlap(sx, sy, TILE, TILE, G.player.x, G.player.y, G.player.size, G.player.size)) {
-    return false;
-  }
-  return true;
+  if (Math.random() < 0.02) e.shoot();
 }
 
 function spawnEnemy() {
-  // Try preferred point, then the others; if all blocked, retry next tick.
-  const order = [(Math.random()*3)|0, 0, 1, 2];
+  const pts = [[0,0], [0,(COLS/2|0)*TILE], [0,(COLS-1)*TILE]];
   let sx = -1, sy = -1;
-  for (const idx of order) {
-    const sp = SPAWN_PTS[idx];
-    if (spawnPointFree(sp[1], sp[0])) { sx = sp[1]; sy = sp[0]; break; }
+  
+  // 判斷是否為 Boss 局
+  const isBoss = (G.level % 5 === 0 && G.enemiesSpawned === G.maxEnemies - 1);
+  
+  // 如果是 Boss，優先檢查中路是否為空
+  if (isBoss) {
+    let centerFree = true;
+    for (let e of G.enemies) { 
+      if (rectsOverlap(e.x, e.y, TILE, TILE, pts[1][1], pts[1][0], TILE, TILE)) centerFree = false; 
+    }
+    // 檢查玩家是否卡在中路重生點
+    if (G.player && G.player.alive && rectsOverlap(G.player.x, G.player.y, G.player.size, G.player.size, pts[1][1], pts[1][0], TILE, TILE)) {
+      centerFree = false;
+    }
+    if (centerFree) { sx = pts[1][1]; sy = pts[1][0]; }
   }
-  if (sx < 0) { G.spawnTimer = 12; return; }
+  
+  // 如果不是 Boss，或中路被佔用，則隨機找尋其他空位
+  if (sx < 0) {
+    for (let sp of pts.sort(() => Math.random() - 0.5)) {
+      let free = true;
+      // 1. 檢查其他敵人
+      for (let e of G.enemies) { 
+        if (rectsOverlap(e.x, e.y, TILE, TILE, sp[1], sp[0], TILE, TILE)) free = false; 
+      }
+      // 2. 檢查玩家是否在該重生點上 (修正卡死問題的核心)
+      if (G.player && G.player.alive && rectsOverlap(G.player.x, G.player.y, G.player.size, G.player.size, sp[1], sp[0], TILE, TILE)) {
+        free = false;
+      }
+      
+      if (free) { sx = sp[1]; sy = sp[0]; break; }
+    }
+  }
 
-  let color = '#c33', hp = 1;
-  if (G.level >= 2 && Math.random() < 0.3) { color = '#8a38a0'; hp = 2; }
-  if (G.level >= 3 && Math.random() < 0.2) { color = '#0a8a8a'; hp = 3; }
+  // 如果所有重生點都被佔用（包含被玩家堵住），延後 15 幀再嘗試重生
+  if (sx < 0) { G.spawnTimer = 15; return; }
 
-  const e = new Tank(sx, sy, DOWN, color, false);
-  e.hp = e.maxHp = hp;
-  e.bulletCooldown = Math.max(35, 75 - G.level * 7);
-  G.enemies.push(e);
-  G.enemiesSpawned++;
+  let type = 'NORMAL';
+  if (isBoss) {
+    type = 'BOSS';
+  } else if (G.level > 1) {
+    const r = Math.random();
+    if (r < 0.15) type = 'FAST';
+    else if (r < 0.3) type = 'HEAVY';
+    else if (r < 0.4) type = 'SNIPER';
+  }
+
+  const e = new Tank(sx, sy, DOWN, type, false);
+  G.enemies.push(e); 
+  G.enemiesSpawned++; 
   G.aliveEnemies++;
-
-  // Spawn flash
-  spawnExplosion(sx+TILE/2, sy+TILE/2, 'spark');
+  spawnExplosion(sx + 13, sy + 13, 'spark'); 
   updateHUD();
 }
 
-function spawnPowerUp(x, y) {
-  const types = ['shield','speed','power','life'];
-  G.powerUps.push({
-    x: (x/TILE|0)*TILE, y: (y/TILE|0)*TILE,
-    type: types[(Math.random()*types.length)|0],
-    life: 450, anim: 0
-  });
-}
-
-function updatePowerUps() {
-  for (let i = G.powerUps.length-1; i >= 0; i--) {
-    const pu = G.powerUps[i];
-    pu.life--; pu.anim++;
-    if (pu.life <= 0) { G.powerUps.splice(i,1); continue; }
-
-    // Draw
-    if (pu.life > 60 || (pu.anim & 4)) {
-      ctx.fillStyle = '#111'; ctx.fillRect(pu.x+2, pu.y+2, TILE-4, TILE-4);
-      const glow = Math.sin(pu.anim * 0.1) * 0.3 + 0.7;
-      ctx.strokeStyle = `rgba(0,255,100,${glow})`;
-      ctx.lineWidth = 1.5; ctx.strokeRect(pu.x+2, pu.y+2, TILE-4, TILE-4);
-      ctx.font = '15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      const icons = {shield:'🛡️',speed:'⚡',power:'🔥',life:'❤️'};
-      ctx.fillText(icons[pu.type], pu.x+TILE/2, pu.y+TILE/2+1);
-    }
-
-    // Pickup
-    if (G.player && G.player.alive &&
-        rectsOverlap(G.player.x,G.player.y,G.player.size,G.player.size, pu.x,pu.y,TILE,TILE)) {
-      const labels = { shield:'SHIELD ON', speed:'SPEED+', power:'POWER UP', life:'1UP' };
-      const colors = { shield:'#5cd8ff', speed:'#ffd700', power:'#ff7733', life:'#ff5577' };
-      if (pu.type==='shield') G.player.shieldTimer = 350;
-      if (pu.type==='speed') G.player.speedBoostTimer = 350;
-      if (pu.type==='power') G.player.bulletPower = 2;
-      if (pu.type==='life') { G.lives++; updateHUD(); }
-      G.score += 200; updateHUD();
-      addScorePopup(pu.x+TILE/2, pu.y+TILE/2, '+200');
-      G.pickupBanner = { text: labels[pu.type], color: colors[pu.type], life: 60 };
-      spawnExplosion(pu.x+TILE/2, pu.y+TILE/2, 'spark');
-      SFX.play(pu.type === 'life' ? 'oneUp' : 'pickup');
-      G.powerUps.splice(i,1);
-    }
-  }
-}
-
-function drawPickupBanner() {
-  const b = G.pickupBanner;
-  if (!b) return;
-  if (--b.life <= 0) { G.pickupBanner = null; return; }
-  const t = Math.min(1, (60 - b.life) / 8);
-  const out = b.life < 12 ? b.life / 12 : 1;
-  ctx.save();
-  ctx.globalAlpha = out;
-  ctx.font = 'bold 16px "Press Start 2P", monospace';
-  ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  const y = 70 + (1 - t) * -10;
-  ctx.fillRect(W/2 - 100, y - 14, 200, 22);
-  ctx.fillStyle = b.color;
-  ctx.shadowColor = b.color; ctx.shadowBlur = 8;
-  ctx.fillText(b.text, W/2, y);
-  ctx.restore();
-}
-
-// ==================== GAME FLOW ====================
-function respawnPlayer() {
-  if (G.lives <= 0) { showGameOver(); return; }
-  G.player = new Tank(G.playerSpawnPos.x, G.playerSpawnPos.y, UP, '#4a7a2e', true);
-  spawnExplosion(G.playerSpawnPos.x+TILE/2, G.playerSpawnPos.y+TILE/2, 'spark');
-}
-
+// ==================== Roguelike 升級系統 ====================
 function checkLevelComplete() {
   if (G.aliveEnemies <= 0 && G.enemiesSpawned >= G.maxEnemies) {
     G.state = 'levelComplete';
-    G.levelTransition = 120;
-    SFX.play('levelClear');
-    saveHighScore();
-    setTimeout(() => {
-      const ov = document.getElementById('overlay');
-      ov.classList.remove('hidden');
-      ov.classList.remove('translucent');
-      ov.innerHTML = `<h1>LEVEL ${G.level} CLEAR</h1>
-        <p>SCORE: <span style="color:#ffd700;font-size:18px;">${G.score}</span></p>
-        <p class="high">HI ${G.highScore}</p>
-        <button class="start-btn" id="nextBtn" onclick="nextLevel()">NEXT</button>`;
-      document.getElementById('nextBtn').focus();
-    }, 800);
+    setTimeout(showUpgradeScreen, 1000);
   }
 }
 
-function saveHighScore() {
-  if (G.score > G.highScore) {
-    G.highScore = G.score;
-    try { localStorage.setItem(HIGH_SCORE_KEY, String(G.highScore)); } catch (_) {}
-    return true;
-  }
-  return false;
+function showUpgradeScreen() {
+  G.state = 'upgrade';
+  const ui = document.getElementById('upgradeUI');
+  const container = document.getElementById('cards');
+  ui.classList.remove('hidden'); container.innerHTML = '';
+  
+  const shuffled = [...UPGRADES].sort(() => 0.5 - Math.random()).slice(0, 3);
+  shuffled.forEach(upg => {
+    const div = document.createElement('div'); div.className = 'upgrade-card';
+    div.innerHTML = `<div class="card-title">${upg.title}</div><div class="card-desc">${upg.desc}</div>`;
+    div.onclick = () => applyUpgrade(upg.id);
+    container.appendChild(div);
+  });
 }
 
-function nextLevel() { G.level++; startLevel(); }
+function applyUpgrade(id) {
+  if (id === 'TWIN') G.playerStats.weapon = 'TWIN';
+  if (id === 'SPREAD') G.playerStats.weapon = 'SPREAD';
+  if (id === 'PIERCE') G.playerStats.pierce = true;
+  if (id === 'SPEED') G.playerStats.speedMult *= 1.2;
+  if (id === 'HEAL') { G.playerStats.maxHp++; G.playerStats.hp = G.playerStats.maxHp; }
+  
+  document.getElementById('upgradeUI').classList.add('hidden');
+  G.level++; startLevel();
+}
 
+// ==================== 遊戲核心流 ====================
 function startLevel() {
-  G.enemiesSpawned = 0;
-  G.aliveEnemies = 0;
-  G.maxEnemies = 10 + G.level * 3;
-  G.spawnInterval = Math.max(45, 140 - G.level * 12);
-  G.spawnTimer = 30;
-  bullets.clear(); particles.clear();
-  G.enemies.length = 0; G.powerUps.length = 0; G.scorePopups.length = 0;
-  G.bloomFlashes.length = 0;
-  G.baseDestroyed = false;
-  resetCombo();
-  G.pickupBanner = null;
-  G.map = generateMap(G.level);
-  cacheStaticMap();
-  respawnPlayer();
+  G.maxEnemies = 10 + G.level * 2;
+  G.enemiesSpawned = 0; G.aliveEnemies = 0; G.spawnTimer = 30; G.baseDestroyed = false;
+  bulletsPool.clear(); particlesPool.clear(); G.enemies = []; G.trails = [];
+  
+  G.map = generateMap(G.level); cacheStaticMap();
+  
+  G.player = new Tank(G.playerSpawnPos.x, G.playerSpawnPos.y, UP, 'NORMAL', true);
   G.state = 'playing';
-  const ov = document.getElementById('overlay');
-  ov.classList.add('hidden');
-  ov.classList.remove('translucent');
+  document.getElementById('overlay').classList.add('hidden');
   updateHUD();
+}
+
+function restartGame() {
+  G.score = 0; G.level = 1; 
+  G.playerStats = { weapon: 'NORMAL', pierce: false, speedMult: 1, maxHp: 3, hp: 3 };
+  startLevel();
 }
 
 function showGameOver() {
   G.state = 'gameover';
-  SFX.play('gameOver');
-  const isNew = saveHighScore();
   const ov = document.getElementById('overlay');
   ov.classList.remove('hidden');
-  ov.classList.remove('translucent');
-  ov.innerHTML = `<h2>GAME OVER</h2>
-    <p>SCORE: <span style="color:#ffd700;font-size:18px;">${G.score}</span></p>
-    ${isNew ? `<div class="badge">NEW HIGH SCORE</div>` : `<p class="high">HI ${G.highScore}</p>`}
-    <button class="start-btn" id="retryBtn" onclick="restartGame()">RETRY</button>`;
-  document.getElementById('retryBtn').focus();
-  updateHUD();
+  ov.innerHTML = `<h2>SYSTEM FAILURE</h2><p>SCORE: <span style="color:#ffd700;">${G.score}</span></p><button class="start-btn" onclick="restartGame()">REBOOT</button>`;
 }
-
-window.restartGame = function() { G.score = 0; G.lives = 3; G.level = 1; resetCombo(); startLevel(); };
-window.nextLevel = nextLevel;
 
 function updateHUD() {
   document.getElementById('scoreDisplay').textContent = G.score;
-  document.getElementById('highScoreDisplay').textContent = Math.max(G.highScore, G.score);
-  document.getElementById('levelDisplay').textContent = G.level;
-  document.getElementById('livesDisplay').textContent = '♥'.repeat(Math.max(0,G.lives)) || '–';
-  const remaining = G.maxEnemies - G.enemiesSpawned + G.aliveEnemies;
-  document.getElementById('enemiesDisplay').textContent = remaining;
+  document.getElementById('levelDisplay').textContent = G.level + (G.level%5===0?'(BOSS)':'');
+  document.getElementById('livesDisplay').textContent = '♥'.repeat(Math.max(0, G.playerStats.hp));
+  document.getElementById('enemiesDisplay').textContent = G.maxEnemies - G.enemiesSpawned + G.aliveEnemies;
+  
+  let chips = [];
+  if (G.playerStats.weapon!=='NORMAL') chips.push(`<span class="power-chip">${G.playerStats.weapon}</span>`);
+  if (G.playerStats.pierce) chips.push(`<span class="power-chip">PIERCE</span>`);
+  if (G.playerStats.speedMult > 1) chips.push(`<span class="power-chip">SPEED+</span>`);
+  document.getElementById('powerStatus').innerHTML = chips.join('');
 }
 
-function updatePowerStatus() {
-  const el = document.getElementById('powerStatus');
-  if (!G.player || !G.player.alive) { el.innerHTML = ''; return; }
-  const chips = [];
-  const p = G.player;
-  if (p.shieldTimer > 0) chips.push(['shield','SHIELD', p.shieldTimer / 350]);
-  if (p.speedBoostTimer > 0) chips.push(['speed','SPEED', p.speedBoostTimer / 350]);
-  if (p.bulletPower > 1) chips.push(['power','POWER', 1]);
-  el.innerHTML = chips.map(([cls, label, frac]) =>
-    `<span class="power-chip ${cls}">${label}<span class="power-bar"><i style="width:${Math.max(0, Math.min(1, frac))*100}%"></i></span></span>`
-  ).join('');
-}
-
-// ==================== INPUT ====================
-function syncSoundBtn() {
-  const btn = document.getElementById('soundBtn');
-  if (!btn) return;
-  btn.textContent = SFX.muted ? '🔇' : '🔊';
-  btn.setAttribute('aria-pressed', SFX.muted ? 'true' : 'false');
-}
-
-document.addEventListener('keydown', e => {
-  SFX.resume();
-  G.keys[e.code] = true;
-  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
-
-  if (e.code === 'KeyP' && (G.state === 'playing' || G.state === 'paused')) {
-    togglePause();
-  } else if (e.code === 'KeyM') {
-    SFX.toggleMute();
-    syncSoundBtn();
-    if (!SFX.muted) SFX.play('click');
-  } else if ((e.code === 'Enter' || e.code === 'Space') && (G.state === 'menu' || G.state === 'gameover')) {
-    e.preventDefault();
-    restartGame();
-  } else if ((e.code === 'Enter') && G.state === 'levelComplete') {
-    e.preventDefault();
-    nextLevel();
-  }
-});
+// 事件監聽
+document.addEventListener('keydown', e => { G.keys[e.code] = true; if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault(); });
 document.addEventListener('keyup', e => G.keys[e.code] = false);
-document.getElementById('startBtn').addEventListener('click', () => { SFX.resume(); restartGame(); });
-document.getElementById('pauseBtn').addEventListener('click', () => {
-  SFX.resume();
-  if (G.state === 'playing' || G.state === 'paused') togglePause();
-});
-document.getElementById('soundBtn').addEventListener('click', () => {
-  SFX.resume();
-  SFX.toggleMute();
-  syncSoundBtn();
-  if (!SFX.muted) SFX.play('click');
-});
+document.getElementById('startBtn').addEventListener('click', restartGame);
 
-window.togglePause = function togglePause() {
-  const ov = document.getElementById('overlay');
-  if (G.state === 'playing') {
-    G.state = 'paused';
-    ov.classList.add('translucent');
-    ov.classList.remove('hidden');
-    ov.innerHTML = `<h2>PAUSED</h2>
-      <p>Press <b>P</b> to resume</p>
-      <button class="start-btn" id="resumeBtn" onclick="togglePause()">RESUME</button>`;
-    document.getElementById('resumeBtn').focus();
-    SFX.play('click');
-  } else if (G.state === 'paused') {
-    G.state = 'playing';
-    ov.classList.remove('translucent');
-    hideOverlay();
-    SFX.play('click');
-  }
-};
-const togglePause = window.togglePause;
-
-function hideOverlay() {
-  document.getElementById('overlay').classList.add('hidden');
-}
-
-// Touch controls
-document.querySelectorAll('.dpad-btn[data-dir]').forEach(btn => {
-  const dir = +btn.dataset.dir;
-  btn.addEventListener('touchstart', e => { e.preventDefault(); G.touchDir = dir; });
-  btn.addEventListener('touchend', e => { e.preventDefault(); G.touchDir = -1; });
-});
-const fireBtn = document.getElementById('fireBtn');
-fireBtn.addEventListener('touchstart', e => { e.preventDefault(); G.touchFire = true; });
-fireBtn.addEventListener('touchend', e => { e.preventDefault(); G.touchFire = false; });
-
-// ==================== MAIN LOOP ====================
+// ==================== 渲染與主迴圈 ====================
 function gameLoop() {
   G.frameCount++;
 
   if (G.state === 'playing') {
-    // Player input
+    // 玩家控制
     if (G.player && G.player.alive) {
       G.player.update();
       let moved = false;
-      if (G.keys['ArrowUp']||G.keys['KeyW']||G.touchDir===UP) { G.player.move(UP); moved=true; }
-      else if (G.keys['ArrowRight']||G.keys['KeyD']||G.touchDir===RIGHT) { G.player.move(RIGHT); moved=true; }
-      else if (G.keys['ArrowDown']||G.keys['KeyS']||G.touchDir===DOWN) { G.player.move(DOWN); moved=true; }
-      else if (G.keys['ArrowLeft']||G.keys['KeyA']||G.touchDir===LEFT) { G.player.move(LEFT); moved=true; }
+      if (G.keys['ArrowUp']||G.keys['KeyW']) { G.player.move(UP); moved=true; }
+      else if (G.keys['ArrowRight']||G.keys['KeyD']) { G.player.move(RIGHT); moved=true; }
+      else if (G.keys['ArrowDown']||G.keys['KeyS']) { G.player.move(DOWN); moved=true; }
+      else if (G.keys['ArrowLeft']||G.keys['KeyA']) { G.player.move(LEFT); moved=true; }
       if (!moved) G.player.moving = false;
-      if (G.keys['Space']||G.keys['KeyJ']||G.touchFire) G.player.shoot();
+      if (G.keys['Space']||G.keys['KeyJ']) G.player.shoot();
+
+      if (moved && G.frameCount % 4 === 0) {
+        G.trails.push({ x: G.player.x, y: G.player.y, size: G.player.size, life: 30, maxLife: 30 });
+      }
     }
 
-    // Enemy spawning
+    // 敵人邏輯
     if (G.enemiesSpawned < G.maxEnemies && G.aliveEnemies < 4) {
-      if (--G.spawnTimer <= 0) { spawnEnemy(); G.spawnTimer = G.spawnInterval; }
+      if (--G.spawnTimer <= 0) { spawnEnemy(); G.spawnTimer = Math.max(40, 120 - G.level * 8); }
     }
+    G.enemies.forEach(e => { if (e.alive) updateEnemyAI(e); });
 
-    // Enemy AI
-    for (let i = 0; i < G.enemies.length; i++) {
-      if (G.enemies[i].alive) updateEnemyAI(G.enemies[i]);
-    }
-
-    // Bullets
-    const ba = bullets.active;
+    // 子彈與垃圾回收
+    const ba = bulletsPool.active;
     for (let i = 0; i < ba.length; i++) updateBullet(ba[i]);
-    bullets.sweep();
-
-    // Clean dead enemies periodically (aliveEnemies is maintained on spawn/death)
-    if ((G.frameCount & 127) === 0) {
-      G.enemies = G.enemies.filter(e => e.alive);
-    }
-
-    // Combo tick
-    tickCombo();
-
+    bulletsPool.sweep();
+    if (G.frameCount % 60 === 0) G.enemies = G.enemies.filter(e => e.alive);
     if (G.baseDestroyed) { G.state = 'gameover'; setTimeout(showGameOver, 1200); }
   }
 
-  // ==================== RENDER ====================
+  // ===== 繪製階段 =====
   ctx.save();
-  ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = '#050508'; ctx.fillRect(0,0,W,H);
 
-  // Screen shake
   if (G.shakeTimer > 0) {
-    G.shakeTimer--;
-    ctx.translate((Math.random()-0.5)*G.shakeIntensity, (Math.random()-0.5)*G.shakeIntensity);
+    G.shakeTimer--; ctx.translate((Math.random()-0.5)*G.shakeIntensity, (Math.random()-0.5)*G.shakeIntensity);
     G.shakeIntensity *= 0.88;
   }
 
-  if (G.state !== 'menu' && G.state !== 'paused') {
-    // Static terrain (brick + steel) from cache
-    ctx.drawImage(staticCanvas, 0, 0);
+  if (G.state !== 'menu') {
+    ctx.drawImage(staticCanvas, 0, 0); // 靜態地形
 
-    // Dynamic terrain
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const t = G.map[r][c];
-        if (t === WATER) drawWater(c*TILE, r*TILE);
-        else if (t === BASE || t === BASE_DEAD) drawBase(c*TILE, r*TILE, t === BASE_DEAD);
+    // 動態水流波紋
+    const wave = Math.sin(G.frameCount * 0.05) * 2;
+    for (let r=0; r<ROWS; r++) {
+      for (let c=0; c<COLS; c++) {
+        if (G.map[r][c] === WATER) {
+          ctx.fillStyle = '#0a3060'; ctx.fillRect(c*TILE, r*TILE, TILE, TILE);
+          ctx.fillStyle = '#1a5090'; ctx.fillRect(c*TILE, r*TILE+6+wave, TILE, 3);
+        } else if (G.map[r][c] === BASE || G.map[r][c] === BASE_DEAD) {
+          const dead = G.map[r][c] === BASE_DEAD;
+          ctx.fillStyle = dead ? '#200' : '#222'; ctx.fillRect(c*TILE, r*TILE, TILE, TILE);
+          ctx.fillStyle = dead ? '#f00' : '#e90'; ctx.font = '14px monospace'; ctx.fillText(dead?'✕':'E', c*TILE+7, r*TILE+18);
+        }
       }
     }
   }
 
-  // Power-ups (below tanks)
-  updatePowerUps();
+  // 履帶殘影
+  G.trails.forEach(t => {
+    t.life--; ctx.fillStyle = `rgba(0,0,0,${(t.life/t.maxLife)*0.4})`; ctx.fillRect(t.x+2, t.y+2, t.size-4, t.size-4);
+  });
+  G.trails = G.trails.filter(t => t.life > 0);
 
-  // Bullets
-  const ba = bullets.active;
-  for (let i = 0; i < ba.length; i++) drawBullet(ba[i]);
+  // 實體
+  G.enemies.forEach(e => e.draw());
+  if (G.player && G.state === 'playing') G.player.draw();
 
-  // Enemies
-  for (let i = 0; i < G.enemies.length; i++) G.enemies[i].draw();
+  // 繪製子彈 (套用 Composite Operation)
+  renderBullets(ctx, bulletsPool.active);
 
-  // Player
-  if (G.player && (G.state === 'playing' || G.state === 'paused')) G.player.draw();
-
-  // Forest overlay (on top of tanks, like original game)
+  // 遮蔽森林
   if (G.state !== 'menu') ctx.drawImage(forestCanvas, 0, 0);
 
-  // Bloom flashes from explosions (additive, looks like a quick light burst)
-  drawBloomFlashes();
-
-  // Particles on top
-  updateDrawParticles();
-
-  // Score popups
-  if (G.state !== 'menu' && G.state !== 'paused') updateScorePopups();
-
-  // Base glow
-  if (G.basePos && !G.baseDestroyed && G.state !== 'menu') {
-    const a = Math.sin(G.frameCount * 0.08) * 0.2 + 0.25;
-    ctx.strokeStyle = `rgba(0,255,80,${a})`;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(G.basePos.c*TILE-1, G.basePos.r*TILE-1, TILE+2, TILE+2);
-  }
-
-  // Pickup banner & combo indicator
-  if (G.state === 'playing') {
-    drawPickupBanner();
-    if (G.combo >= 2) {
-      const t = G.comboTimer / 180;
-      ctx.save();
-      ctx.font = 'bold 14px "Press Start 2P", monospace';
-      ctx.textAlign = 'right';
-      ctx.fillStyle = `rgba(255,170,0,${0.7 + Math.sin(G.frameCount*0.2)*0.2})`;
-      ctx.shadowColor = '#ff6600'; ctx.shadowBlur = 6;
-      ctx.fillText(`COMBO x${G.combo}`, W - 8, 20);
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#222'; ctx.fillRect(W - 80, 24, 72, 3);
-      ctx.fillStyle = '#ffaa00'; ctx.fillRect(W - 80, 24, 72 * t, 3);
-      ctx.restore();
-    }
-  }
-
-  // Level transition fade
-  if (G.state === 'levelComplete' && G.levelTransition > 0) {
-    ctx.fillStyle = `rgba(0,0,0,${(120 - G.levelTransition--) / 120})`;
-    ctx.fillRect(0,0,W,H);
-  }
-
-  // Subtle scanline overlay for retro feel
-  if (G.state !== 'menu') {
-    ctx.fillStyle = 'rgba(0,0,0,0.04)';
-    for (let y = 0; y < H; y += 3) ctx.fillRect(0,y,W,1);
-  }
+  // 繪製特效粒子 (套用 Spark & Smoke 系統)
+  updateAndDrawParticles(ctx);
+  
+  // 繪製分數浮動
+  if (G.state !== 'menu') updateScorePopups();
 
   ctx.restore();
-
-  // Side-effect HUD updates that are not on the canvas
-  if (G.frameCount % 6 === 0) updatePowerStatus();
-
   requestAnimationFrame(gameLoop);
 }
 
-// Initial HUD + menu high score
-updateHUD();
-syncSoundBtn();
-const menuHigh = document.getElementById('menuHigh');
-if (menuHigh) menuHigh.textContent = G.highScore > 0 ? `HI ${G.highScore}` : '';
-
-// Touchcancel so dropped touches do not stick
-document.querySelectorAll('.dpad-btn[data-dir]').forEach(btn => {
-  btn.addEventListener('touchcancel', () => { G.touchDir = -1; });
-});
-fireBtn.addEventListener('touchcancel', () => { G.touchFire = false; });
-
+// 啟動迴圈
 gameLoop();
 </script>
 </body>
