@@ -1,9 +1,10 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>坦克大戰 - 倖存者特化版</title>
+<title>坦克大戰 v2 - 優化版</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -13,8 +14,6 @@
     min-height: 100vh; font-family: 'Press Start 2P', 'Courier New', monospace;
     flex-direction: column; overflow: hidden; user-select: none; position: relative;
   }
-  
-  /* CRT 螢幕掃描線特效 */
   body::before {
     content: ''; position: fixed; inset: 0;
     background-image: linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
@@ -25,7 +24,7 @@
     background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.7) 100%); pointer-events: none; z-index: 101;
   }
 
-  #hud, #powerStatus, #gameContainer, #controls { position: relative; z-index: 2; }
+  #hud, #powerStatus, #gameContainer, #controls, #perfMonitor { position: relative; z-index: 2; }
   #gameContainer {
     position: relative; border-radius: 6px;
     box-shadow: 0 0 0 1px rgba(255,215,0,0.08), 0 0 30px rgba(255,170,0,0.1), 0 0 60px rgba(0,0,0,0.85);
@@ -35,7 +34,6 @@
     border-top: none; background-color: #000; image-rendering: pixelated; 
   }
   
-  /* 頂部資訊列 */
   #hud {
     display: flex; justify-content: space-between; align-items: center; width: 520px; padding: 10px 14px;
     background: linear-gradient(180deg, #1e1e28 0%, #14141c 60%, #0e0e15 100%); color: #fff; font-size: 11px;
@@ -50,7 +48,6 @@
   .vs-alert { color: #ff0055 !important; text-shadow: 0 0 15px rgba(255,0,85,0.9) !important; animation: blink 1s infinite; }
   @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
   
-  /* 升級模組狀態列 */
   #powerStatus {
     width: 520px; height: 26px; padding: 0 14px; background: linear-gradient(180deg, #0a0a10, #0e0e16);
     border-left: 3px solid; border-right: 3px solid; border-image: linear-gradient(180deg, #3a3a45, #1a1a22) 1;
@@ -59,7 +56,6 @@
   #powerStatus:empty::before { content: '◇ SYSTEM STANDBY'; color: #2a2a35; letter-spacing: 2px; }
   .power-chip { display: inline-flex; padding: 2px 8px; border-radius: 9px; background: #111; border: 1px solid #2a2a35; color: #5cd8ff; }
   
-  /* 浮蓋 UI */
   #overlay, #upgradeUI {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column;
     justify-content: center; align-items: center; background: rgba(0,0,0,0.85); color: #fff; z-index: 10; backdrop-filter: blur(4px);
@@ -70,7 +66,6 @@
   #overlay h2 { font-size: 24px; color: #ff5050; margin-bottom: 14px; text-shadow: 2px 2px 0 #500; }
   #overlay p { font-size: 10px; color: #aaa; margin: 6px 0; line-height: 1.8; }
   
-  /* Roguelike 升級卡片 UI */
   .card-container { display: flex; gap: 15px; margin-top: 25px; flex-wrap: wrap; justify-content: center; max-width: 480px; }
   .upgrade-card {
     background: linear-gradient(180deg, #1e1e28, #111); border: 2px solid #3a3a45; padding: 20px 15px; width: 140px;
@@ -87,6 +82,18 @@
   }
   .start-btn:hover { background: linear-gradient(180deg, #ffe14d, #ffb700); color: #000; text-shadow: none; box-shadow: 0 0 25px rgba(255,215,0,0.7); }
   #controls { color: #6a6a78; font-size: 8px; margin-top: 12px; text-align: center; letter-spacing: 2px; }
+  
+  /* 性能監測面板 */
+  #perfMonitor {
+    position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.8); color: #6cff6c;
+    padding: 8px 12px; font-size: 9px; border: 1px solid #2a2a35; border-radius: 4px;
+    z-index: 200; min-width: 130px; line-height: 1.6; display: none;
+  }
+  #perfMonitor.show { display: block; }
+  #perfMonitor .row { display: flex; justify-content: space-between; }
+  #perfMonitor .lbl { color: #6a6a78; }
+  #perfMonitor .warn { color: #ffaa00; }
+  #perfMonitor .bad { color: #ff5050; }
 </style>
 </head>
 <body>
@@ -103,10 +110,10 @@
   <canvas id="gameCanvas" width="520" height="520"></canvas>
   
   <div id="overlay">
-    <h1>TANK WARS</h1>
+    <h1>TANK WARS v2</h1>
     <p>消滅敵軍，每 10 關進入生存割草模式！</p>
     <p style="margin-top:12px; color:#ffd700;">WASD / 方向鍵 <b>移動</b></p>
-    <p style="color:#ffd700;">空白鍵 <b>射擊</b></p>
+    <p style="color:#ffd700;">空白鍵 <b>射擊</b> · F3 <b>性能監測</b></p>
     <button class="start-btn" id="startBtn">START</button>
   </div>
 
@@ -116,18 +123,73 @@
     <div class="card-container" id="cards"></div>
   </div>
 </div>
-<div id="controls">WASD / ARROWS MOVE &nbsp; · &nbsp; SPACE FIRE</div>
+<div id="controls">WASD / ARROWS MOVE &nbsp; · &nbsp; SPACE FIRE &nbsp; · &nbsp; F3 PERF</div>
+
+<div id="perfMonitor">
+  <div class="row"><span class="lbl">FPS</span><span id="perfFPS">--</span></div>
+  <div class="row"><span class="lbl">FRAME</span><span id="perfFrame">-- ms</span></div>
+  <div class="row"><span class="lbl">ENEMIES</span><span id="perfEnemies">0</span></div>
+  <div class="row"><span class="lbl">BULLETS</span><span id="perfBullets">0</span></div>
+  <div class="row"><span class="lbl">PARTICLES</span><span id="perfParticles">0</span></div>
+  <div class="row"><span class="lbl">COL.CHK</span><span id="perfCollisions">0</span></div>
+</div>
 
 <script>
-// ==================== 常數與引擎設定 ====================
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d', { alpha: false });
-const W = 520, H = 520, TILE = 26;
-const COLS = W / TILE | 0, ROWS = H / TILE | 0;
+'use strict';
+
+// ==================== 集中常數管理 ====================
+const CONFIG = {
+  CANVAS: { W: 520, H: 520, TILE: 26 },
+  BULLET: {
+    PLAYER_COOLDOWN: 14,
+    PLAYER_COOLDOWN_VS: 8,
+    ENEMY_NORMAL: 70,
+    ENEMY_FAST: 60,
+    ENEMY_HEAVY: 70,
+    BOSS: 45,
+    SPEED_PLAYER: 6,
+    SPEED_ENEMY: 3.5,
+    SPEED_BOSS: 4,
+    SIZE: 6,
+  },
+  PARTICLE: {
+    SPARK_COUNT: 6,
+    TANK_DEATH_COUNT: 15,
+    BIG_COUNT: 30,
+    POOL_SIZE: 400,
+  },
+  POOL: {
+    BULLET_INITIAL: 200,
+    BULLET_MAX: 500,
+  },
+  AI: {
+    VISION_RANGE: 26 * 12,    // 12 格視野
+    CHANGE_INTERVAL: 30,
+    VS_UPDATE_INTERVAL: 12,    // VS 模式 AI 更新頻率
+  },
+  GAMEPLAY: {
+    POSITION_PRECISION: 0.5,
+    SHAKE_DECAY: 0.88,
+    PLAYER_RESPAWN_INVUL: 90,
+    PLAYER_HIT_FLASH: 8,
+    MAX_ENEMIES_ON_SCREEN: 4,
+    MAX_ENEMIES_ON_SCREEN_VS: 18,
+  },
+  GRID: {
+    CELL_SIZE: 26 * 2, // 52 px
+  }
+};
+
+const W = CONFIG.CANVAS.W, H = CONFIG.CANVAS.H, TILE = CONFIG.CANVAS.TILE;
+const COLS = (W / TILE) | 0, ROWS = (H / TILE) | 0;
 
 const EMPTY = 0, BRICK = 1, STEEL = 2, WATER = 3, FOREST = 4, BASE = 5, BASE_DEAD = 6;
 const UP = 0, RIGHT = 1, DOWN = 2, LEFT = 3;
 const DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0];
+
+// ==================== Canvas 初始化 ====================
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d', { alpha: false });
 
 const staticCanvas = document.createElement('canvas');
 staticCanvas.width = W; staticCanvas.height = H;
@@ -137,7 +199,7 @@ const forestCanvas = document.createElement('canvas');
 forestCanvas.width = W; forestCanvas.height = H;
 const forestCtx = forestCanvas.getContext('2d');
 
-// ==================== 1. 預渲染光暈 (Render Cache) ====================
+// ==================== 預渲染光暈快取 ====================
 const RenderCache = {
   glows: {},
   init() {
@@ -157,73 +219,197 @@ const RenderCache = {
 };
 RenderCache.init();
 
-// ==================== 全域狀態 (GameState) ====================
+// ==================== 性能監測系統 ====================
+const Perf = {
+  enabled: false,
+  frameStart: 0,
+  frameTimes: [],
+  fpsTimer: 0,
+  fps: 60,
+  collisionChecks: 0,
+  
+  begin() { 
+    if (this.enabled) this.frameStart = performance.now();
+    this.collisionChecks = 0;
+  },
+  
+  end() {
+    if (!this.enabled) return;
+    const dt = performance.now() - this.frameStart;
+    this.frameTimes.push(dt);
+    if (this.frameTimes.length > 60) this.frameTimes.shift();
+  },
+  
+  updateUI() {
+    if (!this.enabled || G.frameCount % 15 !== 0) return;
+    
+    const avgFrame = this.frameTimes.length > 0 
+      ? this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length 
+      : 0;
+    const fps = avgFrame > 0 ? Math.min(60, Math.round(1000 / avgFrame)) : 60;
+    
+    const fpsEl = document.getElementById('perfFPS');
+    fpsEl.textContent = fps;
+    fpsEl.className = fps < 30 ? 'bad' : fps < 50 ? 'warn' : '';
+    
+    const frameEl = document.getElementById('perfFrame');
+    frameEl.textContent = avgFrame.toFixed(1) + ' ms';
+    frameEl.className = avgFrame > 20 ? 'bad' : avgFrame > 12 ? 'warn' : '';
+    
+    document.getElementById('perfEnemies').textContent = G.enemies.length;
+    document.getElementById('perfBullets').textContent = bulletsPool.active.length;
+    document.getElementById('perfParticles').textContent = particlesPool.active.length;
+    document.getElementById('perfCollisions').textContent = this.collisionChecks;
+  },
+  
+  toggle() {
+    this.enabled = !this.enabled;
+    document.getElementById('perfMonitor').classList.toggle('show', this.enabled);
+  }
+};
+
+// ==================== 全域狀態 ====================
 const G = {
   state: 'menu', score: 0, level: 1, isVSMode: false,
   enemiesRemaining: 0, enemiesSpawned: 0, maxEnemies: 10, aliveEnemies: 0,
   spawnInterval: 120, spawnTimer: 0, baseDestroyed: false,
   keys: {}, map: [], player: null, basePos: null, playerSpawnPos: null,
   frameCount: 0, shakeTimer: 0, shakeIntensity: 0,
-  enemies: [], scorePopups: [], bullets: [], particles: [], trails: [],
+  vsModeStartFrame: 0, // VS 模式開始時間，用於動態難度
+  enemies: [], scorePopups: [], particles: [], trails: [],
   playerStats: { weapon: 'NORMAL', pierce: false, speedMult: 1, maxHp: 3, hp: 3 }
 };
 
+// ==================== 升級項目 ====================
 const UPGRADES = [
   { id: 'TWIN', title: '雙管火炮', desc: '平行發射兩發子彈' },
   { id: 'SPREAD', title: '散彈核心', desc: '扇形發射三發子彈' },
   { id: 'PIERCE', title: '穿甲彈頭', desc: '子彈可貫穿敵方裝甲' },
   { id: 'SPEED', title: '引擎增壓', desc: '機體移動速度提升 20%' },
-  { id: 'HEAL', title: '裝甲修復', desc: '最大生命+1，並回滿血量' }
+  { id: 'HEAL', title: '裝甲修復', desc: '最大生命+1，並回滿血量' },
+  { id: 'RAPID', title: '快速裝填', desc: '射擊冷卻減少 25%' },
+  { id: 'SHIELD', title: '能量護盾', desc: '受擊時 30% 機率免疫' },
 ];
 
+// ==================== 物件池 ====================
 class Pool {
-  constructor(factory, reset, initial) {
+  constructor(factory, reset, initial, maxSize) {
     this._factory = factory; this._reset = reset;
     this._pool = []; this.active = [];
+    this._maxSize = maxSize || initial * 3;
+    this._peakActive = 0;
     for (let i = 0; i < initial; i++) this._pool.push(factory());
   }
   acquire() {
     const obj = this._pool.length > 0 ? this._pool.pop() : this._factory();
-    this._reset(obj); this.active.push(obj); return obj;
+    this._reset(obj); 
+    this.active.push(obj);
+    if (this.active.length > this._peakActive) this._peakActive = this.active.length;
+    return obj;
   }
-  release(obj) { this._pool.push(obj); }
+  release(obj) { 
+    if (this._pool.length < this._maxSize) this._pool.push(obj); 
+  }
+  // 高效尾部交換清理
   sweep() {
-    for (let i = this.active.length - 1; i >= 0; i--) {
-      if (!this.active[i].alive) { this.release(this.active[i]); this.active.splice(i, 1); }
+    let writeIdx = 0;
+    for (let i = 0; i < this.active.length; i++) {
+      if (this.active[i].alive) {
+        if (writeIdx !== i) this.active[writeIdx] = this.active[i];
+        writeIdx++;
+      } else {
+        this.release(this.active[i]);
+      }
     }
+    this.active.length = writeIdx;
   }
-  clear() { for (const obj of this.active) this._pool.push(obj); this.active.length = 0; }
+  clear() { 
+    for (const obj of this.active) this.release(obj); 
+    this.active.length = 0; 
+  }
 }
 
 const particlesPool = new Pool(
-  () => ({ type:'', x:0,y:0,vx:0,vy:0,life:0,maxLife:0,size:0,color:'#fff',alive:false }),
-  (p) => { p.alive = true; }, 300
-);
-const bulletsPool = new Pool(
-  () => ({ x:0,y:0,dir:0,vx:0,vy:0,isPlayer:false,speed:0,size:6,alive:false,power:1,pierce:false,hitTanks:[] }),
-  (b) => { b.alive = true; b.size = 6; b.pierce = false; b.hitTanks = []; }, 150
+  () => ({ type:'', x:0, y:0, vx:0, vy:0, life:0, maxLife:0, size:0, color:'#fff', alive:false }),
+  (p) => { p.alive = true; }, 
+  CONFIG.PARTICLE.POOL_SIZE
 );
 
-// ==================== 地圖生成 (支援 VS Mode 空曠場地) ====================
+const bulletsPool = new Pool(
+  () => ({ x:0, y:0, dir:0, vx:0, vy:0, isPlayer:false, speed:0, size:CONFIG.BULLET.SIZE, alive:false, power:1, pierce:false, hitTanks:[] }),
+  (b) => { 
+    b.alive = true; 
+    b.size = CONFIG.BULLET.SIZE; 
+    b.pierce = false; 
+    b.hitTanks.length = 0; // 重用陣列，避免 GC
+  }, 
+  CONFIG.POOL.BULLET_INITIAL,
+  CONFIG.POOL.BULLET_MAX
+);
+
+// ==================== 空間分割網格 ====================
+class SpatialGrid {
+  constructor(w, h, cellSize) {
+    this.cellSize = cellSize;
+    this.cols = Math.ceil(w / cellSize);
+    this.rows = Math.ceil(h / cellSize);
+    this.cells = [];
+    for (let i = 0; i < this.cols * this.rows; i++) this.cells.push([]);
+  }
+  
+  _idx(cx, cy) { return cy * this.cols + cx; }
+  
+  clear() {
+    for (let i = 0; i < this.cells.length; i++) this.cells[i].length = 0;
+  }
+  
+  insert(entity) {
+    if (!entity.alive) return;
+    const cx = (entity.x / this.cellSize) | 0;
+    const cy = (entity.y / this.cellSize) | 0;
+    if (cx >= 0 && cx < this.cols && cy >= 0 && cy < this.rows) {
+      this.cells[this._idx(cx, cy)].push(entity);
+    }
+  }
+  
+  // 查詢一個矩形範圍內可能碰撞的實體
+  queryRect(x, y, w, h, out) {
+    out.length = 0;
+    const cx1 = Math.max(0, (x / this.cellSize) | 0);
+    const cy1 = Math.max(0, (y / this.cellSize) | 0);
+    const cx2 = Math.min(this.cols - 1, ((x + w) / this.cellSize) | 0);
+    const cy2 = Math.min(this.rows - 1, ((y + h) / this.cellSize) | 0);
+    
+    for (let cy = cy1; cy <= cy2; cy++) {
+      for (let cx = cx1; cx <= cx2; cx++) {
+        const cell = this.cells[this._idx(cx, cy)];
+        for (let i = 0; i < cell.length; i++) out.push(cell[i]);
+      }
+    }
+    return out;
+  }
+}
+
+const spatialGrid = new SpatialGrid(W, H, CONFIG.GRID.CELL_SIZE);
+const _queryBuf = []; // 重用查詢緩衝區，避免 GC
+
+// ==================== 地圖生成 ====================
 function generateMap(level) {
   const map = Array.from({length: ROWS}, () => new Uint8Array(COLS));
-  const baseR = ROWS - 2, baseC = COLS / 2 | 0;
+  const baseR = ROWS - 2, baseC = (COLS / 2) | 0;
 
-  // 吸血鬼倖存者模式：空曠競技場
   if (G.isVSMode) {
-    G.basePos = null; // 取消主堡保護目標
-    G.playerSpawnPos = { x: (COLS/2|0)*TILE, y: (ROWS/2|0)*TILE }; // 玩家生在正中間
+    G.basePos = null;
+    G.playerSpawnPos = { x: ((COLS/2)|0)*TILE, y: ((ROWS/2)|0)*TILE };
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        // 只有場地邊緣有鋼鐵牆
         if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) map[r][c] = STEEL;
-        else if (Math.random() < 0.03) map[r][c] = FOREST; // 少量樹木提供視覺層次
+        else if (Math.random() < 0.03) map[r][c] = FOREST;
       }
     }
     return map;
   }
 
-  // 一般模式：傳統複雜地形
   G.basePos = { r: baseR, c: baseC };
   G.playerSpawnPos = { x: (baseC - 3) * TILE, y: (ROWS - 2) * TILE };
   map[baseR][baseC] = BASE;
@@ -243,58 +429,108 @@ function generateMap(level) {
 }
 
 function cacheStaticMap() {
-  staticCtx.clearRect(0,0,W,H); forestCtx.clearRect(0,0,W,H);
+  staticCtx.clearRect(0, 0, W, H); 
+  forestCtx.clearRect(0, 0, W, H);
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const t = G.map[r][c], x = c*TILE, y = r*TILE;
       if (t === BRICK) {
-        staticCtx.fillStyle = '#8b4513'; staticCtx.fillRect(x,y,TILE,TILE);
-        staticCtx.fillStyle = '#a0522d'; staticCtx.fillRect(x+1,y+1,TILE/2-2,TILE/2-2);
-        staticCtx.fillRect(x+TILE/2,y+TILE/2,TILE/2-2,TILE/2-2);
-        staticCtx.strokeStyle = '#1a1a1a'; staticCtx.strokeRect(x+0.5,y+0.5,TILE-1,TILE-1);
+        staticCtx.fillStyle = '#8b4513'; staticCtx.fillRect(x, y, TILE, TILE);
+        staticCtx.fillStyle = '#a0522d'; 
+        staticCtx.fillRect(x+1, y+1, TILE/2-2, TILE/2-2);
+        staticCtx.fillRect(x+TILE/2, y+TILE/2, TILE/2-2, TILE/2-2);
+        staticCtx.strokeStyle = '#1a1a1a'; staticCtx.strokeRect(x+0.5, y+0.5, TILE-1, TILE-1);
       } else if (t === STEEL) {
-        staticCtx.fillStyle = '#888'; staticCtx.fillRect(x,y,TILE,TILE);
-        staticCtx.fillStyle = '#bbb'; staticCtx.fillRect(x+2,y+2,TILE-4,TILE-4);
+        staticCtx.fillStyle = '#888'; staticCtx.fillRect(x, y, TILE, TILE);
+        staticCtx.fillStyle = '#bbb'; staticCtx.fillRect(x+2, y+2, TILE-4, TILE-4);
       } else if (t === FOREST) {
-        forestCtx.fillStyle = '#0a4a0a'; forestCtx.fillRect(x,y,TILE,TILE);
-        forestCtx.fillStyle = '#1a6a1a'; forestCtx.beginPath(); forestCtx.arc(x+13,y+13,8,0,Math.PI*2); forestCtx.fill();
+        forestCtx.fillStyle = '#0a4a0a'; forestCtx.fillRect(x, y, TILE, TILE);
+        forestCtx.fillStyle = '#1a6a1a'; 
+        forestCtx.beginPath(); forestCtx.arc(x+13, y+13, 8, 0, Math.PI*2); forestCtx.fill();
       }
     }
   }
 }
-function breakTile(c, r) { G.map[r][c] = EMPTY; staticCtx.clearRect(c*TILE, r*TILE, TILE, TILE); }
 
-// ==================== 坦克類別 ====================
+function breakTile(c, r) { 
+  G.map[r][c] = EMPTY; 
+  staticCtx.clearRect(c*TILE, r*TILE, TILE, TILE); 
+}
+
+// ==================== 共用工具 ====================
+function rectsOverlap(x1,y1,w1,h1, x2,y2,w2,h2) { 
+  return x1<x2+w2 && x1+w1>x2 && y1<y2+h2 && y1+h1>y2; 
+}
+
+function clampPos(v) { 
+  // 四捨五入到 0.5 像素，防止浮點累積誤差
+  return Math.round(v / CONFIG.GAMEPLAY.POSITION_PRECISION) * CONFIG.GAMEPLAY.POSITION_PRECISION; 
+}
+
+function triggerShake(f, i) { G.shakeTimer = f; G.shakeIntensity = i; }
+
+function addScorePopup(x, y, text) { 
+  G.scorePopups.push({ x, y, text, life: 40, vy: -1 }); 
+}
+
+// 地形碰撞檢查(獨立函數,複用)
+function checkTileCollision(x, y, size) {
+  const c1 = (x/TILE)|0, r1 = (y/TILE)|0;
+  const c2 = ((x+size-1)/TILE)|0, r2 = ((y+size-1)/TILE)|0;
+  for (let r = r1; r <= r2; r++) {
+    for (let c = c1; c <= c2; c++) {
+      if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+        const t = G.map[r][c];
+        if (t === BRICK || t === STEEL || t === WATER || t === BASE || t === BASE_DEAD) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// ==================== Tank 類別 ====================
 class Tank {
   constructor(x, y, dir, type, isPlayer) {
-    this.x = x; this.y = y; this.dir = dir; 
-    this.aimDir = dir; // 新增「炮塔瞄準方向」，實現 VS 模式下走位與攻擊分離！
-    this.isPlayer = isPlayer;
-    this.type = type; this.size = TILE - 4;
+    this.x = clampPos(x); this.y = clampPos(y); 
+    this.dir = dir; this.aimDir = dir;
+    this.isPlayer = isPlayer; this.type = type; 
+    this.size = TILE - 4;
     this.bulletTimer = 0; this.alive = true; this.moving = false;
-    this.flashTimer = 0; this.aiChangeTimer = Math.random()*50; this.aiDir = dir;
+    this.flashTimer = 0; 
+    this.aiChangeTimer = Math.random() * 50; 
+    this.aiDir = dir;
+    this.lastDist = Infinity; // VS 模式追蹤距離
     this.applyTypeStats();
   }
 
   applyTypeStats() {
     if (this.isPlayer) {
-      this.maxHp = G.playerStats.maxHp; this.hp = G.playerStats.hp;
+      this.maxHp = G.playerStats.maxHp; 
+      this.hp = G.playerStats.hp;
       this.speed = 2.5 * G.playerStats.speedMult;
-      this.weapon = G.playerStats.weapon; this.pierce = G.playerStats.pierce;
-      this.color = '#4a7a2e'; 
-      // VS 模式火力全面解放 (冷卻時間減半)
-      this.bulletCooldown = G.isVSMode ? Math.max(5, 12 - G.playerStats.speedMult*3) : 14; 
+      this.weapon = G.playerStats.weapon; 
+      this.pierce = G.playerStats.pierce;
+      this.color = '#4a7a2e';
+      
+      const baseCD = G.isVSMode ? CONFIG.BULLET.PLAYER_COOLDOWN_VS : CONFIG.BULLET.PLAYER_COOLDOWN;
+      const rapidMult = G.playerStats.rapidFire ? 0.75 : 1;
+      this.bulletCooldown = Math.max(3, Math.floor(baseCD * rapidMult / G.playerStats.speedMult));
     } else {
       this.weapon = 'NORMAL'; this.pierce = false;
-      if (this.type === 'FAST') { this.speed = 2.2; this.color = '#d4d'; this.hp = this.maxHp = 1; this.bulletCooldown = 60;}
-      else if (this.type === 'HEAVY') { this.speed = 0.8; this.color = '#38a'; this.hp = this.maxHp = 4; this.bulletCooldown = 70;}
-      else if (this.type === 'SUICIDE') { this.speed = 2.0; this.color = '#f50'; this.hp = this.maxHp = 1; this.bulletCooldown = 999;}
+      if (this.type === 'FAST') { this.speed = 2.2; this.color = '#d4d'; this.hp = this.maxHp = 1; this.bulletCooldown = CONFIG.BULLET.ENEMY_FAST; }
+      else if (this.type === 'HEAVY') { this.speed = 0.8; this.color = '#38a'; this.hp = this.maxHp = 4; this.bulletCooldown = CONFIG.BULLET.ENEMY_HEAVY; }
+      else if (this.type === 'SUICIDE') { this.speed = 2.0; this.color = '#f50'; this.hp = this.maxHp = 1; this.bulletCooldown = 999; }
       else if (this.type === 'BOSS') { 
-        this.speed = 0.6; this.color = '#800'; this.hp = this.maxHp = 15 + G.level*5; 
-        this.size = TILE * 1.5; this.weapon = 'SPREAD'; this.bulletCooldown = 45;
+        this.speed = 0.6; this.color = '#800'; 
+        this.hp = this.maxHp = 15 + G.level*5; 
+        this.size = TILE * 1.5; this.weapon = 'SPREAD'; 
+        this.bulletCooldown = CONFIG.BULLET.BOSS;
       }
       else { 
-        this.speed = 1.0 + Math.random()*0.5; this.color = '#c33'; this.hp = this.maxHp = 1; this.bulletCooldown = 70;
+        this.speed = 1.0 + Math.random() * 0.5; 
+        this.color = '#c33'; 
+        this.hp = this.maxHp = 1; 
+        this.bulletCooldown = CONFIG.BULLET.ENEMY_NORMAL;
       }
     }
   }
@@ -305,333 +541,545 @@ class Tank {
     if (this.flashTimer > 0) this.flashTimer--;
   }
 
-  move(dir) {
-    if (!this.alive) return;
-    this.dir = dir; this.moving = true;
+  // 使用空間網格優化的碰撞檢查
+  _hasEntityCollision(nx, ny) {
+    spatialGrid.queryRect(nx, ny, this.size, this.size, _queryBuf);
+    Perf.collisionChecks += _queryBuf.length;
     
-    // 如果不是玩家、或不在倖存者模式，炮塔方向就跟著車體方向
-    if (!this.isPlayer || !G.isVSMode) this.aimDir = dir; 
-
-    let nx = this.x + DX[dir] * this.speed; let ny = this.y + DY[dir] * this.speed;
-
-    if (nx < 1 || nx + this.size > W - 1 || ny < 1 || ny + this.size > H - 1) {
-      if (this.isPlayer) this._trySlide(dir); return;
+    for (let i = 0; i < _queryBuf.length; i++) {
+      const o = _queryBuf[i];
+      if (o === this || !o.alive) continue;
+      if (rectsOverlap(nx, ny, this.size, this.size, o.x, o.y, o.size, o.size)) return true;
     }
-    const c1 = nx/TILE|0, r1 = ny/TILE|0, c2 = (nx+this.size-1)/TILE|0, r2 = (ny+this.size-1)/TILE|0;
-    for (let r = r1; r <= r2; r++) {
-      for (let c = c1; c <= c2; c++) {
-        if (r>=0 && r<ROWS && c>=0 && c<COLS) {
-          const t = G.map[r][c];
-          if (t===BRICK || t===STEEL || t===WATER || t===BASE || t===BASE_DEAD) {
-            if (this.isPlayer) this._trySlide(dir); return;
-          }
-        }
-      }
-    }
-    for (let i = 0; i < G.enemies.length; i++) {
-      const o = G.enemies[i]; if (!o.alive || o === this) continue;
-      if (rectsOverlap(nx,ny,this.size,this.size, o.x,o.y,o.size,o.size)) {
-        if (this.isPlayer) this._trySlide(dir); return;
-      }
-    }
+    
+    // 與玩家獨立檢查（玩家不在網格中)
     if (!this.isPlayer && G.player && G.player.alive) {
-      if (rectsOverlap(nx,ny,this.size,this.size, G.player.x,G.player.y,G.player.size,G.player.size)) return;
+      if (rectsOverlap(nx, ny, this.size, this.size, G.player.x, G.player.y, G.player.size, G.player.size)) return true;
     }
-    this.x = nx; this.y = ny;
-  }
-
-  _trySlide(dir) {
-    const nudge = 2;
-    for (const sign of [-1, 1]) {
-      const tx = this.x + (dir===UP||dir===DOWN ? sign*nudge : DX[dir]*this.speed);
-      const ty = this.y + (dir===UP||dir===DOWN ? DY[dir]*this.speed : sign*nudge);
-      if (this._canMoveTo(tx, ty)) { this.x = tx; this.y = ty; return; }
-    }
+    return false;
   }
 
   _canMoveTo(nx, ny) {
     if (nx < 1 || nx + this.size > W - 1 || ny < 1 || ny + this.size > H - 1) return false;
-    const c1 = nx/TILE|0, r1 = ny/TILE|0, c2 = (nx+this.size-1)/TILE|0, r2 = (ny+this.size-1)/TILE|0;
-    for (let r = r1; r <= r2; r++)
-      for (let c = c1; c <= c2; c++)
-        if (r>=0&&r<ROWS&&c>=0&&c<COLS) {
-          const t = G.map[r][c]; if (t===BRICK||t===STEEL||t===WATER||t===BASE||t===BASE_DEAD) return false;
-        }
-    for (let o of G.enemies) {
-      if (o.alive && o !== this && rectsOverlap(nx,ny,this.size,this.size, o.x,o.y,o.size,o.size)) return false;
+    if (checkTileCollision(nx, ny, this.size)) return false;
+    return !this._hasEntityCollision(nx, ny);
+  }
+
+  move(dir) {
+    if (!this.alive) return;
+    this.dir = dir; 
+    this.moving = true;
+    
+    if (!this.isPlayer || !G.isVSMode) this.aimDir = dir;
+
+    let nx = clampPos(this.x + DX[dir] * this.speed);
+    let ny = clampPos(this.y + DY[dir] * this.speed);
+
+    // 邊界
+    if (nx < 1 || nx + this.size > W - 1 || ny < 1 || ny + this.size > H - 1) {
+      if (this.isPlayer) this._trySlide(dir); 
+      return;
     }
-    return true;
+    // 地形
+    if (checkTileCollision(nx, ny, this.size)) {
+      if (this.isPlayer) this._trySlide(dir); 
+      return;
+    }
+    // 實體
+    if (this._hasEntityCollision(nx, ny)) {
+      if (this.isPlayer) this._trySlide(dir); 
+      return;
+    }
+    
+    this.x = nx; this.y = ny;
+  }
+
+  // 改進的滑動機制 - 遞進式推動
+  _trySlide(dir) {
+    const nudges = [2, 3, 4, 6];
+    
+    for (const nudge of nudges) {
+      for (const sign of [-1, 1]) {
+        let tx, ty;
+        if (dir === UP || dir === DOWN) {
+          tx = clampPos(this.x + sign * nudge);
+          ty = clampPos(this.y + DY[dir] * this.speed);
+        } else {
+          tx = clampPos(this.x + DX[dir] * this.speed);
+          ty = clampPos(this.y + sign * nudge);
+        }
+        if (this._canMoveTo(tx, ty)) { 
+          this.x = tx; this.y = ty; 
+          return; 
+        }
+      }
+    }
   }
 
   shoot() {
     if (!this.alive || this.bulletTimer > 0) return;
-    const hs = this.size / 2; const cx = this.x + hs; const cy = this.y + hs;
+    
+    const hs = this.size / 2; 
+    const cx = this.x + hs; 
+    const cy = this.y + hs;
     
     const offsets = this.weapon === 'TWIN' ? [-4, 4] : [0];
     const spreads = this.weapon === 'SPREAD' ? [-0.2, 0, 0.2] : [0];
 
-    for (let o of offsets) {
-      for (let s of spreads) {
+    for (const o of offsets) {
+      for (const s of spreads) {
         const b = bulletsPool.acquire();
-        // ★ 發射時使用 aimDir 而不是車體 dir
-        b.dir = this.aimDir; b.isPlayer = this.isPlayer; b.pierce = this.pierce;
+        b.dir = this.aimDir; 
+        b.isPlayer = this.isPlayer; 
+        b.pierce = this.pierce;
         b.x = cx - 3 + DX[this.aimDir]*(hs+2) + (this.aimDir%2===0 ? o : 0);
         b.y = cy - 3 + DY[this.aimDir]*(hs+2) + (this.aimDir%2!==0 ? o : 0);
-        b.speed = this.isPlayer ? 6 : (this.type==='BOSS' ? 4 : 3.5);
+        b.speed = this.isPlayer ? CONFIG.BULLET.SPEED_PLAYER : (this.type === 'BOSS' ? CONFIG.BULLET.SPEED_BOSS : CONFIG.BULLET.SPEED_ENEMY);
         
         let vx = DX[this.aimDir], vy = DY[this.aimDir];
-        if (this.aimDir%2===0) vx += s; else vy += s;
+        if (this.aimDir % 2 === 0) vx += s; else vy += s;
         const len = Math.hypot(vx, vy) || 1;
-        b.vx = vx/len; b.vy = vy/len;
+        b.vx = vx / len; b.vy = vy / len;
       }
     }
+    
     this.bulletTimer = this.bulletCooldown;
-    if (this.isPlayer && !G.isVSMode) triggerShake(2,1); // VS 模式射太快，取消震動避免畫面暈眩
+    if (this.isPlayer && !G.isVSMode) triggerShake(2, 1);
   }
 
   draw() {
     if (!this.alive) return;
     ctx.save();
-    const cx = this.x + this.size / 2, cy = this.y + this.size / 2, tw = this.type==='BOSS' ? 6 : 4;
     
-    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(this.x + 2, this.y + this.size - 1, this.size, 3);
+    const cx = this.x + this.size / 2;
+    const cy = this.y + this.size / 2;
+    const tw = this.type === 'BOSS' ? 6 : 4;
+    
+    // 陰影
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; 
+    ctx.fillRect(this.x + 2, this.y + this.size - 1, this.size, 3);
+    
     if (this.flashTimer > 0 && (G.frameCount & 2)) ctx.globalAlpha = 0.5;
 
-    // 車體與履帶 (依照 this.dir 繪製)
+    // 履帶
     const trackDark = this.isPlayer ? '#2a4218' : '#3a0c0c';
+    ctx.fillStyle = trackDark;
     if (this.dir === UP || this.dir === DOWN) {
-      ctx.fillStyle = trackDark; ctx.fillRect(this.x, this.y, tw, this.size); ctx.fillRect(this.x+this.size-tw, this.y, tw, this.size);
+      ctx.fillRect(this.x, this.y, tw, this.size); 
+      ctx.fillRect(this.x+this.size-tw, this.y, tw, this.size);
     } else {
-      ctx.fillStyle = trackDark; ctx.fillRect(this.x, this.y, this.size, tw); ctx.fillRect(this.x, this.y+this.size-tw, this.size, tw);
+      ctx.fillRect(this.x, this.y, this.size, tw); 
+      ctx.fillRect(this.x, this.y+this.size-tw, this.size, tw);
     }
-    ctx.fillStyle = this.color; ctx.fillRect(this.x+tw, this.y+tw, this.size-tw*2, this.size-tw*2);
-
-    // 炮塔中心
-    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(cx, cy, tw+2, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = this.isPlayer ? '#a0d878' : '#ff6060'; ctx.beginPath(); ctx.arc(cx, cy, tw, 0, Math.PI*2); ctx.fill();
     
-    // ★ 炮管 (依照 this.aimDir 獨立旋轉瞄準)
-    ctx.strokeStyle = this.isPlayer ? '#8bc06e' : '#ff5050'; ctx.lineWidth = tw-1; ctx.lineCap = 'round';
+    // 車身
+    ctx.fillStyle = this.color; 
+    ctx.fillRect(this.x+tw, this.y+tw, this.size-tw*2, this.size-tw*2);
+
+    // 砲塔基座
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; 
+    ctx.beginPath(); ctx.arc(cx, cy, tw+2, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = this.isPlayer ? '#a0d878' : '#ff6060'; 
+    ctx.beginPath(); ctx.arc(cx, cy, tw, 0, Math.PI*2); ctx.fill();
+    
+    // 砲管
+    ctx.strokeStyle = this.isPlayer ? '#8bc06e' : '#ff5050'; 
+    ctx.lineWidth = tw - 1; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(cx, cy); 
     ctx.lineTo(cx + DX[this.aimDir]*(this.size/2+2), cy + DY[this.aimDir]*(this.size/2+2)); 
     ctx.stroke();
 
+    // 血量條
     if (this.maxHp > 1) {
-      ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(this.x, this.y-8, this.size, 4);
-      ctx.fillStyle = this.isPlayer ? '#0f0' : '#f00'; ctx.fillRect(this.x, this.y-8, this.size * (this.hp/this.maxHp), 4);
+      ctx.fillStyle = 'rgba(0,0,0,0.8)'; 
+      ctx.fillRect(this.x, this.y-8, this.size, 4);
+      ctx.fillStyle = this.isPlayer ? '#0f0' : '#f00'; 
+      ctx.fillRect(this.x, this.y-8, this.size * (this.hp/this.maxHp), 4);
     }
+    
+    // 重生無敵光圈
+    if (this.isPlayer && this.flashTimer > 30) {
+      ctx.globalAlpha = 0.5;
+      ctx.strokeStyle = '#5cd8ff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, this.size * 0.7 + Math.sin(G.frameCount * 0.3) * 2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    
     ctx.restore();
   }
 }
 
-// ==================== 子彈、特效與判定 ====================
+// ==================== 子彈邏輯 ====================
 function updateBullet(b) {
   if (!b.alive) return;
-  b.x += b.vx * b.speed; b.y += b.vy * b.speed;
+  b.x += b.vx * b.speed; 
+  b.y += b.vy * b.speed;
 
-  if (b.x < 0 || b.x > W || b.y < 0 || b.y > H) { b.alive = false; return; }
-
-  const bc = (b.x + 3) / TILE | 0, br = (b.y + 3) / TILE | 0;
-  if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS) {
-    const t = G.map[br][bc];
-    if (t === BRICK) { b.alive = false; breakTile(bc, br); spawnExplosion(b.x, b.y, 'spark'); return; }
-    if (t === STEEL) { b.alive = false; spawnExplosion(b.x, b.y, 'spark'); return; }
-    if (t === BASE) {
-      b.alive = false; G.map[br][bc] = BASE_DEAD; G.baseDestroyed = true;
-      spawnExplosion(bc*TILE+13, br*TILE+13, 'big'); triggerShake(20, 8); return;
-    }
+  if (b.x < 0 || b.x > W || b.y < 0 || b.y > H) { 
+    b.alive = false; return; 
   }
 
-  const targets = b.isPlayer ? G.enemies : (G.player ? [G.player] : []);
-  for (let i = 0; i < targets.length; i++) {
-    const t = targets[i]; 
-    if (!t || !t.alive || b.hitTanks.includes(t)) continue;
-    
-    // ★ 修復2：給予玩家閃爍期間的「無敵判定」，忽略敵方子彈
-    if (t.isPlayer && t.flashTimer > 0) continue; 
-
-    if (rectsOverlap(b.x,b.y,b.size,b.size, t.x,t.y,t.size,t.size)) {
-      b.hitTanks.push(t);
-      if (!b.pierce) b.alive = false; 
-      
-      t.hp -= b.power; 
-      t.flashTimer = 8; // 一般受擊的短暫無敵/閃爍
+  // 地形碰撞
+  const bc = ((b.x + 3) / TILE) | 0, br = ((b.y + 3) / TILE) | 0;
+  if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS) {
+    const t = G.map[br][bc];
+    if (t === BRICK) { 
+      b.alive = false; breakTile(bc, br); 
       spawnExplosion(b.x, b.y, 'spark'); 
-      
-      if (t.hp <= 0) {
-        t.alive = false; // 坦克在這裡被標記為死亡
-        spawnExplosion(t.x+t.size/2, t.y+t.size/2, t.type==='BOSS'?'big':'tank');
-        if (t.type === 'BOSS') triggerShake(15, 6);
-
-        if (!b.isPlayer && t === G.player) {
-          G.playerStats.hp -= 1; triggerShake(10,5); updateHUD();
-          if (G.playerStats.hp <= 0) {
-            setTimeout(showGameOver, 1000);
-          } else {
-            // ★ 修復1：玩家重生邏輯
-            G.player.alive = true;    // 把狀態重新設為活著
-            G.player.flashTimer = 90; // 給予 1.5 秒的重生無敵時間
-            G.player.x = G.playerSpawnPos.x; 
-            G.player.y = G.playerSpawnPos.y; 
-            G.player.hp = G.playerStats.hp;
-            spawnExplosion(G.player.x, G.player.y, 'spark');
-          }
-        } else {
-          G.aliveEnemies--;
-          const pts = t.type==='BOSS' ? 1000 : (t.type==='SUICIDE' ? 50 : 100);
-          G.score += pts; updateHUD();
-          addScorePopup(t.x, t.y, `+${pts}`);
-          checkLevelComplete();
-        }
-      }
+      return; 
+    }
+    if (t === STEEL) { 
+      b.alive = false; 
+      spawnExplosion(b.x, b.y, 'spark'); 
+      return; 
+    }
+    if (t === BASE) {
+      b.alive = false; 
+      G.map[br][bc] = BASE_DEAD; 
+      G.baseDestroyed = true;
+      spawnExplosion(bc*TILE+13, br*TILE+13, 'big'); 
+      triggerShake(20, 8); 
       return;
     }
   }
+
+  // 實體碰撞 - 使用空間網格
+  if (b.isPlayer) {
+    spatialGrid.queryRect(b.x - 4, b.y - 4, b.size + 8, b.size + 8, _queryBuf);
+    Perf.collisionChecks += _queryBuf.length;
+    
+    for (let i = 0; i < _queryBuf.length; i++) {
+      const t = _queryBuf[i];
+      if (!t.alive || t.isPlayer || b.hitTanks.indexOf(t) !== -1) continue;
+      
+      if (rectsOverlap(b.x, b.y, b.size, b.size, t.x, t.y, t.size, t.size)) {
+        handleBulletHit(b, t);
+        if (!b.alive) return;
+      }
+    }
+  } else {
+    // 敵方子彈：直接檢查玩家
+    if (G.player && G.player.alive && G.player.flashTimer === 0) {
+      Perf.collisionChecks++;
+      if (rectsOverlap(b.x, b.y, b.size, b.size, G.player.x, G.player.y, G.player.size, G.player.size)) {
+        handleBulletHit(b, G.player);
+      }
+    }
+  }
 }
 
-function renderBullets(ctx, bullets) {
-  ctx.globalCompositeOperation = 'lighter';
-  bullets.forEach(b => {
-    ctx.fillStyle = b.isPlayer ? '#ffffcc' : '#ffcccc';
-    ctx.fillRect(b.x, b.y, b.size, b.size);
-    const glowImg = b.isPlayer ? RenderCache.glows.bullet : RenderCache.glows.enemyBullet;
-    ctx.drawImage(glowImg, b.x - 12 + b.size/2, b.y - 12 + b.size/2);
-  });
-  ctx.globalCompositeOperation = 'source-over';
+function handleBulletHit(b, t) {
+  // 護盾機率閃避
+  if (t.isPlayer && G.playerStats.shield && Math.random() < 0.3) {
+    spawnExplosion(b.x, b.y, 'shield');
+    b.alive = false;
+    return;
+  }
+  
+  b.hitTanks.push(t);
+  if (!b.pierce) b.alive = false; 
+  
+  t.hp -= b.power; 
+  t.flashTimer = CONFIG.GAMEPLAY.PLAYER_HIT_FLASH;
+  spawnExplosion(b.x, b.y, 'spark'); 
+  
+  if (t.hp <= 0) {
+    t.alive = false;
+    spawnExplosion(t.x + t.size/2, t.y + t.size/2, t.type === 'BOSS' ? 'big' : 'tank');
+    if (t.type === 'BOSS') triggerShake(15, 6);
+
+    if (!b.isPlayer && t === G.player) {
+      G.playerStats.hp -= 1; 
+      triggerShake(10, 5); 
+      updateHUD();
+      
+      if (G.playerStats.hp <= 0) {
+        setTimeout(showGameOver, 1000);
+      } else {
+        // 重生
+        G.player.alive = true;
+        G.player.flashTimer = CONFIG.GAMEPLAY.PLAYER_RESPAWN_INVUL;
+        G.player.x = G.playerSpawnPos.x; 
+        G.player.y = G.playerSpawnPos.y; 
+        G.player.hp = G.playerStats.hp;
+        spawnExplosion(G.player.x, G.player.y, 'spark');
+      }
+    } else {
+      G.aliveEnemies--;
+      const pts = t.type === 'BOSS' ? 1000 : (t.type === 'SUICIDE' ? 50 : 100);
+      G.score += pts; 
+      updateHUD();
+      addScorePopup(t.x, t.y, `+${pts}`);
+      checkLevelComplete();
+    }
+  }
 }
 
+// ==================== 粒子系統 ====================
 function spawnExplosion(x, y, type) {
-  const count = type === 'big' ? 30 : (type === 'tank' ? 15 : 6);
+  let count;
+  if (type === 'big') count = CONFIG.PARTICLE.BIG_COUNT;
+  else if (type === 'tank') count = CONFIG.PARTICLE.TANK_DEATH_COUNT;
+  else if (type === 'shield') count = 8;
+  else count = CONFIG.PARTICLE.SPARK_COUNT;
+  
   for (let i = 0; i < count; i++) {
     const angle = Math.random() * Math.PI * 2;
     const speed = Math.random() * (type === 'big' ? 4 : 2) + 0.5;
 
     const spark = particlesPool.acquire();
-    spark.type = 'spark'; spark.x = x; spark.y = y;
-    spark.vx = Math.cos(angle) * speed; spark.vy = Math.sin(angle) * speed;
-    spark.life = spark.maxLife = 15 + Math.random() * 20; spark.size = Math.random() * 3 + 1.5;
-    spark.color = Math.random() > 0.5 ? '#ffaa00' : '#ff3300';
+    spark.type = 'spark'; 
+    spark.x = x; spark.y = y;
+    spark.vx = Math.cos(angle) * speed; 
+    spark.vy = Math.sin(angle) * speed;
+    spark.life = spark.maxLife = 15 + Math.random() * 20; 
+    spark.size = Math.random() * 3 + 1.5;
+    
+    if (type === 'shield') spark.color = '#5cd8ff';
+    else spark.color = Math.random() > 0.5 ? '#ffaa00' : '#ff3300';
 
     if (type === 'big' || type === 'tank') {
       const smoke = particlesPool.acquire();
-      smoke.type = 'smoke'; smoke.x = x; smoke.y = y;
-      smoke.vx = Math.cos(angle) * speed * 0.3; smoke.vy = Math.sin(angle) * speed * 0.3 - 0.5;
-      smoke.life = smoke.maxLife = 30 + Math.random() * 30; smoke.size = Math.random() * 4 + 4;
+      smoke.type = 'smoke'; 
+      smoke.x = x; smoke.y = y;
+      smoke.vx = Math.cos(angle) * speed * 0.3; 
+      smoke.vy = Math.sin(angle) * speed * 0.3 - 0.5;
+      smoke.life = smoke.maxLife = 30 + Math.random() * 30; 
+      smoke.size = Math.random() * 4 + 4;
       smoke.color = 'rgba(100, 100, 100, 0.5)';
     }
   }
 }
 
-function updateAndDrawParticles(ctx) {
+// 批處理粒子渲染
+function updateAndDrawParticles() {
   const arr = particlesPool.active;
-  for (let i = arr.length - 1; i >= 0; i--) {
-    const p = arr[i]; p.x += p.vx; p.y += p.vy; p.life--;
+  
+  // 1. 先更新所有粒子
+  for (let i = 0; i < arr.length; i++) {
+    const p = arr[i]; 
+    if (!p.alive) continue;
+    p.x += p.vx; p.y += p.vy; p.life--;
     p.vx *= 0.92; p.vy *= 0.92;
     if (p.type === 'smoke') p.size += 0.15;
-    if (p.life <= 0) { p.alive = false; continue; }
-    ctx.save(); ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
-    if (p.type === 'spark') { ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(RenderCache.glows.explosion, p.x - 15, p.y - 15); } 
-    ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, p.size, p.size); ctx.restore();
+    if (p.life <= 0) p.alive = false;
   }
+  
+  // 2. 批處理 spark (lighter 模式)
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < arr.length; i++) {
+    const p = arr[i];
+    if (!p.alive || p.type !== 'spark') continue;
+    ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+    ctx.drawImage(RenderCache.glows.explosion, p.x - 15, p.y - 15);
+    ctx.fillStyle = p.color; 
+    ctx.fillRect(p.x, p.y, p.size, p.size);
+  }
+  ctx.restore();
+  
+  // 3. 批處理 smoke (普通模式)
+  ctx.save();
+  for (let i = 0; i < arr.length; i++) {
+    const p = arr[i];
+    if (!p.alive || p.type !== 'smoke') continue;
+    ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x, p.y, p.size, p.size);
+  }
+  ctx.restore();
+  
   particlesPool.sweep();
 }
 
-function rectsOverlap(x1,y1,w1,h1, x2,y2,w2,h2) { return x1<x2+w2 && x1+w1>x2 && y1<y2+h2 && y1+h1>y2; }
-function triggerShake(f, i) { G.shakeTimer = f; G.shakeIntensity = i; }
-function addScorePopup(x, y, text) { G.scorePopups.push({ x, y, text, life: 40, vy: -1 }); }
 function updateScorePopups() {
   for (let i = G.scorePopups.length - 1; i >= 0; i--) {
-    const p = G.scorePopups[i]; p.y += p.vy; p.vy *= 0.95; p.life--;
-    if (p.life <= 0) { G.scorePopups.splice(i, 1); continue; }
-    ctx.save(); ctx.globalAlpha = p.life / 40; ctx.font = '10px "Press Start 2P"';
-    ctx.fillStyle = '#ffe680'; ctx.fillText(p.text, p.x, p.y); ctx.restore();
+    const p = G.scorePopups[i]; 
+    p.y += p.vy; p.vy *= 0.95; p.life--;
+    if (p.life <= 0) { 
+      G.scorePopups.splice(i, 1); 
+      continue; 
+    }
+    ctx.save(); 
+    ctx.globalAlpha = p.life / 40; 
+    ctx.font = '10px "Press Start 2P"';
+    ctx.fillStyle = '#ffe680'; 
+    ctx.fillText(p.text, p.x, p.y); 
+    ctx.restore();
   }
 }
 
-// ==================== AI 與 重生系統 (已修復卡死問題 + 支援 VS) ====================
+// ==================== 子彈批處理渲染 ====================
+function renderBullets() {
+  const bullets = bulletsPool.active;
+  if (bullets.length === 0) return;
+  
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  
+  // 批次1: 光暈
+  for (let i = 0; i < bullets.length; i++) {
+    const b = bullets[i];
+    if (!b.alive) continue;
+    const glowImg = b.isPlayer ? RenderCache.glows.bullet : RenderCache.glows.enemyBullet;
+    ctx.drawImage(glowImg, b.x - 12 + b.size/2, b.y - 12 + b.size/2);
+  }
+  
+  // 批次2: 子彈本體
+  for (let i = 0; i < bullets.length; i++) {
+    const b = bullets[i];
+    if (!b.alive) continue;
+    ctx.fillStyle = b.isPlayer ? '#ffffcc' : '#ffcccc';
+    ctx.fillRect(b.x, b.y, b.size, b.size);
+  }
+  
+  ctx.restore();
+}
+
+// ==================== AI 系統 ====================
 function updateEnemyAI(e) {
   e.update();
   
-  // VS 模式：殭屍化追蹤，不顧一切往玩家擠
   if (G.isVSMode && G.player && G.player.alive) {
-    if (G.frameCount % 15 === 0) {
-      const dx = G.player.x - e.x, dy = G.player.y - e.y;
-      e.aiDir = Math.abs(dx) > Math.abs(dy) ? (dx>0?RIGHT:LEFT) : (dy>0?DOWN:UP);
+    // VS 模式：殭屍化追蹤
+    if (G.frameCount % CONFIG.AI.VS_UPDATE_INTERVAL === 0 || e.aiChangeTimer <= 0) {
+      const dx = G.player.x - e.x;
+      const dy = G.player.y - e.y;
+      const dist = Math.hypot(dx, dy);
+      
+      // 有視野範圍限制
+      if (dist <= CONFIG.AI.VISION_RANGE * 1.5) {
+        e.aiDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? RIGHT : LEFT) : (dy > 0 ? DOWN : UP);
+        
+        // 距離無變化代表卡住,改為換個方向繞路
+        if (Math.abs(dist - e.lastDist) < 0.5) {
+          e.aiDir = (e.aiDir + (Math.random() < 0.5 ? 1 : 3)) % 4;
+        }
+        e.lastDist = dist;
+      } else {
+        // 超出視野隨機巡邏
+        if (--e.aiChangeTimer <= 0) {
+          e.aiDir = (Math.random() * 4) | 0;
+          e.aiChangeTimer = CONFIG.AI.CHANGE_INTERVAL + Math.random() * 30;
+        }
+      }
     }
   } else if (--e.aiChangeTimer <= 0) {
     if (e.type === 'SUICIDE' && G.basePos) {
-      const dx = G.basePos.c*TILE - e.x, dy = G.basePos.r*TILE - e.y;
-      e.aiDir = Math.abs(dx)>Math.abs(dy) ? (dx>0?RIGHT:LEFT) : (dy>0?DOWN:UP);
-    } else { e.aiDir = Math.random() * 4 | 0; }
-    e.aiChangeTimer = 30 + Math.random()*50;
+      const dx = G.basePos.c*TILE - e.x;
+      const dy = G.basePos.r*TILE - e.y;
+      e.aiDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? RIGHT : LEFT) : (dy > 0 ? DOWN : UP);
+    } else { 
+      // 智能型敵人: 有機率往玩家或基地方向移動
+      if (Math.random() < 0.4 && G.player && G.player.alive) {
+        const dx = G.player.x - e.x;
+        const dy = G.player.y - e.y;
+        e.aiDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? RIGHT : LEFT) : (dy > 0 ? DOWN : UP);
+      } else {
+        e.aiDir = (Math.random() * 4) | 0; 
+      }
+    }
+    e.aiChangeTimer = CONFIG.AI.CHANGE_INTERVAL + Math.random() * 50;
   }
 
   e.move(e.aiDir);
-  // VS 模式敵人射速降低，偏向靠肉體碰撞
-  if (Math.random() < (G.isVSMode ? 0.005 : 0.02)) e.shoot();
+  
+  // 射擊機率
+  const shootChance = G.isVSMode ? 0.005 : 0.02;
+  if (Math.random() < shootChance) e.shoot();
 }
 
+// ==================== 敵人生成 ====================
 function spawnEnemy() {
+  // 基地已破壞,停止生成
+  if (G.baseDestroyed) return;
+  
   let sx = -1, sy = -1;
   const isBoss = (!G.isVSMode && G.level % 5 === 0 && G.enemiesSpawned === G.maxEnemies - 1);
 
   if (G.isVSMode) {
-    // VS 模式：從場景四周無盡湧出
-    const edge = Math.random() * 4 | 0;
+    // VS 模式:從邊緣湧出
+    const edge = (Math.random() * 4) | 0;
     if (edge === 0) { sx = Math.random()*(W-TILE); sy = TILE; }
     else if (edge === 1) { sx = W-TILE*2; sy = Math.random()*(H-TILE); }
     else if (edge === 2) { sx = Math.random()*(W-TILE); sy = H-TILE*2; }
     else { sx = TILE; sy = Math.random()*(H-TILE); }
-    sx = (sx/TILE|0)*TILE; sy = (sy/TILE|0)*TILE; // 網格對齊
+    sx = ((sx/TILE)|0)*TILE; 
+    sy = ((sy/TILE)|0)*TILE;
 
-    // 檢查四周是否被玩家或敵人卡住
+    // 檢查重疊
     let free = true;
-    for (let e of G.enemies) { if (rectsOverlap(e.x, e.y, TILE, TILE, sx, sy, TILE, TILE)) free = false; }
+    spatialGrid.queryRect(sx, sy, TILE, TILE, _queryBuf);
+    for (let i = 0; i < _queryBuf.length; i++) {
+      if (rectsOverlap(_queryBuf[i].x, _queryBuf[i].y, TILE, TILE, sx, sy, TILE, TILE)) {
+        free = false; break;
+      }
+    }
     if (G.player && G.player.alive && rectsOverlap(G.player.x, G.player.y, G.player.size, G.player.size, sx, sy, TILE, TILE)) free = false;
     if (!free) sx = -1;
-
   } else {
-    // 經典模式重生
-    const pts = [[0,0], [0,(COLS/2|0)*TILE], [0,(COLS-1)*TILE]];
+    const pts = [[0,0], [0,((COLS/2)|0)*TILE], [0,(COLS-1)*TILE]];
     
     if (isBoss) {
       let centerFree = true;
-      for (let e of G.enemies) { if (rectsOverlap(e.x, e.y, TILE, TILE, pts[1][1], pts[1][0], TILE, TILE)) centerFree = false; }
+      spatialGrid.queryRect(pts[1][1], pts[1][0], TILE, TILE, _queryBuf);
+      for (let i = 0; i < _queryBuf.length; i++) {
+        if (rectsOverlap(_queryBuf[i].x, _queryBuf[i].y, TILE, TILE, pts[1][1], pts[1][0], TILE, TILE)) {
+          centerFree = false; break;
+        }
+      }
       if (G.player && G.player.alive && rectsOverlap(G.player.x, G.player.y, G.player.size, G.player.size, pts[1][1], pts[1][0], TILE, TILE)) centerFree = false;
       if (centerFree) { sx = pts[1][1]; sy = pts[1][0]; }
     }
     
     if (sx < 0) {
-      for (let sp of pts.sort(() => Math.random() - 0.5)) {
+      for (const sp of pts.sort(() => Math.random() - 0.5)) {
         let free = true;
-        for (let e of G.enemies) { if (rectsOverlap(e.x, e.y, TILE, TILE, sp[1], sp[0], TILE, TILE)) free = false; }
+        spatialGrid.queryRect(sp[1], sp[0], TILE, TILE, _queryBuf);
+        for (let i = 0; i < _queryBuf.length; i++) {
+          if (rectsOverlap(_queryBuf[i].x, _queryBuf[i].y, TILE, TILE, sp[1], sp[0], TILE, TILE)) {
+            free = false; break;
+          }
+        }
         if (G.player && G.player.alive && rectsOverlap(G.player.x, G.player.y, G.player.size, G.player.size, sp[1], sp[0], TILE, TILE)) free = false;
         if (free) { sx = sp[1]; sy = sp[0]; break; }
       }
     }
   }
 
-  // 若全滿則延遲重生
-  if (sx < 0) { G.spawnTimer = 15; return; }
+  if (sx < 0) { 
+    G.spawnTimer = 15; 
+    return; 
+  }
 
   let type = 'NORMAL';
   if (G.isVSMode) {
-    type = Math.random() < 0.3 ? 'FAST' : 'SUICIDE'; // 大量近戰自爆兵與速攻兵
+    // 動態類型分布
+    const phase = Math.floor((G.frameCount - G.vsModeStartFrame) / 600);
+    const rnd = Math.random();
+    if (phase >= 2 && rnd < 0.15) type = 'HEAVY';     // 30秒後出現重型
+    else if (rnd < 0.35) type = 'FAST';
+    else type = 'SUICIDE';
   } else if (isBoss) {
     type = 'BOSS';
   } else if (G.level > 1) {
     const r = Math.random();
     if (r < 0.15) type = 'FAST';
     else if (r < 0.3) type = 'HEAVY';
-    else if (r < 0.4) type = 'SNIPER';
+    else if (r < 0.4) type = 'SUICIDE';
   }
 
   const e = new Tank(sx, sy, DOWN, type, false);
-  G.enemies.push(e); G.enemiesSpawned++; G.aliveEnemies++;
-  spawnExplosion(sx+13, sy+13, 'spark'); updateHUD();
+  G.enemies.push(e); 
+  G.enemiesSpawned++; 
+  G.aliveEnemies++;
+  spawnExplosion(sx + 13, sy + 13, 'spark'); 
+  updateHUD();
 }
 
-// ==================== 關卡與升級流 ====================
+// ==================== 關卡與升級 ====================
 function checkLevelComplete() {
   if (G.aliveEnemies <= 0 && G.enemiesSpawned >= G.maxEnemies) {
     G.state = 'levelComplete';
@@ -643,11 +1091,13 @@ function showUpgradeScreen() {
   G.state = 'upgrade';
   const ui = document.getElementById('upgradeUI');
   const container = document.getElementById('cards');
-  ui.classList.remove('hidden'); container.innerHTML = '';
+  ui.classList.remove('hidden'); 
+  container.innerHTML = '';
   
   const shuffled = [...UPGRADES].sort(() => 0.5 - Math.random()).slice(0, 3);
   shuffled.forEach(upg => {
-    const div = document.createElement('div'); div.className = 'upgrade-card';
+    const div = document.createElement('div'); 
+    div.className = 'upgrade-card';
     div.innerHTML = `<div class="card-title">${upg.title}</div><div class="card-desc">${upg.desc}</div>`;
     div.onclick = () => applyUpgrade(upg.id);
     container.appendChild(div);
@@ -659,40 +1109,72 @@ function applyUpgrade(id) {
   if (id === 'SPREAD') G.playerStats.weapon = 'SPREAD';
   if (id === 'PIERCE') G.playerStats.pierce = true;
   if (id === 'SPEED') G.playerStats.speedMult *= 1.2;
-  if (id === 'HEAL') { G.playerStats.maxHp++; G.playerStats.hp = G.playerStats.maxHp; }
+  if (id === 'HEAL') { 
+    G.playerStats.maxHp++; 
+    G.playerStats.hp = G.playerStats.maxHp; 
+  }
+  if (id === 'RAPID') G.playerStats.rapidFire = true;
+  if (id === 'SHIELD') G.playerStats.shield = true;
   
   document.getElementById('upgradeUI').classList.add('hidden');
-  G.level++; startLevel();
+  G.level++; 
+  startLevel();
+}
+
+// ==================== 動態難度 ====================
+function updateVSModeDifficulty() {
+  if (!G.isVSMode || G.frameCount % 60 !== 0) return; // 每秒檢查一次
+  
+  const elapsed = G.frameCount - G.vsModeStartFrame;
+  const phase = Math.floor(elapsed / 600); // 每 10 秒升級
+  
+  // 動態調整生成速率
+  G.spawnInterval = Math.max(8, 18 - phase * 2);
 }
 
 function startLevel() {
-  // 每 10 關觸發吸血鬼倖存者模式
   G.isVSMode = (G.level % 10 === 0);
   
   if (G.isVSMode) {
-    G.maxEnemies = 40 + G.level * 3; // 海量敵人
-    G.spawnInterval = 15;            // 重生極快
+    G.maxEnemies = 50 + G.level * 4;
+    G.spawnInterval = 18;
     G.spawnTimer = 10;
+    G.vsModeStartFrame = G.frameCount;
   } else {
     G.maxEnemies = 10 + G.level * 2;
     G.spawnInterval = Math.max(40, 120 - G.level * 8);
     G.spawnTimer = 30;
   }
   
-  G.enemiesSpawned = 0; G.aliveEnemies = 0; G.baseDestroyed = false;
-  bulletsPool.clear(); particlesPool.clear(); G.enemies = []; G.trails = [];
+  G.enemiesSpawned = 0; 
+  G.aliveEnemies = 0; 
+  G.baseDestroyed = false;
+  bulletsPool.clear(); 
+  particlesPool.clear(); 
+  G.enemies = []; 
+  G.trails = [];
+  G.scorePopups = [];
   
-  G.map = generateMap(G.level); cacheStaticMap();
+  G.map = generateMap(G.level); 
+  cacheStaticMap();
   
   G.player = new Tank(G.playerSpawnPos.x, G.playerSpawnPos.y, UP, 'NORMAL', true);
+  G.player.flashTimer = 60; // 開局短暫無敵
   G.state = 'playing';
   document.getElementById('overlay').classList.add('hidden');
   updateHUD();
 }
 
 function restartGame() {
-  G.score = 0; G.level = 1; 
-  G.playerStats = { weapon: 'NORMAL', pierce: false, speedMult: 1, maxHp: 3, hp: 3 };
+  G.score = 0; 
+  G.level = 1;
+  G.playerStats = { weapon: 'NORMAL', pierce: false, speedMult: 1, maxHp: 3, hp: 3, rapidFire: false, shield: false };
+  document.getElementById('overlay').innerHTML = `
+    <h1>TANK WARS v2</h1>
+    <p>消滅敵軍,每 10 關進入生存割草模式!</p>
+    <p style="margin-top:12px; color:#ffd700;">WASD / 方向鍵 <b>移動</b></p>
+    <p style="color:#ffd700;">空白鍵 <b>射擊</b> · F3 <b>性能監測</b></p>
+  `;
   startLevel();
 }
 
@@ -700,7 +1182,10 @@ function showGameOver() {
   G.state = 'gameover';
   const ov = document.getElementById('overlay');
   ov.classList.remove('hidden');
-  ov.innerHTML = `<h2>SYSTEM FAILURE</h2><p>SCORE: <span style="color:#ffd700;">${G.score}</span></p><button class="start-btn" onclick="restartGame()">REBOOT</button>`;
+  ov.innerHTML = `<h2>SYSTEM FAILURE</h2>
+    <p>SCORE: <span style="color:#ffd700;">${G.score}</span></p>
+    <p>LEVEL: <span style="color:#6cc3ff;">${G.level}</span></p>
+    <button class="start-btn" onclick="restartGame()">REBOOT</button>`;
 }
 
 function updateHUD() {
@@ -710,116 +1195,189 @@ function updateHUD() {
   
   const levelUI = document.getElementById('levelDisplay');
   if (G.isVSMode) {
-    levelUI.textContent = 'SURVIVAL'; levelUI.className = 'value level vs-alert';
+    levelUI.textContent = 'SURVIVAL'; 
+    levelUI.className = 'value level vs-alert';
   } else {
-    levelUI.textContent = G.level + (G.level%5===0?'(BOSS)':''); levelUI.className = 'value level';
+    levelUI.textContent = G.level + (G.level % 5 === 0 ? '(BOSS)' : ''); 
+    levelUI.className = 'value level';
   }
   
-  let chips = [];
-  if (G.playerStats.weapon!=='NORMAL') chips.push(`<span class="power-chip">${G.playerStats.weapon}</span>`);
+  const chips = [];
+  if (G.playerStats.weapon !== 'NORMAL') chips.push(`<span class="power-chip">${G.playerStats.weapon}</span>`);
   if (G.playerStats.pierce) chips.push(`<span class="power-chip">PIERCE</span>`);
   if (G.playerStats.speedMult > 1) chips.push(`<span class="power-chip">SPEED+</span>`);
+  if (G.playerStats.rapidFire) chips.push(`<span class="power-chip">RAPID</span>`);
+  if (G.playerStats.shield) chips.push(`<span class="power-chip">SHIELD</span>`);
   document.getElementById('powerStatus').innerHTML = chips.join('');
 }
 
-// 輸入控制
-document.addEventListener('keydown', e => { G.keys[e.code] = true; if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault(); });
+// ==================== 輸入控制 ====================
+document.addEventListener('keydown', e => { 
+  G.keys[e.code] = true; 
+  if (e.code === 'F3') { 
+    e.preventDefault(); 
+    Perf.toggle(); 
+  }
+  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault(); 
+});
 document.addEventListener('keyup', e => G.keys[e.code] = false);
 document.getElementById('startBtn').addEventListener('click', restartGame);
 
 // ==================== 主迴圈 ====================
 function gameLoop() {
+  Perf.begin();
   G.frameCount++;
 
   if (G.state === 'playing') {
-    // ====== 玩家走位與射擊 ======
+    // 1. 更新空間網格
+    spatialGrid.clear();
+    for (let i = 0; i < G.enemies.length; i++) {
+      spatialGrid.insert(G.enemies[i]);
+    }
+    
+    // 2. 玩家更新
     if (G.player && G.player.alive) {
       G.player.update();
       let moved = false;
-      if (G.keys['ArrowUp']||G.keys['KeyW']) { G.player.move(UP); moved=true; }
-      else if (G.keys['ArrowRight']||G.keys['KeyD']) { G.player.move(RIGHT); moved=true; }
-      else if (G.keys['ArrowDown']||G.keys['KeyS']) { G.player.move(DOWN); moved=true; }
-      else if (G.keys['ArrowLeft']||G.keys['KeyA']) { G.player.move(LEFT); moved=true; }
+      if (G.keys['ArrowUp'] || G.keys['KeyW']) { G.player.move(UP); moved = true; }
+      else if (G.keys['ArrowRight'] || G.keys['KeyD']) { G.player.move(RIGHT); moved = true; }
+      else if (G.keys['ArrowDown'] || G.keys['KeyS']) { G.player.move(DOWN); moved = true; }
+      else if (G.keys['ArrowLeft'] || G.keys['KeyA']) { G.player.move(LEFT); moved = true; }
       if (!moved) G.player.moving = false;
 
-      // 吸血鬼倖存者模式：自動鎖定最近目標並開火
       if (G.isVSMode) {
-        let nearest = null; let minDist = Infinity;
-        for (let e of G.enemies) {
+        // VS 模式: 自動鎖定最近敵人
+        let nearest = null; 
+        let minDist = Infinity;
+        for (let i = 0; i < G.enemies.length; i++) {
+          const e = G.enemies[i];
           if (e.alive) {
-            let d = Math.hypot(e.x - G.player.x, e.y - G.player.y);
+            const d = Math.hypot(e.x - G.player.x, e.y - G.player.y);
             if (d < minDist) { minDist = d; nearest = e; }
           }
         }
         if (nearest) {
-          let dx = nearest.x - G.player.x, dy = nearest.y - G.player.y;
-          G.player.aimDir = Math.abs(dx) > Math.abs(dy) ? (dx>0?RIGHT:LEFT) : (dy>0?DOWN:UP);
-          G.player.shoot(); // 自動無情開火
+          const dx = nearest.x - G.player.x;
+          const dy = nearest.y - G.player.y;
+          G.player.aimDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? RIGHT : LEFT) : (dy > 0 ? DOWN : UP);
+          G.player.shoot();
         }
       } else {
-        // 一般模式：按空白鍵攻擊
-        if (G.keys['Space']||G.keys['KeyJ']) G.player.shoot();
+        if (G.keys['Space'] || G.keys['KeyJ']) G.player.shoot();
       }
 
-      if (moved && G.frameCount % 4 === 0) G.trails.push({ x: G.player.x, y: G.player.y, size: G.player.size, life: 30, maxLife: 30 });
+      // 軌跡
+      if (moved && G.frameCount % 4 === 0) {
+        G.trails.push({ x: G.player.x, y: G.player.y, size: G.player.size, life: 30, maxLife: 30 });
+      }
     }
 
-    // ====== 敵人與系統更新 ======
-    // VS 模式允許更多敵人同時在場
-    const maxOnScreen = G.isVSMode ? 15 : 4; 
+    // 3. 動態難度調整
+    updateVSModeDifficulty();
+    
+    // 4. 敵人生成
+    const maxOnScreen = G.isVSMode ? CONFIG.GAMEPLAY.MAX_ENEMIES_ON_SCREEN_VS : CONFIG.GAMEPLAY.MAX_ENEMIES_ON_SCREEN;
     if (G.enemiesSpawned < G.maxEnemies && G.aliveEnemies < maxOnScreen) {
-      if (--G.spawnTimer <= 0) { spawnEnemy(); G.spawnTimer = G.spawnInterval; }
+      if (--G.spawnTimer <= 0) { 
+        spawnEnemy(); 
+        G.spawnTimer = G.spawnInterval; 
+      }
     }
-    G.enemies.forEach(e => { if (e.alive) updateEnemyAI(e); });
+    
+    // 5. 敵人 AI
+    for (let i = 0; i < G.enemies.length; i++) {
+      if (G.enemies[i].alive) updateEnemyAI(G.enemies[i]);
+    }
 
+    // 6. 子彈更新
     const ba = bulletsPool.active;
     for (let i = 0; i < ba.length; i++) updateBullet(ba[i]);
     bulletsPool.sweep();
-    if (G.frameCount % 60 === 0) G.enemies = G.enemies.filter(e => e.alive);
-    if (G.baseDestroyed && !G.isVSMode) { G.state = 'gameover'; setTimeout(showGameOver, 1200); }
+    
+    // 7. 立即清理死敵人 (尾部交換法,O(n) 不創新陣列)
+    let writeIdx = 0;
+    for (let i = 0; i < G.enemies.length; i++) {
+      if (G.enemies[i].alive) {
+        if (writeIdx !== i) G.enemies[writeIdx] = G.enemies[i];
+        writeIdx++;
+      }
+    }
+    G.enemies.length = writeIdx;
+    
+    // 8. Game Over 檢查
+    if (G.baseDestroyed && !G.isVSMode) { 
+      G.state = 'gameover'; 
+      setTimeout(showGameOver, 1200); 
+    }
   }
 
-  // ====== 繪製渲染 ======
+  // ==================== 渲染 ====================
   ctx.save();
-  ctx.fillStyle = '#050508'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = '#050508'; 
+  ctx.fillRect(0, 0, W, H);
 
   if (G.shakeTimer > 0) {
-    G.shakeTimer--; ctx.translate((Math.random()-0.5)*G.shakeIntensity, (Math.random()-0.5)*G.shakeIntensity);
-    G.shakeIntensity *= 0.88;
+    G.shakeTimer--; 
+    ctx.translate((Math.random()-0.5) * G.shakeIntensity, (Math.random()-0.5) * G.shakeIntensity);
+    G.shakeIntensity *= CONFIG.GAMEPLAY.SHAKE_DECAY;
   }
 
   if (G.state !== 'menu') {
+    // 靜態地圖層
     ctx.drawImage(staticCanvas, 0, 0); 
+    
+    // 動態地圖元素 (水/基地)
     const wave = Math.sin(G.frameCount * 0.05) * 2;
-    for (let r=0; r<ROWS; r++) {
-      for (let c=0; c<COLS; c++) {
-        if (G.map[r][c] === WATER) {
-          ctx.fillStyle = '#0a3060'; ctx.fillRect(c*TILE, r*TILE, TILE, TILE);
-          ctx.fillStyle = '#1a5090'; ctx.fillRect(c*TILE, r*TILE+6+wave, TILE, 3);
-        } else if (G.map[r][c] === BASE || G.map[r][c] === BASE_DEAD) {
-          const dead = G.map[r][c] === BASE_DEAD;
-          ctx.fillStyle = dead ? '#200' : '#222'; ctx.fillRect(c*TILE, r*TILE, TILE, TILE);
-          ctx.fillStyle = dead ? '#f00' : '#e90'; ctx.font = '14px monospace'; ctx.fillText(dead?'✕':'E', c*TILE+7, r*TILE+18);
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const t = G.map[r][c];
+        if (t === WATER) {
+          ctx.fillStyle = '#0a3060'; 
+          ctx.fillRect(c*TILE, r*TILE, TILE, TILE);
+          ctx.fillStyle = '#1a5090'; 
+          ctx.fillRect(c*TILE, r*TILE+6+wave, TILE, 3);
+        } else if (t === BASE || t === BASE_DEAD) {
+          const dead = t === BASE_DEAD;
+          ctx.fillStyle = dead ? '#200' : '#222'; 
+          ctx.fillRect(c*TILE, r*TILE, TILE, TILE);
+          ctx.fillStyle = dead ? '#f00' : '#e90'; 
+          ctx.font = '14px monospace'; 
+          ctx.fillText(dead ? '✕' : 'E', c*TILE+7, r*TILE+18);
         }
       }
     }
   }
 
-  G.trails.forEach(t => {
-    t.life--; ctx.fillStyle = `rgba(0,0,0,${(t.life/t.maxLife)*0.4})`; ctx.fillRect(t.x+2, t.y+2, t.size-4, t.size-4);
-  });
-  G.trails = G.trails.filter(t => t.life > 0);
+  // 軌跡
+  for (let i = G.trails.length - 1; i >= 0; i--) {
+    const t = G.trails[i];
+    t.life--; 
+    if (t.life <= 0) { G.trails.splice(i, 1); continue; }
+    ctx.fillStyle = `rgba(0,0,0,${(t.life/t.maxLife)*0.4})`; 
+    ctx.fillRect(t.x+2, t.y+2, t.size-4, t.size-4);
+  }
 
-  G.enemies.forEach(e => e.draw());
+  // 敵人 + 玩家
+  for (let i = 0; i < G.enemies.length; i++) G.enemies[i].draw();
   if (G.player && G.state === 'playing') G.player.draw();
 
-  renderBullets(ctx, bulletsPool.active);
+  // 子彈 (批處理)
+  renderBullets();
+  
+  // 樹林層
   if (G.state !== 'menu') ctx.drawImage(forestCanvas, 0, 0);
   
-  updateAndDrawParticles(ctx);
+  // 粒子 (批處理)
+  updateAndDrawParticles();
+  
+  // 分數彈跳
   if (G.state !== 'menu') updateScorePopups();
 
   ctx.restore();
+  
+  Perf.end();
+  Perf.updateUI();
+  
   requestAnimationFrame(gameLoop);
 }
 
