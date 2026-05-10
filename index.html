@@ -83,7 +83,7 @@
     background: linear-gradient(180deg, #1e1e28, #111); border: 2px solid #3a3a45; padding: 20px 15px; width: 140px;
     border-radius: 6px; cursor: pointer; transition: all 0.2s ease; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
   }
-  .upgrade-card:hover, .upgrade-card:active { border-color: #ffd700; transform: translateY(-5px); box-shadow: 0 8px 20px rgba(255,215,0,0.3); }
+  .upgrade-card:hover, .upgrade-card:active, .upgrade-card:focus { border-color: #ffd700; transform: translateY(-5px); box-shadow: 0 8px 20px rgba(255,215,0,0.3); outline: none; }
   .card-title { color: #5cd8ff; font-size: 11px; margin-bottom: 12px; line-height: 1.4; text-shadow: 0 0 5px rgba(92,216,255,0.4); }
   .card-desc { color: #888; font-size: 8px; line-height: 1.6; }
 
@@ -329,6 +329,9 @@ const CONFIG = {
     PLAYER_HIT_FLASH: 8,
     MAX_ENEMIES_ON_SCREEN: 4,
     MAX_ENEMIES_ON_SCREEN_VS: 18,
+    BOSS_LEVEL_INTERVAL: 5,
+    VS_MODE_INTERVAL: 10,
+    STARTING_CONTINUES: 3,
   },
   GRID: {
     CELL_SIZE: 26 * 2,
@@ -527,7 +530,7 @@ const Perf = {
 
 // ==================== 全域狀態 ====================
 const G = {
-  state: 'menu', score: 0, level: 1, isVSMode: false,
+  state: 'menu', score: 0, level: 1, continues: 3, isVSMode: false,
   enemiesRemaining: 0, enemiesSpawned: 0, maxEnemies: 10, aliveEnemies: 0,
   spawnInterval: 120, spawnTimer: 0, baseDestroyed: false,
   keys: {}, map: [], player: null, basePos: null, playerSpawnPos: null,
@@ -1509,7 +1512,7 @@ function spawnEnemy() {
   if (G.baseDestroyed) return;
   
   let sx = -1, sy = -1;
-  const isBoss = (!G.isVSMode && G.level % 5 === 0 && G.enemiesSpawned === G.maxEnemies - 1);
+  const isBoss = (!G.isVSMode && G.level % CONFIG.GAMEPLAY.BOSS_LEVEL_INTERVAL === 0 && G.enemiesSpawned === G.maxEnemies - 1);
 
   if (G.isVSMode) {
     const edge = (Math.random() * 4) | 0;
@@ -1609,13 +1612,21 @@ function showUpgradeScreen() {
   container.innerHTML = '';
   
   const shuffled = [...UPGRADES].sort(() => 0.5 - Math.random()).slice(0, 3);
-  shuffled.forEach(upg => {
-    const div = document.createElement('div'); 
+  shuffled.forEach((upg, idx) => {
+    const div = document.createElement('div');
     div.className = 'upgrade-card';
+    div.tabIndex = 0;
+    div.setAttribute('role', 'button');
+    div.setAttribute('aria-label', `${upg.title}: ${upg.desc}`);
     div.innerHTML = `<div class="card-title">${upg.title}</div><div class="card-desc">${upg.desc}</div>`;
     div.onclick = () => applyUpgrade(upg.id);
+    div.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); applyUpgrade(upg.id); }
+    };
     container.appendChild(div);
   });
+  // Auto-focus 第一張卡, 鍵盤可立即用 Tab 切換 + Enter 選擇
+  setTimeout(() => container.firstChild && container.firstChild.focus(), 0);
 }
 
 function applyUpgrade(id) {
@@ -1643,7 +1654,7 @@ function updateVSModeDifficulty() {
 }
 
 function startLevel() {
-  G.isVSMode = (G.level % 10 === 0);
+  G.isVSMode = (G.level % CONFIG.GAMEPLAY.VS_MODE_INTERVAL === 0);
   
   if (G.isVSMode) {
     G.maxEnemies = 50 + G.level * 4;
@@ -1678,8 +1689,9 @@ function startLevel() {
 }
 
 function restartGame() {
-  G.score = 0; 
+  G.score = 0;
   G.level = 1;
+  G.continues = CONFIG.GAMEPLAY.STARTING_CONTINUES;
   G.playerStats = { weapon: 'NORMAL', pierce: false, speedMult: 1, maxHp: 3, hp: 3, rapidFire: false, shield: false };
   document.getElementById('overlay').innerHTML = `
     <h1>TANK WARS v2</h1>
@@ -1695,6 +1707,35 @@ function restartGame() {
 function showGameOver() {
   G.state = 'gameover';
   Sound.jingleGameOver();
+  if (G.continues > 0) showContinuePrompt();
+  else showFinalGameOver();
+}
+
+function showContinuePrompt() {
+  const ov = document.getElementById('overlay');
+  ov.classList.remove('hidden');
+  ov.innerHTML = `<h2>CONTINUE?</h2>
+    <p>剩 <span style="color:#ffd700;">${G.continues}</span> 次接關</p>
+    <p style="color:#888; font-size:8px; margin-top:6px;">分數 + 升級保留 · 從本關重啟</p>
+    <div style="display:flex; gap:14px; margin-top:22px; flex-wrap:wrap; justify-content:center;">
+      <button class="start-btn" id="continueBtn">CONTINUE</button>
+      <button class="start-btn" id="quitBtn" style="border-color:#ff5050; color:#ff5050; text-shadow:0 0 8px rgba(255,80,80,0.5);">QUIT</button>
+    </div>`;
+  const cb = document.getElementById('continueBtn');
+  cb.onclick = continueGame;
+  document.getElementById('quitBtn').onclick = showFinalGameOver;
+  setTimeout(() => cb.focus(), 0);
+  updateMobileControlsForMode();
+}
+
+function continueGame() {
+  G.continues--;
+  G.playerStats.hp = G.playerStats.maxHp;
+  document.getElementById('overlay').classList.add('hidden');
+  startLevel();
+}
+
+function showFinalGameOver() {
   const ov = document.getElementById('overlay');
   ov.classList.remove('hidden');
   ov.innerHTML = `<h2>SYSTEM FAILURE</h2>
@@ -1705,34 +1746,45 @@ function showGameOver() {
   updateMobileControlsForMode();
 }
 
+// HUD DOM refs cached once
+const HUD = {
+  score: document.getElementById('scoreDisplay'),
+  lives: document.getElementById('livesDisplay'),
+  enemies: document.getElementById('enemiesDisplay'),
+  level: document.getElementById('levelDisplay'),
+  power: document.getElementById('powerStatus'),
+};
+
 function updateHUD() {
-  document.getElementById('scoreDisplay').textContent = G.score;
-  document.getElementById('livesDisplay').textContent = '♥'.repeat(Math.max(0, G.playerStats.hp));
-  document.getElementById('enemiesDisplay').textContent = G.maxEnemies - G.enemiesSpawned + G.aliveEnemies;
-  
-  const levelUI = document.getElementById('levelDisplay');
+  HUD.score.textContent = G.score;
+  HUD.lives.textContent = '♥'.repeat(Math.max(0, G.playerStats.hp));
+  HUD.enemies.textContent = G.maxEnemies - G.enemiesSpawned + G.aliveEnemies;
+
   if (G.isVSMode) {
-    levelUI.textContent = 'SURVIVAL'; 
-    levelUI.className = 'value level vs-alert';
+    HUD.level.textContent = 'SURVIVAL';
+    HUD.level.className = 'value level vs-alert';
   } else {
-    levelUI.textContent = G.level + (G.level % 5 === 0 ? '(BOSS)' : ''); 
-    levelUI.className = 'value level';
+    HUD.level.textContent = G.level + (G.level % CONFIG.GAMEPLAY.BOSS_LEVEL_INTERVAL === 0 ? '(BOSS)' : '');
+    HUD.level.className = 'value level';
   }
-  
+
   const chips = [];
   if (G.playerStats.weapon !== 'NORMAL') chips.push(`<span class="power-chip">${G.playerStats.weapon}</span>`);
   if (G.playerStats.pierce) chips.push(`<span class="power-chip">PIERCE</span>`);
   if (G.playerStats.speedMult > 1) chips.push(`<span class="power-chip">SPEED+</span>`);
   if (G.playerStats.rapidFire) chips.push(`<span class="power-chip">RAPID</span>`);
   if (G.playerStats.shield) chips.push(`<span class="power-chip">SHIELD</span>`);
-  document.getElementById('powerStatus').innerHTML = chips.join('');
+  HUD.power.innerHTML = chips.join('');
 }
 
 // ==================== 鍵盤輸入 ====================
 document.addEventListener('keydown', e => {
   G.keys[e.code] = true;
-  if (e.code === 'F3') { e.preventDefault(); Perf.toggle(); }
-  if (e.code === 'KeyM') { e.preventDefault(); Sound.toggle(); }
+  // Toggles 必須在 e.repeat 抓 — 否則按住鍵會以 keyrepeat 速率瘋狂切換
+  if (!e.repeat) {
+    if (e.code === 'F3') { e.preventDefault(); Perf.toggle(); }
+    else if (e.code === 'KeyM') { e.preventDefault(); Sound.toggle(); }
+  }
   if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
 });
 document.addEventListener('keyup', e => G.keys[e.code] = false);
