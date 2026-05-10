@@ -51,6 +51,12 @@
   .value.level { color: #6cc3ff; text-shadow: 0 0 10px rgba(108,195,255,0.6); }
   .value.score { color: #ffdd55; text-shadow: 0 0 12px rgba(255,221,85,0.7); }
   .vs-alert { color: #ff0055 !important; text-shadow: 0 0 15px rgba(255,0,85,0.9) !important; animation: blink 1s infinite; }
+  #soundToggle {
+    background: transparent; border: 1px solid #2a2a35; color: #ffd700;
+    font-size: 14px; padding: 2px 8px; border-radius: 4px; cursor: pointer;
+    font-family: inherit; line-height: 1;
+  }
+  #soundToggle:hover, #soundToggle:active { background: rgba(255,215,0,0.1); border-color: #ffd700; }
   @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
   
   #powerStatus {
@@ -239,6 +245,7 @@
   <div class="hud-item"><span class="label">LV</span><span class="value level" id="levelDisplay">1</span></div>
   <div class="hud-item"><span class="label">HP</span><span class="value lives" id="livesDisplay">♥♥♥</span></div>
   <div class="hud-item"><span class="label">EN</span><span class="value" id="enemiesDisplay">0</span></div>
+  <button id="soundToggle" title="切換音效 (M)" aria-label="切換音效">🔊</button>
 </div>
 <div id="powerStatus"></div>
 
@@ -365,25 +372,109 @@ const forestCanvas = document.createElement('canvas');
 forestCanvas.width = W; forestCanvas.height = H;
 const forestCtx = forestCanvas.getContext('2d');
 
-// ==================== 預渲染光暈快取 ====================
-const RenderCache = {
-  glows: {},
+// ==================== 音效系統 (Web Audio API NES 合成) ====================
+const Sound = {
+  ctx: null,
+  master: null,
+  noiseBuf: null,
+  enabled: true,
+  ready: false,
+
   init() {
-    this.glows.bullet = this.createGlow('#ffaa00', 12);
-    this.glows.enemyBullet = this.createGlow('#ff5050', 12);
-    this.glows.explosion = this.createGlow('#ff7700', 30);
+    if (this.ready) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      this.ctx = new AC();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.18;
+      this.master.connect(this.ctx.destination);
+      // 預生成 1 秒白噪音 buffer
+      const sr = this.ctx.sampleRate;
+      const buf = this.ctx.createBuffer(1, sr, sr);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < sr; i++) data[i] = Math.random() * 2 - 1;
+      this.noiseBuf = buf;
+      this.ready = true;
+    } catch (e) { /* ignore */ }
   },
-  createGlow(color, radius) {
-    const c = document.createElement('canvas');
-    c.width = radius * 2; c.height = radius * 2;
-    const cx = c.getContext('2d');
-    const grd = cx.createRadialGradient(radius, radius, 0, radius, radius, radius);
-    grd.addColorStop(0, color); grd.addColorStop(1, 'rgba(0,0,0,0)');
-    cx.fillStyle = grd; cx.fillRect(0, 0, radius * 2, radius * 2);
-    return c;
-  }
+
+  resume() {
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+  },
+
+  toggle() {
+    this.enabled = !this.enabled;
+    if (this.master) this.master.gain.value = this.enabled ? 0.18 : 0;
+    const btn = document.getElementById('soundToggle');
+    if (btn) btn.textContent = this.enabled ? '🔊' : '🔇';
+  },
+
+  // 脈波 (方波) — NES pulse channel
+  pulse(freq, dur, vol = 0.4, type = 'square', sweep = 0) {
+    if (!this.ready || !this.enabled) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gn = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    if (sweep) osc.frequency.exponentialRampToValueAtTime(Math.max(20, freq + sweep), t + dur);
+    gn.gain.setValueAtTime(vol, t);
+    gn.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(gn).connect(this.master);
+    osc.start(t);
+    osc.stop(t + dur);
+  },
+
+  // 噪音 — NES noise channel (爆炸/打擊)
+  noise(dur, vol = 0.4, freq = 1200, q = 1) {
+    if (!this.ready || !this.enabled) return;
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = freq;
+    filt.Q.value = q;
+    const gn = this.ctx.createGain();
+    gn.gain.setValueAtTime(vol, t);
+    gn.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(filt).connect(gn).connect(this.master);
+    src.start(t);
+    src.stop(t + dur);
+  },
+
+  // 序列播放 (簡易 jingle)
+  seq(notes) {
+    if (!this.ready || !this.enabled) return;
+    let offset = 0;
+    for (const [freq, dur, vol] of notes) {
+      setTimeout(() => this.pulse(freq, dur, vol ?? 0.35), offset * 1000);
+      offset += dur * 0.9;
+    }
+  },
+
+  // ===== 遊戲音效 =====
+  shoot()        { this.pulse(880, 0.05, 0.25, 'square', -700); },
+  hitBrick()     { this.noise(0.07, 0.35, 1800, 1.5); },
+  hitSteel()     { this.pulse(2200, 0.05, 0.3, 'square'); this.noise(0.05, 0.2, 4000, 2); },
+  explode()      { this.noise(0.25, 0.5, 600, 0.7); this.pulse(120, 0.18, 0.3, 'triangle', -80); },
+  bigExplode()   { this.noise(0.5, 0.6, 300, 0.5); this.pulse(80, 0.4, 0.4, 'triangle', -50); },
+  spawn()        { this.pulse(220, 0.04, 0.2); setTimeout(() => this.pulse(440, 0.04, 0.2), 60); setTimeout(() => this.pulse(660, 0.06, 0.2), 120); },
+  hitPlayer()    { this.pulse(180, 0.15, 0.45, 'square', -100); this.noise(0.15, 0.3, 800, 1); },
+  baseDestroyed(){ this.noise(0.6, 0.6, 200, 0.5); this.pulse(60, 0.5, 0.5, 'triangle', -30); },
+
+  // ===== Jingles =====
+  jingleLevelStart() {
+    this.seq([[523, 0.1], [659, 0.1], [784, 0.18]]);
+  },
+  jingleLevelClear() {
+    this.seq([[523, 0.12], [659, 0.12], [784, 0.12], [1047, 0.25]]);
+  },
+  jingleGameOver() {
+    this.seq([[440, 0.18], [392, 0.18], [349, 0.18], [262, 0.45]]);
+  },
 };
-RenderCache.init();
 
 // ==================== 性能監測系統 ====================
 const Perf = {
@@ -442,7 +533,7 @@ const G = {
   keys: {}, map: [], player: null, basePos: null, playerSpawnPos: null,
   frameCount: 0, shakeTimer: 0, shakeIntensity: 0,
   vsModeStartFrame: 0,
-  enemies: [], scorePopups: [], particles: [], trails: [],
+  enemies: [], scorePopups: [], particles: [], spawnEffects: [],
   playerStats: { weapon: 'NORMAL', pierce: false, speedMult: 1, maxHp: 3, hp: 3 },
   // 手機輸入狀態
   touch: { dir: -1, fire: false, joyActive: false, joyDx: 0, joyDy: 0 },
@@ -594,26 +685,155 @@ function generateMap(level) {
   return map;
 }
 
+function drawBrickNES(cx2d, x, y, size) {
+  // NES 風格紅磚: 灰色底(磚縫) + 兩排交錯紅磚
+  const half = size / 2;
+  cx2d.fillStyle = '#7a7a7a';
+  cx2d.fillRect(x, y, size, size);
+  cx2d.fillStyle = '#b8401c';
+  // 上排: 兩塊半磚
+  cx2d.fillRect(x + 1, y + 1, half - 2, half - 2);
+  cx2d.fillRect(x + half + 1, y + 1, half - 2, half - 2);
+  // 下排: 錯開, 一整塊在中間 + 兩個四分之一在邊緣
+  cx2d.fillRect(x + 1, y + half + 1, (half / 2) - 1, half - 2);
+  cx2d.fillRect(x + (half / 2) + 1, y + half + 1, half - 2, half - 2);
+  cx2d.fillRect(x + size - (half / 2), y + half + 1, (half / 2) - 1, half - 2);
+  // 高光
+  cx2d.fillStyle = '#d96846';
+  cx2d.fillRect(x + 1, y + 1, half - 2, 1);
+  cx2d.fillRect(x + half + 1, y + 1, half - 2, 1);
+  cx2d.fillRect(x + 1, y + half + 1, (half / 2) - 1, 1);
+  cx2d.fillRect(x + (half / 2) + 1, y + half + 1, half - 2, 1);
+  cx2d.fillRect(x + size - (half / 2), y + half + 1, (half / 2) - 1, 1);
+}
+
+function drawSteelNES(cx2d, x, y, size) {
+  // NES 風格鋼鐵: 四格分割, 每格有立體感
+  const half = size / 2;
+  for (let qy = 0; qy < 2; qy++) {
+    for (let qx = 0; qx < 2; qx++) {
+      const px = x + qx * half;
+      const py = y + qy * half;
+      cx2d.fillStyle = '#9a9aa8';
+      cx2d.fillRect(px, py, half, half);
+      cx2d.fillStyle = '#dcdce8';
+      cx2d.fillRect(px, py, half - 1, 1);
+      cx2d.fillRect(px, py, 1, half - 1);
+      cx2d.fillStyle = '#5a5a66';
+      cx2d.fillRect(px + 1, py + half - 1, half - 1, 1);
+      cx2d.fillRect(px + half - 1, py + 1, 1, half - 1);
+    }
+  }
+}
+
+function drawForestNES(cx2d, x, y, size) {
+  // NES 風格樹叢: 多個小圓+暗色點構成蓬鬆葉
+  cx2d.fillStyle = '#0a4a0a';
+  cx2d.fillRect(x, y, size, size);
+  cx2d.fillStyle = '#1f7a1f';
+  const blobs = [
+    [size*0.25, size*0.30, 5],
+    [size*0.70, size*0.30, 5],
+    [size*0.40, size*0.65, 5],
+    [size*0.80, size*0.75, 4],
+    [size*0.15, size*0.75, 4],
+  ];
+  for (const [bx, by, br] of blobs) {
+    cx2d.beginPath(); cx2d.arc(x+bx, y+by, br, 0, Math.PI*2); cx2d.fill();
+  }
+  cx2d.fillStyle = '#2eaf2e';
+  for (const [bx, by, br] of blobs) {
+    cx2d.fillRect(x+bx-1, y+by-br+1, 2, 2);
+  }
+}
+
+function drawWaterNES(x, y, size, phase) {
+  // 深藍底 + 兩排淺藍波紋, 兩種交替 phase 形成動畫
+  ctx.fillStyle = '#1c4ca8';
+  ctx.fillRect(x, y, size, size);
+  ctx.fillStyle = '#74c0fc';
+  const half = size / 2;
+  // 上半部
+  if (phase === 0) {
+    ctx.fillRect(x + 2, y + 4, 6, 2);
+    ctx.fillRect(x + half + 2, y + 4, 6, 2);
+  } else {
+    ctx.fillRect(x + 4, y + 4, 6, 2);
+    ctx.fillRect(x + half + 4, y + 4, 4, 2);
+    ctx.fillRect(x, y + 4, 2, 2);
+  }
+  // 下半部 (反相)
+  if (phase === 0) {
+    ctx.fillRect(x + 4, y + half + 4, 6, 2);
+    ctx.fillRect(x + half + 4, y + half + 4, 4, 2);
+    ctx.fillRect(x, y + half + 4, 2, 2);
+  } else {
+    ctx.fillRect(x + 2, y + half + 4, 6, 2);
+    ctx.fillRect(x + half + 2, y + half + 4, 6, 2);
+  }
+}
+
+function drawEagleNES(x, y, size, dead) {
+  // NES 老鷹 sprite: 用 13x13 像素圖案放大繪製
+  // 0=透明 1=主色 2=亮色 3=暗色
+  const sprite = dead ? [
+    [0,0,3,3,3,0,3,0,3,3,3,0,0],
+    [0,3,3,0,3,3,3,3,3,0,3,3,0],
+    [3,3,0,0,0,3,3,3,0,0,0,3,3],
+    [3,0,0,3,0,0,3,0,0,3,0,0,3],
+    [3,0,3,3,3,0,0,0,3,3,3,0,3],
+    [0,3,3,0,0,3,3,3,0,0,3,3,0],
+    [3,0,0,3,3,3,3,3,3,3,0,0,3],
+    [3,3,0,0,3,3,3,3,3,0,0,3,3],
+    [0,3,3,3,0,0,3,0,0,3,3,3,0],
+    [3,0,0,3,3,3,3,3,3,3,0,0,3],
+    [3,3,0,0,0,3,3,3,0,0,0,3,3],
+    [0,3,3,3,0,0,3,0,0,3,3,3,0],
+    [3,0,0,3,3,3,3,3,3,3,0,0,3],
+  ] : [
+    [0,0,0,0,2,2,2,2,2,0,0,0,0],
+    [0,0,0,2,2,1,1,1,2,2,0,0,0],
+    [0,0,2,2,1,1,3,1,1,2,2,0,0],
+    [2,2,2,1,1,3,3,3,1,1,2,2,2],
+    [2,1,2,1,3,3,3,3,3,1,2,1,2],
+    [2,1,1,1,1,3,3,3,1,1,1,1,2],
+    [2,1,1,3,1,1,3,1,1,3,1,1,2],
+    [0,2,1,3,3,1,1,1,3,3,1,2,0],
+    [0,0,2,1,3,3,3,3,3,1,2,0,0],
+    [0,0,0,2,1,3,3,3,1,2,0,0,0],
+    [0,0,0,2,1,1,3,1,1,2,0,0,0],
+    [0,0,2,2,1,1,1,1,1,2,2,0,0],
+    [0,2,2,2,2,2,2,2,2,2,2,2,0],
+  ];
+
+  ctx.fillStyle = '#000';
+  ctx.fillRect(x, y, size, size);
+
+  const cols = 13;
+  const px = size / cols;
+  const palette = dead
+    ? { 1: '#404040', 2: '#202020', 3: '#a02020' }
+    : { 1: '#d0d0d0', 2: '#ffffff', 3: '#404040' };
+
+  for (let py = 0; py < cols; py++) {
+    for (let pxi = 0; pxi < cols; pxi++) {
+      const v = sprite[py][pxi];
+      if (v === 0) continue;
+      ctx.fillStyle = palette[v];
+      ctx.fillRect(x + pxi * px, y + py * px, px + 1, px + 1);
+    }
+  }
+}
+
 function cacheStaticMap() {
-  staticCtx.clearRect(0, 0, W, H); 
+  staticCtx.clearRect(0, 0, W, H);
   forestCtx.clearRect(0, 0, W, H);
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const t = G.map[r][c], x = c*TILE, y = r*TILE;
-      if (t === BRICK) {
-        staticCtx.fillStyle = '#8b4513'; staticCtx.fillRect(x, y, TILE, TILE);
-        staticCtx.fillStyle = '#a0522d'; 
-        staticCtx.fillRect(x+1, y+1, TILE/2-2, TILE/2-2);
-        staticCtx.fillRect(x+TILE/2, y+TILE/2, TILE/2-2, TILE/2-2);
-        staticCtx.strokeStyle = '#1a1a1a'; staticCtx.strokeRect(x+0.5, y+0.5, TILE-1, TILE-1);
-      } else if (t === STEEL) {
-        staticCtx.fillStyle = '#888'; staticCtx.fillRect(x, y, TILE, TILE);
-        staticCtx.fillStyle = '#bbb'; staticCtx.fillRect(x+2, y+2, TILE-4, TILE-4);
-      } else if (t === FOREST) {
-        forestCtx.fillStyle = '#0a4a0a'; forestCtx.fillRect(x, y, TILE, TILE);
-        forestCtx.fillStyle = '#1a6a1a'; 
-        forestCtx.beginPath(); forestCtx.arc(x+13, y+13, 8, 0, Math.PI*2); forestCtx.fill();
-      }
+      if (t === BRICK) drawBrickNES(staticCtx, x, y, TILE);
+      else if (t === STEEL) drawSteelNES(staticCtx, x, y, TILE);
+      else if (t === FOREST) drawForestNES(forestCtx, x, y, TILE);
     }
   }
 }
@@ -802,63 +1022,187 @@ class Tank {
     
     this.bulletTimer = this.bulletCooldown;
     if (this.isPlayer && !G.isVSMode) triggerShake(2, 1);
+    if (this.isPlayer) Sound.shoot();
   }
 
   draw() {
     if (!this.alive) return;
-    ctx.save();
-    
-    const cx = this.x + this.size / 2;
-    const cy = this.y + this.size / 2;
-    const tw = this.type === 'BOSS' ? 6 : 4;
-    
-    ctx.fillStyle = 'rgba(0,0,0,0.35)'; 
-    ctx.fillRect(this.x + 2, this.y + this.size - 1, this.size, 3);
-    
-    if (this.flashTimer > 0 && (G.frameCount & 2)) ctx.globalAlpha = 0.5;
 
-    const trackDark = this.isPlayer ? '#2a4218' : '#3a0c0c';
-    ctx.fillStyle = trackDark;
-    if (this.dir === UP || this.dir === DOWN) {
-      ctx.fillRect(this.x, this.y, tw, this.size); 
-      ctx.fillRect(this.x+this.size-tw, this.y, tw, this.size);
-    } else {
-      ctx.fillRect(this.x, this.y, this.size, tw); 
-      ctx.fillRect(this.x, this.y+this.size-tw, this.size, tw);
-    }
-    
-    ctx.fillStyle = this.color; 
-    ctx.fillRect(this.x+tw, this.y+tw, this.size-tw*2, this.size-tw*2);
-
-    ctx.fillStyle = 'rgba(0,0,0,0.5)'; 
-    ctx.beginPath(); ctx.arc(cx, cy, tw+2, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = this.isPlayer ? '#a0d878' : '#ff6060'; 
-    ctx.beginPath(); ctx.arc(cx, cy, tw, 0, Math.PI*2); ctx.fill();
-    
-    ctx.strokeStyle = this.isPlayer ? '#8bc06e' : '#ff5050'; 
-    ctx.lineWidth = tw - 1; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(cx, cy); 
-    ctx.lineTo(cx + DX[this.aimDir]*(this.size/2+2), cy + DY[this.aimDir]*(this.size/2+2)); 
-    ctx.stroke();
-
-    if (this.maxHp > 1) {
-      ctx.fillStyle = 'rgba(0,0,0,0.8)'; 
-      ctx.fillRect(this.x, this.y-8, this.size, 4);
-      ctx.fillStyle = this.isPlayer ? '#0f0' : '#f00'; 
-      ctx.fillRect(this.x, this.y-8, this.size * (this.hp/this.maxHp), 4);
-    }
-    
+    // 重生無敵期: NES 經典旋轉護盾(取代後 sprite 繪製)
     if (this.isPlayer && this.flashTimer > 30) {
-      ctx.globalAlpha = 0.5;
-      ctx.strokeStyle = '#5cd8ff';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(cx, cy, this.size * 0.7 + Math.sin(G.frameCount * 0.3) * 2, 0, Math.PI * 2);
-      ctx.stroke();
+      drawNESShield(this.x, this.y, this.size);
     }
-    
+
+    // 受擊閃爍: NES 風格 = 整個 sprite 隱藏一幀
+    if (this.flashTimer > 0 && (G.frameCount & 2)) return;
+
+    ctx.save();
+
+    // 顏色配置 (NES 調色板)
+    let colMain, colDark, colLight;
+    if (this.isPlayer) {
+      colMain = '#d4a72c';  colLight = '#fce560';  colDark = '#7a5a14';   // 黃色玩家坦克
+    } else if (this.type === 'FAST') {
+      colMain = '#dcdce8';  colLight = '#ffffff';  colDark = '#6a6a78';   // 白色快速兵
+    } else if (this.type === 'HEAVY') {
+      colMain = '#5a8acc';  colLight = '#9ec0ff';  colDark = '#1c3a6a';   // 藍色重坦
+    } else if (this.type === 'SUICIDE') {
+      colMain = '#e84418';  colLight = '#ff8c4a';  colDark = '#7a1a04';   // 紅色自爆
+    } else if (this.type === 'BOSS') {
+      colMain = '#a02020';  colLight = '#e84040';  colDark = '#400000';   // 暗紅 BOSS
+    } else {
+      colMain = '#b8b8b8';  colLight = '#e8e8e8';  colDark = '#4a4a4a';   // 灰色一般敵
+    }
+
+    const s = this.size;
+    const x = this.x | 0;
+    const y = this.y | 0;
+    const cx = x + s / 2;
+    const cy = y + s / 2;
+    const isHoriz = (this.aimDir === LEFT || this.aimDir === RIGHT);
+
+    // 履帶: 兩條粗條, 帶交替分節
+    const trackW = Math.max(3, (s / 7) | 0);
+    const seg = Math.max(2, (s / 6) | 0);
+    const trackOffset = (G.frameCount >> 2) & 1;  // 移動時履帶交替
+
+    ctx.fillStyle = colDark;
+    if (isHoriz) {
+      // 水平: 履帶在上下
+      ctx.fillRect(x, y, s, trackW);
+      ctx.fillRect(x, y + s - trackW, s, trackW);
+      // 履帶分節
+      ctx.fillStyle = colMain;
+      for (let i = (trackOffset && this.moving) ? 0 : seg; i < s; i += seg * 2) {
+        ctx.fillRect(x + i, y, seg, trackW);
+        ctx.fillRect(x + i, y + s - trackW, seg, trackW);
+      }
+    } else {
+      // 垂直: 履帶在左右
+      ctx.fillRect(x, y, trackW, s);
+      ctx.fillRect(x + s - trackW, y, trackW, s);
+      ctx.fillStyle = colMain;
+      for (let i = (trackOffset && this.moving) ? 0 : seg; i < s; i += seg * 2) {
+        ctx.fillRect(x, y + i, trackW, seg);
+        ctx.fillRect(x + s - trackW, y + i, trackW, seg);
+      }
+    }
+
+    // 車身: 中央矩形
+    const bodyPad = trackW + 1;
+    ctx.fillStyle = colMain;
+    ctx.fillRect(x + bodyPad, y + bodyPad, s - bodyPad * 2, s - bodyPad * 2);
+
+    // 車身高光 (左上)
+    ctx.fillStyle = colLight;
+    if (isHoriz) {
+      ctx.fillRect(x + bodyPad, y + bodyPad, s - bodyPad * 2, 1);
+    } else {
+      ctx.fillRect(x + bodyPad, y + bodyPad, 1, s - bodyPad * 2);
+    }
+
+    // 砲塔: 方形(NES 砲塔本體就是矩形)
+    const turretSize = Math.max(6, (s * 0.45) | 0);
+    const tx = (cx - turretSize / 2) | 0;
+    const ty = (cy - turretSize / 2) | 0;
+    ctx.fillStyle = colMain;
+    ctx.fillRect(tx, ty, turretSize, turretSize);
+    ctx.fillStyle = colLight;
+    ctx.fillRect(tx, ty, turretSize, 1);
+    ctx.fillRect(tx, ty, 1, turretSize);
+    ctx.fillStyle = colDark;
+    ctx.fillRect(tx, ty + turretSize - 1, turretSize, 1);
+    ctx.fillRect(tx + turretSize - 1, ty, 1, turretSize);
+
+    // 砲管: 矩形, 朝 aimDir
+    const barrelW = Math.max(2, (s / 8) | 0);
+    const barrelL = Math.max(6, (s * 0.45) | 0);
+    ctx.fillStyle = colLight;
+    if (this.aimDir === UP) {
+      ctx.fillRect((cx - barrelW / 2) | 0, y, barrelW, (cy - y) | 0);
+    } else if (this.aimDir === DOWN) {
+      ctx.fillRect((cx - barrelW / 2) | 0, cy | 0, barrelW, (y + s - cy) | 0);
+    } else if (this.aimDir === LEFT) {
+      ctx.fillRect(x, (cy - barrelW / 2) | 0, (cx - x) | 0, barrelW);
+    } else {
+      ctx.fillRect(cx | 0, (cy - barrelW / 2) | 0, (x + s - cx) | 0, barrelW);
+    }
+
+    // BOSS 加裝飾 (中央暗點)
+    if (this.type === 'BOSS') {
+      ctx.fillStyle = colDark;
+      ctx.fillRect((cx - 2) | 0, (cy - 2) | 0, 4, 4);
+    }
+
+    // 多血敵兵血條
+    if (this.maxHp > 1) {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(x, y - 6, s, 3);
+      ctx.fillStyle = this.isPlayer ? '#3cf03c' : '#ff4040';
+      ctx.fillRect(x, y - 6, (s * (this.hp / this.maxHp)) | 0, 3);
+    }
+
     ctx.restore();
   }
+}
+
+// NES 坦克 spawn 旋轉星形動畫 (4 幀循環)
+function drawNESSpawnEffect(x, y, size, life, maxLife) {
+  ctx.save();
+  const frame = (((maxLife - life) >> 2) % 4);
+  const cx = x + size / 2;
+  const cy = y + size / 2;
+  const r = size / 2;
+  ctx.fillStyle = '#ffffff';
+  if (frame === 0) {
+    // 十字
+    ctx.fillRect((cx - 1) | 0, y, 2, size);
+    ctx.fillRect(x, (cy - 1) | 0, size, 2);
+  } else if (frame === 1) {
+    // 米字
+    ctx.fillRect((cx - 1) | 0, y, 2, size);
+    ctx.fillRect(x, (cy - 1) | 0, size, 2);
+    for (let i = -r + 2; i <= r - 2; i += 2) {
+      ctx.fillRect((cx + i) | 0, (cy + i) | 0, 2, 2);
+      ctx.fillRect((cx + i) | 0, (cy - i) | 0, 2, 2);
+    }
+  } else if (frame === 2) {
+    // 八角邊框
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, y);    ctx.lineTo(x + size, cy);
+    ctx.lineTo(cx, y + size);  ctx.lineTo(x, cy);
+    ctx.closePath();
+    ctx.stroke();
+  } else {
+    // 中心圓點
+    ctx.fillRect((cx - 3) | 0, (cy - 3) | 0, 6, 6);
+  }
+  ctx.restore();
+}
+
+// NES 經典重生護盾 (兩個半圓組成的旋轉星形)
+function drawNESShield(x, y, size) {
+  const phase = (G.frameCount >> 1) & 1;
+  ctx.save();
+  ctx.fillStyle = phase ? '#ffffff' : '#74c0fc';
+  // 上下左右 4 個小條 + 4 個對角條, 像 NES 護盾的星狀閃爍
+  const t = 2;
+  if (phase) {
+    ctx.fillRect(x + size/2 - t/2, y - 2, t, size + 4);
+    ctx.fillRect(x - 2, y + size/2 - t/2, size + 4, t);
+  } else {
+    ctx.fillRect(x, y, t, t);
+    ctx.fillRect(x + size - t, y, t, t);
+    ctx.fillRect(x, y + size - t, t, t);
+    ctx.fillRect(x + size - t, y + size - t, t, t);
+    ctx.fillRect(x + size/2 - t/2, y - 2, t, t);
+    ctx.fillRect(x + size/2 - t/2, y + size, t, t);
+    ctx.fillRect(x - 2, y + size/2 - t/2, t, t);
+    ctx.fillRect(x + size, y + size/2 - t/2, t, t);
+  }
+  ctx.restore();
 }
 
 // ==================== 子彈邏輯 ====================
@@ -874,22 +1218,25 @@ function updateBullet(b) {
   const bc = ((b.x + 3) / TILE) | 0, br = ((b.y + 3) / TILE) | 0;
   if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS) {
     const t = G.map[br][bc];
-    if (t === BRICK) { 
-      b.alive = false; breakTile(bc, br); 
-      spawnExplosion(b.x, b.y, 'spark'); 
-      return; 
+    if (t === BRICK) {
+      b.alive = false; breakTile(bc, br);
+      spawnExplosion(b.x, b.y, 'spark');
+      Sound.hitBrick();
+      return;
     }
-    if (t === STEEL) { 
-      b.alive = false; 
-      spawnExplosion(b.x, b.y, 'spark'); 
-      return; 
+    if (t === STEEL) {
+      b.alive = false;
+      spawnExplosion(b.x, b.y, 'spark');
+      Sound.hitSteel();
+      return;
     }
     if (t === BASE) {
-      b.alive = false; 
-      G.map[br][bc] = BASE_DEAD; 
+      b.alive = false;
+      G.map[br][bc] = BASE_DEAD;
       G.baseDestroyed = true;
-      spawnExplosion(bc*TILE+13, br*TILE+13, 'big'); 
-      triggerShake(20, 8); 
+      spawnExplosion(bc*TILE+13, br*TILE+13, 'big');
+      triggerShake(20, 8);
+      Sound.baseDestroyed();
       return;
     }
   }
@@ -934,11 +1281,13 @@ function handleBulletHit(b, t) {
   if (t.hp <= 0) {
     t.alive = false;
     spawnExplosion(t.x + t.size/2, t.y + t.size/2, t.type === 'BOSS' ? 'big' : 'tank');
-    if (t.type === 'BOSS') triggerShake(15, 6);
+    if (t.type === 'BOSS') { triggerShake(15, 6); Sound.bigExplode(); }
+    else Sound.explode();
 
     if (!b.isPlayer && t === G.player) {
-      G.playerStats.hp -= 1; 
-      triggerShake(10, 5); 
+      G.playerStats.hp -= 1;
+      triggerShake(10, 5);
+      Sound.hitPlayer();
       updateHUD();
       
       if (G.playerStats.hp <= 0) {
@@ -1000,38 +1349,40 @@ function spawnExplosion(x, y, type) {
 
 function updateAndDrawParticles() {
   const arr = particlesPool.active;
-  
+
   for (let i = 0; i < arr.length; i++) {
-    const p = arr[i]; 
+    const p = arr[i];
     if (!p.alive) continue;
     p.x += p.vx; p.y += p.vy; p.life--;
-    p.vx *= 0.92; p.vy *= 0.92;
-    if (p.type === 'smoke') p.size += 0.15;
+    p.vx *= 0.94; p.vy *= 0.94;
+    if (p.type === 'smoke') p.size += 0.1;
     if (p.life <= 0) p.alive = false;
   }
-  
+
+  // NES 風格: 純色像素方塊, 不發光不疊加
   ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
   for (let i = 0; i < arr.length; i++) {
     const p = arr[i];
     if (!p.alive || p.type !== 'spark') continue;
-    ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
-    ctx.drawImage(RenderCache.glows.explosion, p.x - 15, p.y - 15);
-    ctx.fillStyle = p.color; 
-    ctx.fillRect(p.x, p.y, p.size, p.size);
+    // 依生命週期切換顏色 (黃 -> 橘 -> 紅 -> 暗) 模擬 NES 爆炸幀
+    const t = p.life / p.maxLife;
+    if (p.color === '#5cd8ff') {
+      ctx.fillStyle = t > 0.5 ? '#ffffff' : '#74c0fc';
+    } else {
+      ctx.fillStyle = t > 0.7 ? '#ffeb50' : t > 0.4 ? '#ff9020' : '#c03030';
+    }
+    const sz = (p.size + 0.5) | 0;
+    ctx.fillRect(p.x | 0, p.y | 0, sz, sz);
   }
-  ctx.restore();
-  
-  ctx.save();
   for (let i = 0; i < arr.length; i++) {
     const p = arr[i];
     if (!p.alive || p.type !== 'smoke') continue;
-    ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
-    ctx.fillStyle = p.color;
-    ctx.fillRect(p.x, p.y, p.size, p.size);
+    const a = Math.max(0, p.life / p.maxLife);
+    ctx.fillStyle = `rgba(80,80,80,${a * 0.5})`;
+    ctx.fillRect(p.x | 0, p.y | 0, p.size | 0, p.size | 0);
   }
   ctx.restore();
-  
+
   particlesPool.sweep();
 }
 
@@ -1052,28 +1403,30 @@ function updateScorePopups() {
   }
 }
 
-// ==================== 子彈批處理渲染 ====================
+// ==================== 子彈批處理渲染 (NES 風格) ====================
 function renderBullets() {
   const bullets = bulletsPool.active;
   if (bullets.length === 0) return;
-  
+
   ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  
+  // NES 子彈為純白小箭頭, 無發光; 玩家彈與敵彈外觀相同 (區分由邏輯處理)
   for (let i = 0; i < bullets.length; i++) {
     const b = bullets[i];
     if (!b.alive) continue;
-    const glowImg = b.isPlayer ? RenderCache.glows.bullet : RenderCache.glows.enemyBullet;
-    ctx.drawImage(glowImg, b.x - 12 + b.size/2, b.y - 12 + b.size/2);
+    const cx = (b.x + b.size / 2) | 0;
+    const cy = (b.y + b.size / 2) | 0;
+    // 暗色描邊
+    ctx.fillStyle = '#000';
+    ctx.fillRect(cx - 3, cy - 3, 6, 6);
+    // 白色彈體
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(cx - 2, cy - 2, 4, 4);
+    // 朝向小尖端
+    if (b.dir === UP)         ctx.fillRect(cx - 1, cy - 4, 2, 2);
+    else if (b.dir === DOWN)  ctx.fillRect(cx - 1, cy + 2, 2, 2);
+    else if (b.dir === LEFT)  ctx.fillRect(cx - 4, cy - 1, 2, 2);
+    else                       ctx.fillRect(cx + 2, cy - 1, 2, 2);
   }
-  
-  for (let i = 0; i < bullets.length; i++) {
-    const b = bullets[i];
-    if (!b.alive) continue;
-    ctx.fillStyle = b.isPlayer ? '#ffffcc' : '#ffcccc';
-    ctx.fillRect(b.x, b.y, b.size, b.size);
-  }
-  
   ctx.restore();
 }
 
@@ -1201,10 +1554,14 @@ function spawnEnemy() {
   }
 
   const e = new Tank(sx, sy, DOWN, type, false);
-  G.enemies.push(e); 
-  G.enemiesSpawned++; 
+  G.enemies.push(e);
+  G.enemiesSpawned++;
   G.aliveEnemies++;
-  spawnExplosion(sx + 13, sy + 13, 'spark'); 
+  // NES 風格 spawn 動畫
+  G.spawnEffects.push({ x: sx, y: sy, size: TILE, life: 24, maxLife: 24 });
+  // spawn 短暫無敵
+  e.flashTimer = 24;
+  Sound.spawn();
   updateHUD();
 }
 
@@ -1218,9 +1575,10 @@ function checkLevelComplete() {
 
 function showUpgradeScreen() {
   G.state = 'upgrade';
+  Sound.jingleLevelClear();
   const ui = document.getElementById('upgradeUI');
   const container = document.getElementById('cards');
-  ui.classList.remove('hidden'); 
+  ui.classList.remove('hidden');
   container.innerHTML = '';
   
   const shuffled = [...UPGRADES].sort(() => 0.5 - Math.random()).slice(0, 3);
@@ -1274,11 +1632,11 @@ function startLevel() {
   G.enemiesSpawned = 0; 
   G.aliveEnemies = 0; 
   G.baseDestroyed = false;
-  bulletsPool.clear(); 
-  particlesPool.clear(); 
-  G.enemies = []; 
-  G.trails = [];
+  bulletsPool.clear();
+  particlesPool.clear();
+  G.enemies = [];
   G.scorePopups = [];
+  G.spawnEffects = [];
   
   G.map = generateMap(G.level); 
   cacheStaticMap();
@@ -1289,6 +1647,7 @@ function startLevel() {
   document.getElementById('overlay').classList.add('hidden');
   updateMobileControlsForMode();
   updateHUD();
+  Sound.jingleLevelStart();
 }
 
 function restartGame() {
@@ -1308,6 +1667,7 @@ function restartGame() {
 
 function showGameOver() {
   G.state = 'gameover';
+  Sound.jingleGameOver();
   const ov = document.getElementById('overlay');
   ov.classList.remove('hidden');
   ov.innerHTML = `<h2>SYSTEM FAILURE</h2>
@@ -1342,16 +1702,22 @@ function updateHUD() {
 }
 
 // ==================== 鍵盤輸入 ====================
-document.addEventListener('keydown', e => { 
-  G.keys[e.code] = true; 
-  if (e.code === 'F3') { 
-    e.preventDefault(); 
-    Perf.toggle(); 
-  }
-  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault(); 
+document.addEventListener('keydown', e => {
+  G.keys[e.code] = true;
+  if (e.code === 'F3') { e.preventDefault(); Perf.toggle(); }
+  if (e.code === 'KeyM') { e.preventDefault(); Sound.toggle(); }
+  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
 });
 document.addEventListener('keyup', e => G.keys[e.code] = false);
-document.getElementById('startBtn').addEventListener('click', restartGame);
+document.getElementById('startBtn').addEventListener('click', () => {
+  Sound.init(); Sound.resume();
+  restartGame();
+});
+document.getElementById('soundToggle').addEventListener('click', e => {
+  e.stopPropagation();
+  Sound.init(); Sound.resume();
+  Sound.toggle();
+});
 
 // ==================== 手機觸控輸入 ====================
 const MobileInput = {
@@ -1568,9 +1934,6 @@ function gameLoop() {
         if (G.keys['Space'] || G.keys['KeyJ'] || G.touch.fire) G.player.shoot();
       }
 
-      if (moved && G.frameCount % 4 === 0) {
-        G.trails.push({ x: G.player.x, y: G.player.y, size: G.player.size, life: 30, maxLife: 30 });
-      }
     }
 
     updateVSModeDifficulty();
@@ -1619,33 +1982,25 @@ function gameLoop() {
   if (G.state !== 'menu') {
     ctx.drawImage(staticCanvas, 0, 0); 
     
-    const wave = Math.sin(G.frameCount * 0.05) * 2;
+    const wavePhase = (G.frameCount >> 4) & 1;
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         const t = G.map[r][c];
         if (t === WATER) {
-          ctx.fillStyle = '#0a3060'; 
-          ctx.fillRect(c*TILE, r*TILE, TILE, TILE);
-          ctx.fillStyle = '#1a5090'; 
-          ctx.fillRect(c*TILE, r*TILE+6+wave, TILE, 3);
+          drawWaterNES(c * TILE, r * TILE, TILE, wavePhase);
         } else if (t === BASE || t === BASE_DEAD) {
-          const dead = t === BASE_DEAD;
-          ctx.fillStyle = dead ? '#200' : '#222'; 
-          ctx.fillRect(c*TILE, r*TILE, TILE, TILE);
-          ctx.fillStyle = dead ? '#f00' : '#e90'; 
-          ctx.font = '14px monospace'; 
-          ctx.fillText(dead ? '✕' : 'E', c*TILE+7, r*TILE+18);
+          drawEagleNES(c * TILE, r * TILE, TILE, t === BASE_DEAD);
         }
       }
     }
   }
 
-  for (let i = G.trails.length - 1; i >= 0; i--) {
-    const t = G.trails[i];
-    t.life--; 
-    if (t.life <= 0) { G.trails.splice(i, 1); continue; }
-    ctx.fillStyle = `rgba(0,0,0,${(t.life/t.maxLife)*0.4})`; 
-    ctx.fillRect(t.x+2, t.y+2, t.size-4, t.size-4);
+  // NES spawn 動畫
+  for (let i = G.spawnEffects.length - 1; i >= 0; i--) {
+    const sp = G.spawnEffects[i];
+    sp.life--;
+    if (sp.life <= 0) { G.spawnEffects.splice(i, 1); continue; }
+    drawNESSpawnEffect(sp.x, sp.y, sp.size, sp.life, sp.maxLife);
   }
 
   for (let i = 0; i < G.enemies.length; i++) G.enemies[i].draw();
