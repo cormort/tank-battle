@@ -533,7 +533,7 @@ const G = {
   keys: {}, map: [], player: null, basePos: null, playerSpawnPos: null,
   frameCount: 0, shakeTimer: 0, shakeIntensity: 0,
   vsModeStartFrame: 0,
-  enemies: [], scorePopups: [], particles: [], spawnEffects: [],
+  enemies: [], scorePopups: [], particles: [], spawnEffects: [], dynamicTiles: [],
   playerStats: { weapon: 'NORMAL', pierce: false, speedMult: 1, maxHp: 3, hp: 3 },
   // 手機輸入狀態
   touch: { dir: -1, fire: false, joyActive: false, joyDx: 0, joyDy: 0 },
@@ -747,34 +747,44 @@ function drawForestNES(cx2d, x, y, size) {
   }
 }
 
-function drawWaterNES(x, y, size, phase) {
-  // 深藍底 + 兩排淺藍波紋, 兩種交替 phase 形成動畫
-  ctx.fillStyle = '#1c4ca8';
-  ctx.fillRect(x, y, size, size);
-  ctx.fillStyle = '#74c0fc';
-  const half = size / 2;
-  // 上半部
-  if (phase === 0) {
-    ctx.fillRect(x + 2, y + 4, 6, 2);
-    ctx.fillRect(x + half + 2, y + 4, 6, 2);
-  } else {
-    ctx.fillRect(x + 4, y + 4, 6, 2);
-    ctx.fillRect(x + half + 4, y + 4, 4, 2);
-    ctx.fillRect(x, y + 4, 2, 2);
-  }
-  // 下半部 (反相)
-  if (phase === 0) {
-    ctx.fillRect(x + 4, y + half + 4, 6, 2);
-    ctx.fillRect(x + half + 4, y + half + 4, 4, 2);
-    ctx.fillRect(x, y + half + 4, 2, 2);
-  } else {
-    ctx.fillRect(x + 2, y + half + 4, 6, 2);
-    ctx.fillRect(x + half + 2, y + half + 4, 6, 2);
-  }
+// ===== Sprite 預渲染快取 (一次性建立, 之後只用 drawImage) =====
+const SpriteCache = {
+  waterPhase0: null,
+  waterPhase1: null,
+  eagleAlive: null,
+  eagleDead: null,
+};
+
+function _makeOffscreen(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  return { c, x: c.getContext('2d') };
 }
 
-function drawEagleNES(x, y, size, dead) {
-  // NES 老鷹 sprite: 用 13x13 像素圖案放大繪製
+function _bakeWaterTile(phase) {
+  const { c, x: gx } = _makeOffscreen(TILE, TILE);
+  gx.fillStyle = '#1c4ca8';
+  gx.fillRect(0, 0, TILE, TILE);
+  gx.fillStyle = '#74c0fc';
+  const half = TILE / 2;
+  if (phase === 0) {
+    gx.fillRect(2, 4, 6, 2);
+    gx.fillRect(half + 2, 4, 6, 2);
+    gx.fillRect(4, half + 4, 6, 2);
+    gx.fillRect(half + 4, half + 4, 4, 2);
+    gx.fillRect(0, half + 4, 2, 2);
+  } else {
+    gx.fillRect(4, 4, 6, 2);
+    gx.fillRect(half + 4, 4, 4, 2);
+    gx.fillRect(0, 4, 2, 2);
+    gx.fillRect(2, half + 4, 6, 2);
+    gx.fillRect(half + 2, half + 4, 6, 2);
+  }
+  return c;
+}
+
+function _bakeEagle(dead) {
+  const { c, x: gx } = _makeOffscreen(TILE, TILE);
   // 0=透明 1=主色 2=亮色 3=暗色
   const sprite = dead ? [
     [0,0,3,3,3,0,3,0,3,3,3,0,0],
@@ -805,35 +815,45 @@ function drawEagleNES(x, y, size, dead) {
     [0,0,2,2,1,1,1,1,1,2,2,0,0],
     [0,2,2,2,2,2,2,2,2,2,2,2,0],
   ];
-
-  ctx.fillStyle = '#000';
-  ctx.fillRect(x, y, size, size);
-
+  gx.fillStyle = '#000';
+  gx.fillRect(0, 0, TILE, TILE);
   const cols = 13;
-  const px = size / cols;
+  const px = TILE / cols;
   const palette = dead
     ? { 1: '#404040', 2: '#202020', 3: '#a02020' }
     : { 1: '#d0d0d0', 2: '#ffffff', 3: '#404040' };
-
   for (let py = 0; py < cols; py++) {
     for (let pxi = 0; pxi < cols; pxi++) {
       const v = sprite[py][pxi];
       if (v === 0) continue;
-      ctx.fillStyle = palette[v];
-      ctx.fillRect(x + pxi * px, y + py * px, px + 1, px + 1);
+      gx.fillStyle = palette[v];
+      gx.fillRect(pxi * px, py * px, px + 1, px + 1);
     }
   }
+  return c;
 }
+
+function initSpriteCache() {
+  SpriteCache.waterPhase0 = _bakeWaterTile(0);
+  SpriteCache.waterPhase1 = _bakeWaterTile(1);
+  SpriteCache.eagleAlive = _bakeEagle(false);
+  SpriteCache.eagleDead = _bakeEagle(true);
+}
+initSpriteCache();
 
 function cacheStaticMap() {
   staticCtx.clearRect(0, 0, W, H);
   forestCtx.clearRect(0, 0, W, H);
+  G.dynamicTiles = [];
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const t = G.map[r][c], x = c*TILE, y = r*TILE;
       if (t === BRICK) drawBrickNES(staticCtx, x, y, TILE);
       else if (t === STEEL) drawSteelNES(staticCtx, x, y, TILE);
       else if (t === FOREST) drawForestNES(forestCtx, x, y, TILE);
+      else if (t === WATER || t === BASE) {
+        G.dynamicTiles.push({ type: t, x, y, r, c });
+      }
     }
   }
 }
@@ -1234,6 +1254,11 @@ function updateBullet(b) {
       b.alive = false;
       G.map[br][bc] = BASE_DEAD;
       G.baseDestroyed = true;
+      // 同步更新 dynamicTiles 中對應 entry 的 type
+      for (let i = 0; i < G.dynamicTiles.length; i++) {
+        const dt = G.dynamicTiles[i];
+        if (dt.r === br && dt.c === bc) { dt.type = BASE_DEAD; break; }
+      }
       spawnExplosion(bc*TILE+13, br*TILE+13, 'big');
       triggerShake(20, 8);
       Sound.baseDestroyed();
@@ -1347,9 +1372,8 @@ function spawnExplosion(x, y, type) {
   }
 }
 
-function updateAndDrawParticles() {
+function updateParticles() {
   const arr = particlesPool.active;
-
   for (let i = 0; i < arr.length; i++) {
     const p = arr[i];
     if (!p.alive) continue;
@@ -1358,13 +1382,15 @@ function updateAndDrawParticles() {
     if (p.type === 'smoke') p.size += 0.1;
     if (p.life <= 0) p.alive = false;
   }
+  particlesPool.sweep();
+}
 
-  // NES 風格: 純色像素方塊, 不發光不疊加
+function drawParticles() {
+  const arr = particlesPool.active;
   ctx.save();
   for (let i = 0; i < arr.length; i++) {
     const p = arr[i];
     if (!p.alive || p.type !== 'spark') continue;
-    // 依生命週期切換顏色 (黃 -> 橘 -> 紅 -> 暗) 模擬 NES 爆炸幀
     const t = p.life / p.maxLife;
     if (p.color === '#5cd8ff') {
       ctx.fillStyle = t > 0.5 ? '#ffffff' : '#74c0fc';
@@ -1382,25 +1408,26 @@ function updateAndDrawParticles() {
     ctx.fillRect(p.x | 0, p.y | 0, p.size | 0, p.size | 0);
   }
   ctx.restore();
-
-  particlesPool.sweep();
 }
 
 function updateScorePopups() {
   for (let i = G.scorePopups.length - 1; i >= 0; i--) {
-    const p = G.scorePopups[i]; 
+    const p = G.scorePopups[i];
     p.y += p.vy; p.vy *= 0.95; p.life--;
-    if (p.life <= 0) { 
-      G.scorePopups.splice(i, 1); 
-      continue; 
-    }
-    ctx.save(); 
-    ctx.globalAlpha = p.life / 40; 
-    ctx.font = '10px "Press Start 2P"';
-    ctx.fillStyle = '#ffe680'; 
-    ctx.fillText(p.text, p.x, p.y); 
-    ctx.restore();
+    if (p.life <= 0) G.scorePopups.splice(i, 1);
   }
+}
+
+function drawScorePopups() {
+  ctx.save();
+  ctx.font = '10px "Press Start 2P"';
+  ctx.fillStyle = '#ffe680';
+  for (let i = 0; i < G.scorePopups.length; i++) {
+    const p = G.scorePopups[i];
+    ctx.globalAlpha = p.life / 40;
+    ctx.fillText(p.text, p.x, p.y);
+  }
+  ctx.restore();
 }
 
 // ==================== 子彈批處理渲染 (NES 風格) ====================
@@ -1889,9 +1916,14 @@ function updateMobileControlsForMode() {
 
 MobileInput.init();
 
-// ==================== 主迴圈 ====================
-function gameLoop() {
-  Perf.begin();
+// ==================== 主迴圈 (固定時間步長 60Hz 模擬, 任意刷新率渲染) ====================
+const TICK_HZ = 60;
+const TICK_MS = 1000 / TICK_HZ;
+const MAX_UPDATES_PER_FRAME = 5;   // 防止掉幀後 spiral of death
+let _accumMs = 0;
+let _lastFrameTime = 0;
+
+function update() {
   G.frameCount++;
 
   if (G.state === 'playing') {
@@ -1899,23 +1931,21 @@ function gameLoop() {
     for (let i = 0; i < G.enemies.length; i++) {
       spatialGrid.insert(G.enemies[i]);
     }
-    
+
     if (G.player && G.player.alive) {
       G.player.update();
       let moved = false;
-      
-      // 鍵盤輸入
+
       if (G.keys['ArrowUp'] || G.keys['KeyW']) { G.player.move(UP); moved = true; }
       else if (G.keys['ArrowRight'] || G.keys['KeyD']) { G.player.move(RIGHT); moved = true; }
       else if (G.keys['ArrowDown'] || G.keys['KeyS']) { G.player.move(DOWN); moved = true; }
       else if (G.keys['ArrowLeft'] || G.keys['KeyA']) { G.player.move(LEFT); moved = true; }
-      // 手機觸控輸入
       else if (G.touch.dir >= 0) { G.player.move(G.touch.dir); moved = true; }
-      
+
       if (!moved) G.player.moving = false;
 
       if (G.isVSMode) {
-        let nearest = null; 
+        let nearest = null;
         let minDist = Infinity;
         for (let i = 0; i < G.enemies.length; i++) {
           const e = G.enemies[i];
@@ -1933,19 +1963,18 @@ function gameLoop() {
       } else {
         if (G.keys['Space'] || G.keys['KeyJ'] || G.touch.fire) G.player.shoot();
       }
-
     }
 
     updateVSModeDifficulty();
-    
+
     const maxOnScreen = G.isVSMode ? CONFIG.GAMEPLAY.MAX_ENEMIES_ON_SCREEN_VS : CONFIG.GAMEPLAY.MAX_ENEMIES_ON_SCREEN;
     if (G.enemiesSpawned < G.maxEnemies && G.aliveEnemies < maxOnScreen) {
-      if (--G.spawnTimer <= 0) { 
-        spawnEnemy(); 
-        G.spawnTimer = G.spawnInterval; 
+      if (--G.spawnTimer <= 0) {
+        spawnEnemy();
+        G.spawnTimer = G.spawnInterval;
       }
     }
-    
+
     for (let i = 0; i < G.enemies.length; i++) {
       if (G.enemies[i].alive) updateEnemyAI(G.enemies[i]);
     }
@@ -1953,7 +1982,7 @@ function gameLoop() {
     const ba = bulletsPool.active;
     for (let i = 0; i < ba.length; i++) updateBullet(ba[i]);
     bulletsPool.sweep();
-    
+
     let writeIdx = 0;
     for (let i = 0; i < G.enemies.length; i++) {
       if (G.enemies[i].alive) {
@@ -1962,44 +1991,49 @@ function gameLoop() {
       }
     }
     G.enemies.length = writeIdx;
-    
-    if (G.baseDestroyed && !G.isVSMode) { 
-      G.state = 'gameover'; 
-      setTimeout(showGameOver, 1200); 
+
+    if (G.baseDestroyed && !G.isVSMode) {
+      G.state = 'gameover';
+      setTimeout(showGameOver, 1200);
     }
   }
 
+  // 視覺生命週期 (在所有狀態下都要 tick, 才能讓爆炸/分數/spawn 動畫消逝)
+  if (G.shakeTimer > 0) {
+    G.shakeTimer--;
+    G.shakeIntensity *= CONFIG.GAMEPLAY.SHAKE_DECAY;
+  }
+  for (let i = G.spawnEffects.length - 1; i >= 0; i--) {
+    if (--G.spawnEffects[i].life <= 0) G.spawnEffects.splice(i, 1);
+  }
+  updateScorePopups();
+  updateParticles();
+}
+
+function render() {
   ctx.save();
-  ctx.fillStyle = '#050508'; 
+  ctx.fillStyle = '#050508';
   ctx.fillRect(0, 0, W, H);
 
   if (G.shakeTimer > 0) {
-    G.shakeTimer--; 
-    ctx.translate((Math.random()-0.5) * G.shakeIntensity, (Math.random()-0.5) * G.shakeIntensity);
-    G.shakeIntensity *= CONFIG.GAMEPLAY.SHAKE_DECAY;
+    ctx.translate((Math.random() - 0.5) * G.shakeIntensity, (Math.random() - 0.5) * G.shakeIntensity);
   }
 
   if (G.state !== 'menu') {
-    ctx.drawImage(staticCanvas, 0, 0); 
-    
-    const wavePhase = (G.frameCount >> 4) & 1;
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const t = G.map[r][c];
-        if (t === WATER) {
-          drawWaterNES(c * TILE, r * TILE, TILE, wavePhase);
-        } else if (t === BASE || t === BASE_DEAD) {
-          drawEagleNES(c * TILE, r * TILE, TILE, t === BASE_DEAD);
-        }
-      }
+    ctx.drawImage(staticCanvas, 0, 0);
+    // 用 dynamicTiles + sprite 快取取代每幀 ROWS*COLS 掃描和 169 個 fillRect
+    const waterImg = ((G.frameCount >> 4) & 1) ? SpriteCache.waterPhase1 : SpriteCache.waterPhase0;
+    const tiles = G.dynamicTiles;
+    for (let i = 0; i < tiles.length; i++) {
+      const dt = tiles[i];
+      if (dt.type === WATER) ctx.drawImage(waterImg, dt.x, dt.y);
+      else if (dt.type === BASE) ctx.drawImage(SpriteCache.eagleAlive, dt.x, dt.y);
+      else if (dt.type === BASE_DEAD) ctx.drawImage(SpriteCache.eagleDead, dt.x, dt.y);
     }
   }
 
-  // NES spawn 動畫
-  for (let i = G.spawnEffects.length - 1; i >= 0; i--) {
+  for (let i = 0; i < G.spawnEffects.length; i++) {
     const sp = G.spawnEffects[i];
-    sp.life--;
-    if (sp.life <= 0) { G.spawnEffects.splice(i, 1); continue; }
     drawNESSpawnEffect(sp.x, sp.y, sp.size, sp.life, sp.maxLife);
   }
 
@@ -2007,22 +2041,40 @@ function gameLoop() {
   if (G.player && G.state === 'playing') G.player.draw();
 
   renderBullets();
-  
+
   if (G.state !== 'menu') ctx.drawImage(forestCanvas, 0, 0);
-  
-  updateAndDrawParticles();
-  
-  if (G.state !== 'menu') updateScorePopups();
+
+  drawParticles();
+  if (G.state !== 'menu') drawScorePopups();
 
   ctx.restore();
-  
-  Perf.end();
+}
+
+function gameLoop(now) {
+  if (!_lastFrameTime) _lastFrameTime = now;
+  let dt = now - _lastFrameTime;
+  _lastFrameTime = now;
+  // 切到背景再回來時 dt 會非常大, 限制以避免長時間補幀
+  if (dt > 250) dt = TICK_MS;
+  _accumMs += dt;
+
+  let updates = 0;
+  while (_accumMs >= TICK_MS && updates < MAX_UPDATES_PER_FRAME) {
+    Perf.begin();
+    update();
+    Perf.end();
+    _accumMs -= TICK_MS;
+    updates++;
+  }
+  // 若仍嚴重落後 (例如分頁喚醒後), 直接丟棄殘餘累積避免快轉
+  if (_accumMs > TICK_MS * MAX_UPDATES_PER_FRAME) _accumMs = 0;
+
+  render();
   Perf.updateUI();
-  
   requestAnimationFrame(gameLoop);
 }
 
-gameLoop();
+requestAnimationFrame(gameLoop);
 </script>
 </body>
 </html>
