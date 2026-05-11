@@ -3028,8 +3028,11 @@ function togglePause() {
     G.state = 'paused';
     ov.classList.add('translucent');
     ov.classList.remove('hidden');
-    ov.innerHTML = `<h2>PAUSED</h2><p>按 <b>P</b> 繼續</p><button class="start-btn" id="resumeBtn">繼續</button>`;
+    ov.innerHTML = `<h2>PAUSED</h2><p>按 <b>P</b> 繼續</p>
+      <button class="start-btn" id="resumeBtn" style="margin-top:15px;">繼續</button>
+      <button class="start-btn" id="shopBtn" style="margin-top:10px;background:linear-gradient(180deg,rgba(255,215,0,0.08),rgba(255,170,0,0.02));border-color:#ffd700;color:#ffd700;">商店 (B)</button>`;
     document.getElementById('resumeBtn').onclick = togglePause;
+    document.getElementById('shopBtn').onclick = () => { togglePause(); openShop(); };
     document.getElementById('resumeBtn').focus();
     Sound.pulse(440, 0.05, 0.2, 'square');
   } else if (G.state === 'paused') {
