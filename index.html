@@ -348,6 +348,7 @@ const CONFIG = {
     MAX_ENEMIES_ON_SCREEN_VS: 18,
     BOSS_LEVEL_INTERVAL: 5,
     VS_MODE_INTERVAL: 10,
+    UPGRADE_INTERVAL: 3,
     STARTING_CONTINUES: 3,
   },
   GRID: {
@@ -1099,7 +1100,7 @@ function applyLevelWeapon(weaponType) {
   const currentRoute = G.playerStats.route;
   const isSameRoute = !currentRoute || currentRoute === weaponData.route;
   
-  if (G.levelClearedCount >= 5 && isSameRoute) {
+  if (G.levelClearedCount >= CONFIG.GAMEPLAY.UPGRADE_INTERVAL && isSameRoute) {
     G.levelWeaponStacks[stackKey]++;
     G.playerStats.weaponDamageBonus = (G.playerStats.weaponDamageBonus || 0) + 0.2;
     addScorePopup(G.player.x, G.player.y - 20, `疊加 +20%`);
@@ -2619,11 +2620,25 @@ function spawnEnemyAt(x, y) {
   if (Math.random() < 0.3) {
     e.hasPowerUp = true;
     let powerTypes;
-    // 武器道具從第1關開始就有機會掉落
-    if (Math.random() < 0.5) {
-      powerTypes = WEAPON_DROPS;
+    const playerRoute = G.playerStats.route;
+    // 武器道具從第1關開始就有機會掉落，優先掉落同路線武器
+    if (Math.random() < 0.5 && playerRoute) {
+      const routeWeapons = Object.keys(WEAPON_TREE).filter(k => WEAPON_TREE[k].route === playerRoute);
+      if (routeWeapons.length > 0) {
+        const playerWeapon = G.playerStats.weapon;
+        const currentTier = WEAPON_TREE[playerWeapon]?.tier || 0;
+        const availableWeapons = routeWeapons.filter(w => (WEAPON_TREE[w].tier || 0) <= currentTier + 1);
+        if (availableWeapons.length > 0) {
+          powerTypes = availableWeapons.map(w => w + '_DROP').filter(t => POWER_UPS[t]);
+          if (powerTypes.length === 0) powerTypes = WEAPON_DROPS;
+        } else {
+          powerTypes = WEAPON_DROPS;
+        }
+      } else {
+        powerTypes = WEAPON_DROPS;
+      }
     } else {
-      powerTypes = ['BOMB', 'WALL', 'STAR', 'TIME', 'SHIELD', 'ONEUP'];
+      powerTypes = WEAPON_DROPS;
     }
     e.powerUpType = powerTypes[(Math.random() * powerTypes.length) | 0];
     e.glowTimer = 30;
@@ -2813,7 +2828,7 @@ function checkLevelComplete() {
   if (G.aliveEnemies <= 0 && G.enemiesSpawned >= G.maxEnemies) {
     G.state = 'levelComplete';
     G.levelClearedCount++;
-    if (G.level % 5 === 0) {
+    if (G.level % CONFIG.GAMEPLAY.UPGRADE_INTERVAL === 0) {
       setTimeout(showUpgradeScreen, 1200);
     } else {
       setTimeout(() => { G.level++; startLevel(); }, 1200);
@@ -2831,7 +2846,7 @@ function updateVSModeDifficulty() {
 function startLevel() {
   G.isVSMode = (G.level % CONFIG.GAMEPLAY.VS_MODE_INTERVAL === 0);
 
-  if (G.level % 5 !== 0) {
+  if (G.level % CONFIG.GAMEPLAY.UPGRADE_INTERVAL !== 0) {
     G.levelWeaponStacks = {};
     G.playerStats.weaponDamageBonus = 0;
   }
