@@ -3380,13 +3380,13 @@ function update() {
     updateSummonEntities();
 
     const maxOnScreen = G.isVSMode ? CONFIG.GAMEPLAY.MAX_ENEMIES_ON_SCREEN_VS : CONFIG.GAMEPLAY.MAX_ENEMIES_ON_SCREEN;
-    if (G.enemiesSpawned < G.maxEnemies && G.aliveEnemies < maxOnScreen) {
-      if (--G.spawnTimer <= 0) {
-        spawnEnemy();
-        G.spawnTimer = G.spawnInterval;
+    if (G.enemiesSpawned < G.maxEnemies) {
+      if (G.aliveEnemies < maxOnScreen) {
+        if (--G.spawnTimer <= 0) {
+          spawnEnemy();
+          G.spawnTimer = G.spawnInterval;
+        }
       }
-    } else if (G.enemiesSpawned >= G.maxEnemies) {
-      // 已生成完毕，等待清除
     }
 
     for (let i = 0; i < G.enemies.length; i++) {
