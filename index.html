@@ -925,7 +925,7 @@ function applyPassiveTick() {
           e.alive = false;
           spawnExplosion(e.x + e.size/2, e.y + e.size/2, e.type === 'BOSS' ? 'big' : 'tank');
           Sound.explode();
-          G.aliveEnemies--;
+          if (G.aliveEnemies > 0) G.aliveEnemies--;
           const pts = e.type === 'BOSS' ? 1000 : 100;
           G.score += pts;
           addScorePopup(e.x, e.y, `+${pts}`);
@@ -991,10 +991,12 @@ function dashPlayer() {
 }
 
 function callAirStrike() {
+  const currentLevel = G.level;
   for (let i = 0; i < 12; i++) {
     const x = Math.random() * W;
     const y = Math.random() * H;
     setTimeout(() => {
+      if (G.level !== currentLevel || G.state !== 'playing') return;
       spawnExplosion(x, y, 'big');
       triggerShake(3, 4);
       Sound.bigExplode();
@@ -1009,7 +1011,7 @@ function callAirStrike() {
             if (e.hp <= 0) { 
               e.alive = false; 
               G.score += e.type === 'BOSS' ? 500 : 50; 
-              G.aliveEnemies--;
+              if (G.aliveEnemies > 0) G.aliveEnemies--;
             }
           }
         }
@@ -1051,7 +1053,7 @@ function activatePowerUp(type) {
           e.alive = false;
           spawnExplosion(e.x + e.size/2, e.y + e.size/2, 'big');
           G.score += e.type === 'BOSS' ? 500 : 50;
-          G.aliveEnemies--;
+          if (G.aliveEnemies > 0) G.aliveEnemies--;
         }
       }
       triggerShake(15, 8);
@@ -2099,7 +2101,7 @@ function handleBulletHit(b, t) {
         spawnExplosion(G.player.x, G.player.y, 'spark');
       }
     } else {
-      G.aliveEnemies--;
+      if (G.aliveEnemies > 0) G.aliveEnemies--;
       const pts = t.type === 'BOSS' ? 1000 : (t.type === 'SUICIDE' ? 50 : (t.elitePrefix ? 150 : 100));
       G.score += pts;
       addScorePopup(t.x, t.y, `+${pts}`);
