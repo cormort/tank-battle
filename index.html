@@ -3385,6 +3385,8 @@ function update() {
         spawnEnemy();
         G.spawnTimer = G.spawnInterval;
       }
+    } else if (G.enemiesSpawned >= G.maxEnemies) {
+      // 已生成完毕，等待清除
     }
 
     for (let i = 0; i < G.enemies.length; i++) {
