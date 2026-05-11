@@ -30,7 +30,7 @@
   }
 
   #hud, #powerStatus, #gameContainer, #controls, #perfMonitor { position: relative; z-index: 2; }
-#gameContainer {
+  #gameContainer {
     position: relative; border-radius: 6px;
     box-shadow: 0 0 0 1px rgba(255,215,0,0.08), 0 0 30px rgba(255,170,0,0.1), 0 0 60px rgba(0,0,0,0.85);
   }
@@ -45,11 +45,6 @@
     display: flex; justify-content: space-between; align-items: center; width: 520px; gap: 8px;
     background: linear-gradient(180deg, #1e1e28 0%, #14141c 60%, #0e0e15 100%); color: #fff; font-size: 11px;
     border: 3px solid #3a3a45; border-bottom: 1px solid #222; border-radius: 6px 6px 0 0;
-  }
-  canvas {
-    display: block; border: 3px solid #3a3a45;
-    border-top: none; background-color: #000; image-rendering: pixelated;
-    border-radius: 0 0 6px 6px;
   }
   .hud-item { display: flex; align-items: center; gap: 6px; }
   .label { color: #6a6a78; font-size: 9px; }
@@ -286,7 +281,6 @@
 </div>
 <div id="controls">WASD / ARROWS MOVE &nbsp; · &nbsp; SPACE FIRE &nbsp; · &nbsp; F3 PERF</div>
 
-<!-- 手機虛擬控制器 -->
 <div id="mobileControls">
   <div id="joystickArea">
     <div id="joystickBase">
@@ -1391,19 +1385,15 @@ function generateMap(level) {
 }
 
 function drawBrickNES(cx2d, x, y, size) {
-  // NES 風格紅磚: 灰色底(磚縫) + 兩排交錯紅磚
   const half = size / 2;
   cx2d.fillStyle = '#7a7a7a';
   cx2d.fillRect(x, y, size, size);
   cx2d.fillStyle = '#b8401c';
-  // 上排: 兩塊半磚
   cx2d.fillRect(x + 1, y + 1, half - 2, half - 2);
   cx2d.fillRect(x + half + 1, y + 1, half - 2, half - 2);
-  // 下排: 錯開, 一整塊在中間 + 兩個四分之一在邊緣
   cx2d.fillRect(x + 1, y + half + 1, (half / 2) - 1, half - 2);
   cx2d.fillRect(x + (half / 2) + 1, y + half + 1, half - 2, half - 2);
   cx2d.fillRect(x + size - (half / 2), y + half + 1, (half / 2) - 1, half - 2);
-  // 高光
   cx2d.fillStyle = '#d96846';
   cx2d.fillRect(x + 1, y + 1, half - 2, 1);
   cx2d.fillRect(x + half + 1, y + 1, half - 2, 1);
@@ -1413,7 +1403,6 @@ function drawBrickNES(cx2d, x, y, size) {
 }
 
 function drawSteelNES(cx2d, x, y, size) {
-  // NES 風格鋼鐵: 四格分割, 每格有立體感
   const half = size / 2;
   for (let qy = 0; qy < 2; qy++) {
     for (let qx = 0; qx < 2; qx++) {
@@ -1432,7 +1421,6 @@ function drawSteelNES(cx2d, x, y, size) {
 }
 
 function drawForestNES(cx2d, x, y, size) {
-  // NES 風格樹叢: 多個小圓+暗色點構成蓬鬆葉
   cx2d.fillStyle = '#0a4a0a';
   cx2d.fillRect(x, y, size, size);
   cx2d.fillStyle = '#1f7a1f';
@@ -1452,99 +1440,70 @@ function drawForestNES(cx2d, x, y, size) {
   }
 }
 
-// ===== Sprite 預渲染快取 (一次性建立, 之後只用 drawImage) =====
-const SpriteCache = {
-  waterPhase0: null,
-  waterPhase1: null,
-  eagleAlive: null,
-  eagleDead: null,
-};
+const EAGLE_ALIVE_SPRITE = [
+  [0,0,0,0,2,2,2,2,2,0,0,0,0],
+  [0,0,0,2,2,1,1,1,2,2,0,0,0],
+  [0,0,2,2,1,1,3,1,1,2,2,0,0],
+  [2,2,2,1,1,3,3,3,1,1,2,2,2],
+  [2,1,2,1,3,3,3,3,3,1,2,1,2],
+  [2,1,1,1,1,3,3,3,1,1,1,1,2],
+  [2,1,1,3,1,1,3,1,1,3,1,1,2],
+  [0,2,1,3,3,1,1,1,3,3,1,2,0],
+  [0,0,2,1,3,3,3,3,3,1,2,0,0],
+  [0,0,0,2,1,3,3,3,1,2,0,0,0],
+  [0,0,0,2,1,1,3,1,1,2,0,0,0],
+  [0,0,2,2,1,1,1,1,1,2,2,0,0],
+  [0,2,2,2,2,2,2,2,2,2,2,2,0]
+];
 
-function _makeOffscreen(w, h) {
-  const c = document.createElement('canvas');
-  c.width = w; c.height = h;
-  return { c, x: c.getContext('2d') };
-}
+const EAGLE_DEAD_SPRITE = [
+  [0,0,3,3,3,0,3,0,3,3,3,0,0],
+  [0,3,3,0,3,3,3,3,3,0,3,3,0],
+  [3,3,0,0,0,3,3,3,0,0,0,3,3],
+  [3,0,0,3,0,0,3,0,0,3,0,0,3],
+  [3,0,3,3,3,0,0,0,3,3,3,0,3],
+  [0,3,3,0,0,3,3,3,0,0,3,3,0],
+  [3,0,0,3,3,3,3,3,3,3,0,0,3],
+  [3,3,0,0,3,3,3,3,3,0,0,3,3],
+  [0,3,3,3,0,0,3,0,0,3,3,3,0],
+  [3,0,0,3,3,3,3,3,3,3,0,0,3],
+  [3,3,0,0,0,3,3,3,0,0,0,3,3],
+  [0,3,3,3,0,0,3,0,0,3,3,3,0],
+  [3,0,0,3,3,3,3,3,3,3,0,0,3]
+];
 
-function _bakeWaterTile(phase) {
-  const { c, x: gx } = _makeOffscreen(TILE, TILE);
-  gx.fillStyle = '#1c4ca8';
-  gx.fillRect(0, 0, TILE, TILE);
-  gx.fillStyle = '#74c0fc';
+function drawWaterDirect(cx2d, x, y, phase) {
+  cx2d.fillStyle = '#1c4ca8';
+  cx2d.fillRect(x, y, TILE, TILE);
+  cx2d.fillStyle = '#74c0fc';
   const half = TILE / 2;
   if (phase === 0) {
-    gx.fillRect(2, 4, 6, 2);
-    gx.fillRect(half + 2, 4, 6, 2);
-    gx.fillRect(4, half + 4, 6, 2);
-    gx.fillRect(half + 4, half + 4, 4, 2);
-    gx.fillRect(0, half + 4, 2, 2);
+    cx2d.fillRect(x+2, y+4, 6, 2); cx2d.fillRect(x+half+2, y+4, 6, 2);
+    cx2d.fillRect(x+4, y+half+4, 6, 2); cx2d.fillRect(x+half+4, y+half+4, 4, 2);
+    cx2d.fillRect(x, y+half+4, 2, 2);
   } else {
-    gx.fillRect(4, 4, 6, 2);
-    gx.fillRect(half + 4, 4, 4, 2);
-    gx.fillRect(0, 4, 2, 2);
-    gx.fillRect(2, half + 4, 6, 2);
-    gx.fillRect(half + 2, half + 4, 6, 2);
+    cx2d.fillRect(x+4, y+4, 6, 2); cx2d.fillRect(x+half+4, y+4, 4, 2);
+    cx2d.fillRect(x, y+4, 2, 2); cx2d.fillRect(x+2, y+half+4, 6, 2);
+    cx2d.fillRect(x+half+2, y+half+4, 6, 2);
   }
-  return c;
 }
 
-function _bakeEagle(dead) {
-  const { c, x: gx } = _makeOffscreen(TILE, TILE);
-  // 0=透明 1=主色 2=亮色 3=暗色
-  const sprite = dead ? [
-    [0,0,3,3,3,0,3,0,3,3,3,0,0],
-    [0,3,3,0,3,3,3,3,3,0,3,3,0],
-    [3,3,0,0,0,3,3,3,0,0,0,3,3],
-    [3,0,0,3,0,0,3,0,0,3,0,0,3],
-    [3,0,3,3,3,0,0,0,3,3,3,0,3],
-    [0,3,3,0,0,3,3,3,0,0,3,3,0],
-    [3,0,0,3,3,3,3,3,3,3,0,0,3],
-    [3,3,0,0,3,3,3,3,3,0,0,3,3],
-    [0,3,3,3,0,0,3,0,0,3,3,3,0],
-    [3,0,0,3,3,3,3,3,3,3,0,0,3],
-    [3,3,0,0,0,3,3,3,0,0,0,3,3],
-    [0,3,3,3,0,0,3,0,0,3,3,3,0],
-    [3,0,0,3,3,3,3,3,3,3,0,0,3],
-  ] : [
-    [0,0,0,0,2,2,2,2,2,0,0,0,0],
-    [0,0,0,2,2,1,1,1,2,2,0,0,0],
-    [0,0,2,2,1,1,3,1,1,2,2,0,0],
-    [2,2,2,1,1,3,3,3,1,1,2,2,2],
-    [2,1,2,1,3,3,3,3,3,1,2,1,2],
-    [2,1,1,1,1,3,3,3,1,1,1,1,2],
-    [2,1,1,3,1,1,3,1,1,3,1,1,2],
-    [0,2,1,3,3,1,1,1,3,3,1,2,0],
-    [0,0,2,1,3,3,3,3,3,1,2,0,0],
-    [0,0,0,2,1,3,3,3,1,2,0,0,0],
-    [0,0,0,2,1,1,3,1,1,2,0,0,0],
-    [0,0,2,2,1,1,1,1,1,2,2,0,0],
-    [0,2,2,2,2,2,2,2,2,2,2,2,0],
-  ];
-  gx.fillStyle = '#000';
-  gx.fillRect(0, 0, TILE, TILE);
-  const cols = 13;
-  const px = TILE / cols;
-  const palette = dead
-    ? { 1: '#404040', 2: '#202020', 3: '#a02020' }
-    : { 1: '#d0d0d0', 2: '#ffffff', 3: '#404040' };
-  for (let py = 0; py < cols; py++) {
-    for (let pxi = 0; pxi < cols; pxi++) {
+function drawEagleDirect(cx2d, x, y, dead) {
+  const sprite = dead ? EAGLE_DEAD_SPRITE : EAGLE_ALIVE_SPRITE;
+  cx2d.fillStyle = '#000';
+  cx2d.fillRect(x, y, TILE, TILE);
+  const px = TILE / 13;
+  const palette = dead ? { 1: '#404040', 2: '#202020', 3: '#a02020' } : { 1: '#d0d0d0', 2: '#ffffff', 3: '#404040' };
+  for (let py = 0; py < 13; py++) {
+    for (let pxi = 0; pxi < 13; pxi++) {
       const v = sprite[py][pxi];
-      if (v === 0) continue;
-      gx.fillStyle = palette[v];
-      gx.fillRect(pxi * px, py * px, px + 1, px + 1);
+      if (v !== 0) {
+        cx2d.fillStyle = palette[v];
+        cx2d.fillRect(x + pxi * px, y + py * px, px + 1, px + 1);
+      }
     }
   }
-  return c;
 }
-
-function initSpriteCache() {
-  SpriteCache.waterPhase0 = _bakeWaterTile(0);
-  SpriteCache.waterPhase1 = _bakeWaterTile(1);
-  SpriteCache.eagleAlive = _bakeEagle(false);
-  SpriteCache.eagleDead = _bakeEagle(true);
-}
-initSpriteCache();
 
 function cacheStaticMap() {
   staticCtx.clearRect(0, 0, W, H);
@@ -1704,17 +1663,17 @@ class Tank {
     let ny = clampPos(this.y + DY[dir] * this.speed);
 
     if (nx < 1 || nx + this.size > W - 1 || ny < 1 || ny + this.size > H - 1) {
-      if (this.isPlayer) this._trySlide(dir);
+      if (this.isPlayer || G.isVSMode) this._trySlide(dir);
       else this.aiChangeTimer = 0;
       return;
     }
     if (checkTileCollision(nx, ny, this.size)) {
-      if (this.isPlayer) this._trySlide(dir);
+      if (this.isPlayer || G.isVSMode) this._trySlide(dir);
       else this.aiChangeTimer = 0;
       return;
     }
     if (this._hasEntityCollision(nx, ny)) {
-      if (this.isPlayer) this._trySlide(dir);
+      if (this.isPlayer || G.isVSMode) this._trySlide(dir);
       else this.aiChangeTimer = 0;
       return;
     }
@@ -1767,30 +1726,27 @@ class Tank {
   draw() {
     if (!this.alive) return;
 
-    // 重生無敵期: NES 經典旋轉護盾(取代後 sprite 繪製)
     if (this.isPlayer && this.flashTimer > 30) {
       drawNESShield(this.x, this.y, this.size);
     }
 
-    // 受擊閃爍: NES 風格 = 整個 sprite 隱藏一幀
     if (this.flashTimer > 0 && (G.frameCount & 2)) return;
 
     ctx.save();
 
-    // 顏色配置 (NES 調色板)
     let colMain, colDark, colLight;
     if (this.isPlayer) {
-      colMain = '#d4a72c';  colLight = '#fce560';  colDark = '#7a5a14';   // 黃色玩家坦克
+      colMain = '#d4a72c';  colLight = '#fce560';  colDark = '#7a5a14';
     } else if (this.type === 'FAST') {
-      colMain = '#dcdce8';  colLight = '#ffffff';  colDark = '#6a6a78';   // 白色快速兵
+      colMain = '#dcdce8';  colLight = '#ffffff';  colDark = '#6a6a78';
     } else if (this.type === 'HEAVY') {
-      colMain = '#5a8acc';  colLight = '#9ec0ff';  colDark = '#1c3a6a';   // 藍色重坦
+      colMain = '#5a8acc';  colLight = '#9ec0ff';  colDark = '#1c3a6a';
     } else if (this.type === 'SUICIDE') {
-      colMain = '#e84418';  colLight = '#ff8c4a';  colDark = '#7a1a04';   // 紅色自爆
+      colMain = '#e84418';  colLight = '#ff8c4a';  colDark = '#7a1a04';
     } else if (this.type === 'BOSS') {
-      colMain = '#a02020';  colLight = '#e84040';  colDark = '#400000';   // 暗紅 BOSS
+      colMain = '#a02020';  colLight = '#e84040';  colDark = '#400000';
     } else {
-      colMain = '#b8b8b8';  colLight = '#e8e8e8';  colDark = '#4a4a4a';   // 灰色一般敵
+      colMain = '#b8b8b8';  colLight = '#e8e8e8';  colDark = '#4a4a4a';
     }
 
     const s = this.size;
@@ -1800,24 +1756,20 @@ class Tank {
     const cy = y + s / 2;
     const isHoriz = (this.aimDir === LEFT || this.aimDir === RIGHT);
 
-    // 履帶: 兩條粗條, 帶交替分節
     const trackW = Math.max(3, (s / 7) | 0);
     const seg = Math.max(2, (s / 6) | 0);
-    const trackOffset = (G.frameCount >> 2) & 1;  // 移動時履帶交替
+    const trackOffset = (G.frameCount >> 2) & 1;
 
     ctx.fillStyle = colDark;
     if (isHoriz) {
-      // 水平: 履帶在上下
       ctx.fillRect(x, y, s, trackW);
       ctx.fillRect(x, y + s - trackW, s, trackW);
-      // 履帶分節
       ctx.fillStyle = colMain;
       for (let i = (trackOffset && this.moving) ? 0 : seg; i < s; i += seg * 2) {
         ctx.fillRect(x + i, y, seg, trackW);
         ctx.fillRect(x + i, y + s - trackW, seg, trackW);
       }
     } else {
-      // 垂直: 履帶在左右
       ctx.fillRect(x, y, trackW, s);
       ctx.fillRect(x + s - trackW, y, trackW, s);
       ctx.fillStyle = colMain;
@@ -1827,12 +1779,10 @@ class Tank {
       }
     }
 
-    // 車身: 中央矩形
     const bodyPad = trackW + 1;
     ctx.fillStyle = colMain;
     ctx.fillRect(x + bodyPad, y + bodyPad, s - bodyPad * 2, s - bodyPad * 2);
 
-    // 車身高光 (左上)
     ctx.fillStyle = colLight;
     if (isHoriz) {
       ctx.fillRect(x + bodyPad, y + bodyPad, s - bodyPad * 2, 1);
@@ -1840,7 +1790,6 @@ class Tank {
       ctx.fillRect(x + bodyPad, y + bodyPad, 1, s - bodyPad * 2);
     }
 
-    // 砲塔: 方形(NES 砲塔本體就是矩形)
     const turretSize = Math.max(6, (s * 0.45) | 0);
     const tx = (cx - turretSize / 2) | 0;
     const ty = (cy - turretSize / 2) | 0;
@@ -1853,7 +1802,6 @@ class Tank {
     ctx.fillRect(tx, ty + turretSize - 1, turretSize, 1);
     ctx.fillRect(tx + turretSize - 1, ty, 1, turretSize);
 
-    // 砲管: 矩形, 朝 aimDir
     const barrelW = Math.max(2, (s / 8) | 0);
     const barrelL = Math.max(6, (s * 0.45) | 0);
     ctx.fillStyle = colLight;
@@ -1867,13 +1815,11 @@ class Tank {
       ctx.fillRect(cx | 0, (cy - barrelW / 2) | 0, (x + s - cx) | 0, barrelW);
     }
 
-    // BOSS 加裝飾 (中央暗點)
     if (this.type === 'BOSS') {
       ctx.fillStyle = colDark;
       ctx.fillRect((cx - 2) | 0, (cy - 2) | 0, 4, 4);
     }
 
-    // 菁英詞綴效果
     if (this.elitePrefix && this.eliteEffects) {
       const eff = this.eliteEffects;
       ctx.fillStyle = eff.color;
@@ -1881,13 +1827,11 @@ class Tank {
       ctx.fillRect(x - 1, y - 1, s + 2, s + 2);
       ctx.globalAlpha = 1;
 
-      // 詞綴圖示
       ctx.fillStyle = eff.color;
       ctx.font = '8px Arial';
       ctx.fillText(eff.icon, x + 2, y - 3);
     }
 
-    // 多血敵兵血條
     if (this.maxHp > 1) {
       ctx.fillStyle = '#000';
       ctx.fillRect(x, y - 6, s, 3);
@@ -1899,7 +1843,6 @@ class Tank {
   }
 }
 
-// NES 坦克 spawn 旋轉星形動畫 (4 幀循環)
 function drawNESSpawnEffect(x, y, size, life, maxLife) {
   ctx.save();
   const frame = (((maxLife - life) >> 2) % 4);
@@ -1908,11 +1851,9 @@ function drawNESSpawnEffect(x, y, size, life, maxLife) {
   const r = size / 2;
   ctx.fillStyle = '#ffffff';
   if (frame === 0) {
-    // 十字
     ctx.fillRect((cx - 1) | 0, y, 2, size);
     ctx.fillRect(x, (cy - 1) | 0, size, 2);
   } else if (frame === 1) {
-    // 米字
     ctx.fillRect((cx - 1) | 0, y, 2, size);
     ctx.fillRect(x, (cy - 1) | 0, size, 2);
     for (let i = -r + 2; i <= r - 2; i += 2) {
@@ -1920,7 +1861,6 @@ function drawNESSpawnEffect(x, y, size, life, maxLife) {
       ctx.fillRect((cx + i) | 0, (cy - i) | 0, 2, 2);
     }
   } else if (frame === 2) {
-    // 八角邊框
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -1929,18 +1869,15 @@ function drawNESSpawnEffect(x, y, size, life, maxLife) {
     ctx.closePath();
     ctx.stroke();
   } else {
-    // 中心圓點
     ctx.fillRect((cx - 3) | 0, (cy - 3) | 0, 6, 6);
   }
   ctx.restore();
 }
 
-// NES 經典重生護盾 (兩個半圓組成的旋轉星形)
 function drawNESShield(x, y, size) {
   const phase = (G.frameCount >> 1) & 1;
   ctx.save();
   ctx.fillStyle = phase ? '#ffffff' : '#74c0fc';
-  // 上下左右 4 個小條 + 4 個對角條, 像 NES 護盾的星狀閃爍
   const t = 2;
   if (phase) {
     ctx.fillRect(x + size/2 - t/2, y - 2, t, size + 4);
@@ -1991,7 +1928,6 @@ function updateBullet(b) {
       }
       G.map[br][bc] = BASE_DEAD;
       G.baseDestroyed = true;
-      // 同步更新 dynamicTiles 中對應 entry 的 type
       for (let i = 0; i < G.dynamicTiles.length; i++) {
         const dt = G.dynamicTiles[i];
         if (dt.r === br && dt.c === bc) { dt.type = BASE_DEAD; break; }
@@ -2027,7 +1963,6 @@ function updateBullet(b) {
 }
 
 function handleBulletHit(b, t) {
-  // 護盾詞綴
   if (t.shieldHits > 0) {
     t.shieldHits--;
     b.alive = false;
@@ -2035,11 +1970,10 @@ function handleBulletHit(b, t) {
     return;
   }
 
-  // 被動技能：反應護盾 — 受傷後觸發 2 秒無敵
   if (G.playerStats.passives.includes('BARRIER') && G.playerStats.barrierTimer <= 0) {
     b.alive = false;
     spawnExplosion(b.x, b.y, 'shield');
-    G.playerStats.barrierTimer = 120; // 2 秒無敵
+    G.playerStats.barrierTimer = 120;
     return;
   }
   if (G.playerStats.barrierTimer > 0) {
@@ -2048,17 +1982,14 @@ function handleBulletHit(b, t) {
     return;
   }
 
-  // 消耗屏障時間
   if (G.playerStats.barrierTimer > 0) G.playerStats.barrierTimer--;
 
-  // 被動技能：狂暴核心
   let powerMult = 1;
   if (G.playerStats.passives.includes('RAGE') && G.player && t === G.player) {
     const hpRatio = G.playerStats.hp / G.playerStats.maxHp;
     powerMult = hpRatio < 0.5 ? 2 : hpRatio < 0.75 ? 1.5 : 1;
   }
 
-  // 被動技能：弱點分析
   if (G.playerStats.passives.includes('WEAKEN') && t.type === 'BOSS') {
     powerMult *= 1.5;
   }
@@ -2073,11 +2004,9 @@ function handleBulletHit(b, t) {
   if (t.hp <= 0) {
     t.alive = false;
 
-    // 爆炸詞綴
     if (t.elitePrefix === 'EXPLOSIVE') {
       spawnExplosion(t.x + t.size/2, t.y + t.size/2, 'big');
       triggerShake(8, 6);
-      // 對玩家造成傷害
       if (G.player && G.player.alive && G.player.flashTimer === 0) {
         G.playerStats.hp -= 0.5;
       }
@@ -2107,11 +2036,9 @@ function handleBulletHit(b, t) {
       G.aliveEnemies--;
       const pts = t.type === 'BOSS' ? 1000 : (t.type === 'SUICIDE' ? 50 : (t.elitePrefix ? 150 : 100));
       G.score += pts;
-      updateHUD();
       addScorePopup(t.x, t.y, `+${pts}`);
       addCombo(true);
 
-      // 道具掉落
       if (t.hasPowerUp && t.powerUpType) {
         G.powerUps.push({
           type: t.powerUpType,
@@ -2123,16 +2050,16 @@ function handleBulletHit(b, t) {
         });
       }
 
-      // 被動技能：超載電容（雷射擊殺敵人時觸發連鎖電擊）
       if (b.isPlayer && (b.type === 'PLASMA' || b.speed > CONFIG.BULLET.SPEED_PLAYER)) {
         const result = applyPassiveEffects(t, b, 'laser_kill');
-        if (result && result.triggered) { /* chainLightning 已由被動觸發 */ }
+        if (result && result.triggered) {  }
       }
 
-      // 被動技能：吸血
       if (G.playerStats.passives.includes('VAMPIRE')) {
         G.playerStats.hp = Math.min(G.playerStats.maxHp, G.playerStats.hp + 0.2);
       }
+
+      updateHUD();
 
       checkLevelComplete();
     }
@@ -2191,7 +2118,6 @@ function updateParticles() {
 function drawParticles() {
   const arr = particlesPool.active;
   ctx.save();
-  // 繪製火花
   for (let i = 0; i < arr.length; i++) {
     const p = arr[i];
     if (!p.alive || p.type !== 'spark') continue;
@@ -2204,7 +2130,6 @@ function drawParticles() {
     const sz = (p.size + 0.5) | 0;
     ctx.fillRect(p.x | 0, p.y | 0, sz, sz);
   }
-  // 繪製煙霧
   for (let i = 0; i < arr.length; i++) {
     const p = arr[i];
     if (!p.alive || p.type !== 'smoke') continue;
@@ -2241,19 +2166,15 @@ function renderBullets() {
   if (bullets.length === 0) return;
 
   ctx.save();
-  // NES 子彈為純白小箭頭, 無發光; 玩家彈與敵彈外觀相同 (區分由邏輯處理)
   for (let i = 0; i < bullets.length; i++) {
     const b = bullets[i];
     if (!b.alive) continue;
     const cx = (b.x + b.size / 2) | 0;
     const cy = (b.y + b.size / 2) | 0;
-    // 暗色描邊
     ctx.fillStyle = '#000';
     ctx.fillRect(cx - 3, cy - 3, 6, 6);
-    // 白色彈體
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(cx - 2, cy - 2, 4, 4);
-    // 朝向小尖端
     if (b.dir === UP)         ctx.fillRect(cx - 1, cy - 4, 2, 2);
     else if (b.dir === DOWN)  ctx.fillRect(cx - 1, cy + 2, 2, 2);
     else if (b.dir === LEFT)  ctx.fillRect(cx - 4, cy - 1, 2, 2);
@@ -2300,7 +2221,6 @@ const DIRECTOR_EVENTS = {
 function updateDirector() {
   if (!G.isVSMode || G.frameCount % 300 !== 0) return;
 
-  // 每 5 秒有概率觸發事件
   if (Math.random() < 0.15 && G.directorEvents.length === 0) {
     const events = Object.keys(DIRECTOR_EVENTS);
     const eventName = events[(Math.random() * events.length) | 0];
@@ -2316,7 +2236,6 @@ function updateDirectorEvents() {
     ev.life--;
 
     if (ev.type === 'airdrop') {
-      // 空投物資
     } else if (ev.type === 'orbital') {
       ev.timer++;
       if (ev.timer % 60 === 0) {
@@ -2381,9 +2300,8 @@ function activateMapEvent(ev) {
   mapEventState.volcanoTargets = [];
   mapEventState.iceFriction = false;
 
-  if (ev.id === 'ICE') G.playerStats.speedMult *= 0.6; // 初始減速
+  if (ev.id === 'ICE') G.playerStats.speedMult *= 0.6; 
   if (ev.id === 'EMP') {
-    // 場上所有玩家子彈速度減半
     for (const b of bulletsPool.active) {
       if (b.isPlayer && b.alive) b.speed *= 0.5;
     }
@@ -2397,24 +2315,20 @@ function updateMapEvent() {
 
   switch (mapEventState.type) {
     case 'DESERT':
-      // 沙漠: 玩家移速已降低，視覺上加沙塵
       break;
 
     case 'ICE':
-      // 冰原: 滑動慣性效果 - 玩家放開方向鍵後會滑行
       if (G.player && G.player.alive && G.player.moving) {
-        G.player.moving = true; // 持續慣性
+        G.player.moving = true;
       }
       break;
 
     case 'VOLCANIC':
-      // 火山: 每 90 幀在地圖上噴發岩漿
       mapEventState.volcanoTimer++;
       if (mapEventState.volcanoTimer % 90 === 0) {
         const rx = Math.random() * (W - TILE * 4) + TILE * 2;
         const ry = Math.random() * (H - TILE * 4) + TILE * 2;
         mapEventState.volcanoTargets.push({ x: rx, y: ry, life: 60 });
-        // 岩漿噴發傷害
         if (G.player && G.player.alive && Math.hypot(G.player.x - rx, G.player.y - ry) < TILE * 3) {
           G.playerStats.hp -= 0.3;
           triggerShake(5, 3);
@@ -2425,7 +2339,6 @@ function updateMapEvent() {
           }
         }
       }
-      // 更新火山岩漿位置
       for (let i = mapEventState.volcanoTargets.length - 1; i >= 0; i--) {
         const vt = mapEventState.volcanoTargets[i];
         vt.life--;
@@ -2434,22 +2347,18 @@ function updateMapEvent() {
       break;
 
     case 'EMP':
-      // EMP: 子彈速度持續減半效果已在啟動時應用
       break;
 
     case 'NIGHT':
-      // 夜戰: render 階段會自動套用暗色覆蓋
       break;
 
     case 'TOXIC':
-      // 毒霧: 每秒扣血
       if (G.frameCount % 60 === 0 && G.player && G.player.alive) {
         G.playerStats.hp -= 0.15;
       }
       break;
   }
 
-  // 事件結束
   if (mapEventState.timer <= 0) {
     deactivateMapEvent();
   }
@@ -2461,10 +2370,9 @@ function deactivateMapEvent() {
   mapEventState.type = null;
 
   if (evType === 'ICE') {
-    G.playerStats.speedMult /= 0.6; // 恢復原始速度
+    G.playerStats.speedMult /= 0.6; 
   }
   if (evType === 'EMP') {
-    // 子彈速度恢復已在 acquire 時重置
   }
 }
 
@@ -2473,19 +2381,16 @@ function drawMapEvent() {
 
   switch (mapEventState.type) {
     case 'DESERT':
-      // 沙塵視覺
       ctx.fillStyle = 'rgba(204,136,68,0.05)';
       ctx.fillRect(0, 0, W, H);
       break;
 
     case 'ICE':
-      // 寒冰視覺
       ctx.fillStyle = 'rgba(136,204,255,0.04)';
       ctx.fillRect(0, 0, W, H);
       break;
 
     case 'VOLCANIC':
-      // 火山視覺
       ctx.fillStyle = 'rgba(255,68,34,0.06)';
       ctx.fillRect(0, 0, W, H);
       for (const vt of mapEventState.volcanoTargets) {
@@ -2502,13 +2407,11 @@ function drawMapEvent() {
       break;
 
     case 'EMP':
-      // EMP 電磁脈衝視覺
       ctx.fillStyle = 'rgba(170,68,255,0.04)';
       ctx.fillRect(0, 0, W, H);
       break;
 
     case 'NIGHT':
-      // 夜戰: 暗色覆蓋 + 燈光範圍
       ctx.fillStyle = 'rgba(0,0,20,0.55)';
       ctx.fillRect(0, 0, W, H);
       if (G.player && G.player.alive) {
@@ -2524,7 +2427,6 @@ function drawMapEvent() {
       break;
 
     case 'TOXIC':
-      // 毒霧視覺
       ctx.fillStyle = 'rgba(68,255,68,0.04)';
       ctx.fillRect(0, 0, W, H);
       break;
@@ -2563,7 +2465,6 @@ function getDynamicPrice(basePrice) {
 }
 
 function updateEconomy() {
-  // 利息系統
   if (G.frameCount % 600 === 0) {
     const interest = Math.floor(G.permanentStats.scr * 0.02);
     G.permanentStats.scr += interest;
@@ -2572,11 +2473,9 @@ function updateEconomy() {
 
 // ==================== 特殊敵人 AI ====================
 function updateSpecialEnemyAI(e) {
-  // 特殊單位在此統一處理
   if (!e.alive) return;
 
   if (e.type === 'SNIPER') {
-    // 狙擊兵: 遠距離精準射擊
     if (G.player && G.player.alive) {
       const dx = G.player.x - e.x, dy = G.player.y - e.y;
       const dist = Math.hypot(dx, dy);
@@ -2589,7 +2488,6 @@ function updateSpecialEnemyAI(e) {
     }
   }
   if (e.type === 'ENGINEER') {
-    // 工程師: 週期性召喚小兵
     e.summonTimer = (e.summonTimer || 0) + 1;
     if (e.summonTimer >= 180) {
       e.summonTimer = 0;
@@ -2597,7 +2495,6 @@ function updateSpecialEnemyAI(e) {
     }
   }
   if (e.type === 'INTERFERER') {
-    // 幹擾兵: 週期性放置炸彈
     if (G.frameCount % 120 === 0 && G.player && G.player.alive) {
       G.summonEntities.push({
         type: 'bomb', x: G.player.x, y: G.player.y,
@@ -2606,7 +2503,6 @@ function updateSpecialEnemyAI(e) {
     }
   }
   if (e.type === 'GUARD') {
-    // 護衛兵: 盤旋在玩家附近並擊退靠近的玩家
     if (G.player && G.player.alive) {
       const dx = G.player.x - e.x, dy = G.player.y - e.y;
       const dist = Math.hypot(dx, dy);
@@ -2624,7 +2520,6 @@ function updateSpecialEnemyAI(e) {
     }
   }
   if (e.type === 'MINELAYER') {
-    // 地雷兵: 行動時放置地雷
     e.mineTimer = (e.mineTimer || 0) + 1;
     if (e.mineTimer >= 60 && G.player && G.player.alive) {
       e.mineTimer = 0;
@@ -2645,7 +2540,6 @@ function spawnEnemyAt(x, y) {
     clampPos(y + (Math.random() - 0.5) * TILE * 4),
     (Math.random() * 4) | 0, type, false
   );
-  // 20% 機率生成攜帶道具的發光敵軍
   if (Math.random() < 0.2) {
     e.hasPowerUp = true;
     const powerTypes = ['BOMB', 'WALL', 'STAR', 'TIME', 'SHIELD', 'ONEUP'];
@@ -2680,7 +2574,6 @@ function updateEnemyAI(e) {
     if (G.frameCount % 30 === 0) e.shoot();
   }
 
-  // 特殊敵人類型的專屬 AI
   if (['SNIPER', 'ENGINEER', 'INTERFERER', 'GUARD', 'MINELAYER'].includes(e.type)) {
     updateSpecialEnemyAI(e);
   }
@@ -2732,10 +2625,11 @@ function spawnEnemy() {
 
   if (G.isVSMode) {
     const edge = (Math.random() * 4) | 0;
-    if (edge === 0) { sx = Math.random()*(W-TILE); sy = TILE; }
-    else if (edge === 1) { sx = W-TILE*2; sy = Math.random()*(H-TILE); }
-    else if (edge === 2) { sx = Math.random()*(W-TILE); sy = H-TILE*2; }
-    else { sx = TILE; sy = Math.random()*(H-TILE); }
+    if (edge === 0) { sx = TILE + Math.random()*(W-TILE*3); sy = TILE; }
+    else if (edge === 1) { sx = W-TILE*2; sy = TILE + Math.random()*(H-TILE*3); }
+    else if (edge === 2) { sx = TILE + Math.random()*(W-TILE*3); sy = H-TILE*2; }
+    else { sx = TILE; sy = TILE + Math.random()*(H-TILE*3); }
+    
     sx = ((sx/TILE)|0)*TILE; 
     sy = ((sy/TILE)|0)*TILE;
 
@@ -2799,7 +2693,6 @@ function spawnEnemy() {
     else if (r < 0.4) type = 'SUICIDE';
   }
 
-  // 菁英敵人詞綴（VS模式）
   let elitePrefix = null;
   if (G.isVSMode && G.level > 3 && Math.random() < 0.1) {
     const prefixes = Object.keys(ELITE_PREFIXES);
@@ -2815,9 +2708,7 @@ function spawnEnemy() {
   G.enemies.push(e);
   G.enemiesSpawned++;
   G.aliveEnemies++;
-  // NES 風格 spawn 動畫
   G.spawnEffects.push({ x: sx, y: sy, size: TILE, life: 24, maxLife: 24 });
-  // spawn 短暫無敵
   e.flashTimer = 24;
   Sound.spawn();
   updateHUD();
@@ -2866,7 +2757,6 @@ function startLevel() {
   G.spawnEffects = [];
   deactivateMapEvent();
 
-  // 嘗試觸發新地圖事件（VS 模式且等級 >= 3）
   if (G.isVSMode && G.level >= 3 && Math.random() < 0.25) {
     const ev = MAP_EVENTS[(Math.random() * MAP_EVENTS.length) | 0];
     if (ev) activateMapEvent(ev);
@@ -2957,7 +2847,6 @@ function showFinalGameOver() {
   updateMobileControlsForMode();
 }
 
-// HUD DOM refs cached once
 const HUD = {
   score: document.getElementById('scoreDisplay'),
   lives: document.getElementById('livesDisplay'),
@@ -3012,7 +2901,6 @@ function updateHUD() {
 // ==================== 鍵盤輸入 ====================
 document.addEventListener('keydown', e => {
   G.keys[e.code] = true;
-  // Toggles 必須在 e.repeat 抓 — 否則按住鍵會以 keyrepeat 速率瘋狂切換
   if (!e.repeat) {
     if (e.code === 'F3') { e.preventDefault(); Perf.toggle(); }
     else if (e.code === 'KeyM') { e.preventDefault(); Sound.toggle(); }
@@ -3068,23 +2956,19 @@ const MobileInput = {
   init() {
     if (!IS_MOBILE) return;
     
-    // 預設位置
     this._updateJoyCenter();
     window.addEventListener('resize', () => this._updateJoyCenter());
     window.addEventListener('orientationchange', () => setTimeout(() => this._updateJoyCenter(), 200));
     
-    // 搖桿區域 (任意位置按下都算搖桿起點)
     this.joyArea.addEventListener('touchstart', this._onJoyStart.bind(this), { passive: false });
     this.joyArea.addEventListener('touchmove', this._onJoyMove.bind(this), { passive: false });
     this.joyArea.addEventListener('touchend', this._onJoyEnd.bind(this), { passive: false });
     this.joyArea.addEventListener('touchcancel', this._onJoyEnd.bind(this), { passive: false });
     
-    // 射擊按鈕
     this.fireBtn.addEventListener('touchstart', this._onFireStart.bind(this), { passive: false });
     this.fireBtn.addEventListener('touchend', this._onFireEnd.bind(this), { passive: false });
     this.fireBtn.addEventListener('touchcancel', this._onFireEnd.bind(this), { passive: false });
     
-    // 防止 iOS 雙擊縮放
     document.addEventListener('gesturestart', e => e.preventDefault());
     document.addEventListener('dblclick', e => e.preventDefault());
   },
@@ -3102,12 +2986,10 @@ const MobileInput = {
     const touch = e.changedTouches[0];
     this.joyTouchId = touch.identifier;
     
-    // 動態搖桿: 觸摸點即為搖桿基座中心
     const areaRect = this.joyArea.getBoundingClientRect();
     let cx = touch.clientX;
     let cy = touch.clientY;
     
-    // 限制搖桿在區域內(避免被擠到角落)
     cx = Math.max(areaRect.left + 70, Math.min(areaRect.right - 70, cx));
     cy = Math.max(areaRect.top + 70, Math.min(areaRect.bottom - 70, cy));
     
@@ -3142,10 +3024,8 @@ const MobileInput = {
         G.touch.joyActive = false;
         G.touch.joyDx = 0;
         G.touch.joyDy = 0;
-        // 搖桿回中
         this.joyStick.style.left = '50%';
         this.joyStick.style.top = '50%';
-        // 還原預設位置
         this.joyBase.style.left = '30px';
         this.joyBase.style.bottom = '30px';
         this._updateJoyCenter();
@@ -3160,7 +3040,6 @@ const MobileInput = {
     const dist = Math.hypot(dx, dy);
     const maxR = CONFIG.MOBILE.JOYSTICK_MAX_RADIUS;
     
-    // 計算搖桿視覺位置
     const clampedDist = Math.min(dist, maxR);
     const ratio = dist > 0 ? clampedDist / dist : 0;
     const visualDx = dx * ratio;
@@ -3169,7 +3048,6 @@ const MobileInput = {
     this.joyStick.style.left = `calc(50% + ${visualDx}px)`;
     this.joyStick.style.top = `calc(50% + ${visualDy}px)`;
     
-    // 計算方向(歸一化)
     const normDist = clampedDist / maxR;
     if (normDist < CONFIG.MOBILE.JOYSTICK_DEADZONE) {
       G.touch.dir = -1;
@@ -3180,7 +3058,6 @@ const MobileInput = {
       G.touch.joyActive = true;
       G.touch.joyDx = dx;
       G.touch.joyDy = dy;
-      // 4 方向離散化
       G.touch.dir = Math.abs(dx) > Math.abs(dy)
         ? (dx > 0 ? RIGHT : LEFT)
         : (dy > 0 ? DOWN : UP);
@@ -3226,7 +3103,7 @@ MobileInput.init();
 // ==================== 主迴圈 (固定時間步長 60Hz 模擬, 任意刷新率渲染) ====================
 const TICK_HZ = 60;
 const TICK_MS = 1000 / TICK_HZ;
-const MAX_UPDATES_PER_FRAME = 5;   // 防止掉幀後 spiral of death
+const MAX_UPDATES_PER_FRAME = 5;
 let _accumMs = 0;
 let _lastFrameTime = 0;
 
@@ -3239,11 +3116,9 @@ function update() {
       spatialGrid.insert(G.enemies[i]);
     }
 
-    // 處理主動技能按鍵
     if (G.keys['KeyQ'] && !G.keys._qUsed) { G.keys._qUsed = true; triggerActiveSkill(); }
     if (!G.keys['KeyQ']) G.keys._qUsed = false;
 
-    // 更新技能冷卻
     if (G.playerStats.activeCooldown > 0) G.playerStats.activeCooldown--;
     if (G.playerStats.boostTimer > 0) G.playerStats.boostTimer--;
     if (G.playerStats.invulTimer > 0) G.playerStats.invulTimer--;
@@ -3262,7 +3137,6 @@ function update() {
 
       if (!moved) G.player.moving = false;
 
-      // 道具收集
       for (let i = 0; i < G.powerUps.length; i++) {
         const pu = G.powerUps[i];
         if (!pu.alive) continue;
@@ -3295,19 +3169,16 @@ function update() {
       }
     }
 
-    // Director System
     updateDirector();
     updateDirectorEvents();
 
     updateVSModeDifficulty();
 
-    // 地圖事件效果
     if (mapEventState.active) {
       updateMapEvent();
       drawMapEvent();
     }
 
-    // 更新召喚實體
     updateSummonEntities();
 
     const maxOnScreen = G.isVSMode ? CONFIG.GAMEPLAY.MAX_ENEMIES_ON_SCREEN_VS : CONFIG.GAMEPLAY.MAX_ENEMIES_ON_SCREEN;
@@ -3343,7 +3214,6 @@ function update() {
     updateEconomy();
   }
 
-  // 視覺生命週期
   if (G.shakeTimer > 0) {
     G.shakeTimer--;
     G.shakeIntensity *= CONFIG.GAMEPLAY.SHAKE_DECAY;
@@ -3403,7 +3273,6 @@ function updateSummonEntities() {
     if (se.life <= 0) se.alive = false;
   }
 
-  // 清理死亡實體 (原地 sweep，減少 GC)
   let writeIdx = 0;
   for (let i = 0; i < G.summonEntities.length; i++) {
     if (G.summonEntities[i].alive) {
@@ -3413,13 +3282,11 @@ function updateSummonEntities() {
   }
   G.summonEntities.length = writeIdx;
 
-  // 更新道具壽命
   for (let i = G.powerUps.length - 1; i >= 0; i--) {
     const pu = G.powerUps[i];
     pu.life--;
     if (pu.life <= 0) pu.alive = false;
   }
-  // 清理過期道具
   let puWrite = 0;
   for (let i = 0; i < G.powerUps.length; i++) {
     if (G.powerUps[i].alive) {
@@ -3429,7 +3296,6 @@ function updateSummonEntities() {
   }
   G.powerUps.length = puWrite;
 
-  // 更新 WALL 和 TIME 效果
   if (G.wallTimer > 0) G.wallTimer--;
   if (G.timeFreezeTimer > 0) G.timeFreezeTimer--;
 }
@@ -3443,7 +3309,6 @@ function drawSummonEntities() {
       ctx.fillRect(se.x, se.y, TILE, TILE);
       ctx.fillStyle = '#88ff88';
       ctx.fillRect(se.x + 4, se.y + 4, TILE - 8, TILE - 8);
-      // 血條
       const hpRatio = se.life / se.maxLife;
       ctx.fillStyle = '#000';
       ctx.fillRect(se.x, se.y - 4, TILE, 2);
@@ -3484,7 +3349,6 @@ function drawPowerUps() {
 function drawDirectorEvents() {
   for (const ev of G.directorEvents) {
     if (ev.type === 'orbital') {
-      // 繪製預警圈
       for (const t of ev.targets) {
         const alpha = (ev.timer > 180) ? 1 : (ev.timer % 60 < 30) ? 0.5 : 0.8;
         ctx.strokeStyle = `rgba(255,0,0,${alpha})`;
@@ -3504,7 +3368,6 @@ function drawDirectorEvents() {
     }
   }
 
-  // 事件提示
   if (G.directorEvents.length > 0 && G.directorEvents[0].name) {
     ctx.fillStyle = '#ffd700';
     ctx.font = '10px "Press Start 2P"';
@@ -3519,7 +3382,6 @@ function render() {
   ctx.fillStyle = '#050508';
   ctx.fillRect(0, 0, W, H);
 
-  // 夜戰地圖事件效果
   if (G.mapEvent && G.mapEvent.id === 'NIGHT') {
     ctx.fillStyle = 'rgba(0,0,30,0.5)';
     ctx.fillRect(0, 0, W, H);
@@ -3531,13 +3393,13 @@ function render() {
 
   if (G.state !== 'menu') {
     ctx.drawImage(staticCanvas, 0, 0);
-    const waterImg = ((G.frameCount >> 4) & 1) ? SpriteCache.waterPhase1 : SpriteCache.waterPhase0;
+    const phase = ((G.frameCount >> 4) & 1);
     const tiles = G.dynamicTiles;
     for (let i = 0; i < tiles.length; i++) {
       const dt = tiles[i];
-      if (dt.type === WATER) ctx.drawImage(waterImg, dt.x, dt.y);
-      else if (dt.type === BASE) ctx.drawImage(SpriteCache.eagleAlive, dt.x, dt.y);
-      else if (dt.type === BASE_DEAD) ctx.drawImage(SpriteCache.eagleDead, dt.x, dt.y);
+      if (dt.type === WATER) drawWaterDirect(ctx, dt.x, dt.y, phase);
+      else if (dt.type === BASE) drawEagleDirect(ctx, dt.x, dt.y, false);
+      else if (dt.type === BASE_DEAD) drawEagleDirect(ctx, dt.x, dt.y, true);
     }
   }
 
@@ -3559,7 +3421,6 @@ function render() {
   drawDirectorEvents();
   if (G.state !== 'menu') drawScorePopups();
 
-  // COMBO顯示
   if (G.playerStats.combo > 0) {
     ctx.fillStyle = '#ff6600';
     ctx.font = '12px "Press Start 2P"';
@@ -3573,7 +3434,6 @@ function gameLoop(now) {
   if (!_lastFrameTime) _lastFrameTime = now;
   let dt = now - _lastFrameTime;
   _lastFrameTime = now;
-  // 切到背景再回來時 dt 會非常大, 限制以避免長時間補幀
   if (dt > 250) dt = TICK_MS;
   _accumMs += dt;
 
@@ -3585,7 +3445,6 @@ function gameLoop(now) {
     _accumMs -= TICK_MS;
     updates++;
   }
-  // 若仍嚴重落後 (例如分頁喚醒後), 直接丟棄殘餘累積避免快轉
   if (_accumMs > TICK_MS * MAX_UPDATES_PER_FRAME) _accumMs = 0;
 
   render();
