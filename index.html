@@ -102,6 +102,13 @@
   .card-title { color: #5cd8ff; font-size: 11px; margin-bottom: 12px; line-height: 1.4; text-shadow: 0 0 5px rgba(92,216,255,0.4); }
   .card-desc { color: #888; font-size: 8px; line-height: 1.6; }
 
+  .shop-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; max-width: 520px; margin: 15px auto; }
+  .shop-item {
+    background: linear-gradient(180deg, #1e1e28, #111); border: 2px solid #3a3a45; padding: 12px 8px;
+    border-radius: 6px; cursor: pointer; transition: all 0.2s ease; text-align: center;
+  }
+  .shop-item:hover { border-color: #ffd700; transform: translateY(-3px); box-shadow: 0 6px 15px rgba(255,215,0,0.3); }
+
   .start-btn {
     margin-top: 28px; padding: 14px 40px; font-size: 14px; font-family: 'Press Start 2P', monospace;
     background: linear-gradient(180deg, rgba(255,215,0,0.08), rgba(255,170,0,0.02)); color: #ffd700;
@@ -667,8 +674,26 @@ const POWER_UPS = {
   STAR: { name: '火力', desc: '武器升一級', icon: '⭐', color: '#ffd700', duration: 0 },
   TIME: { name: '時光', desc: '凍敵 10 秒', icon: '⏱️', color: '#00ffff', duration: 10 },
   SHIELD: { name: '護盾', desc: '無敵 10 秒', icon: '🛡️', color: '#8800ff', duration: 10 },
-  ONEUP: { name: '+1', desc: '接關次數+1', icon: '❤️', color: '#ff69b4', duration: 0 }
+  ONEUP: { name: '+1', desc: '接關次數+1', icon: '❤️', color: '#ff69b4', duration: 0 },
+  RAPID_DROP: { name: '快速射擊', desc: '射速+30% (本關有效)', icon: '⚡', color: '#ff6b00', duration: 0, weaponType: 'RAPID' },
+  SPREAD_DROP: { name: '散彈', desc: '扇形射擊 (本關有效)', icon: '💫', color: '#ffdd00', duration: 0, weaponType: 'SPREAD' },
+  PLASMA_DROP: { name: '電漿炮', desc: '貫穿彈 (本關有效)', icon: '🔷', color: '#00ddff', duration: 0, weaponType: 'PLASMA' },
+  GATLING_DROP: { name: '格林機槍', desc: '雙管掃射 (本關有效)', icon: '🔥', color: '#ff4400', duration: 0, weaponType: 'GATLING' },
+  CLUSTER_DROP: { name: '集束彈', desc: '分裂彈 (本關有效)', icon: '💛', color: '#ffaa00', duration: 0, weaponType: 'CLUSTER' },
+  LASER_DROP: { name: '光束炮', desc: '追蹤光束 (本關有效)', icon: '🔶', color: '#00aaff', duration: 0, weaponType: 'D_LASER' }
 };
+
+const WEAPON_DROPS = ['RAPID_DROP', 'SPREAD_DROP', 'PLASMA_DROP', 'GATLING_DROP', 'CLUSTER_DROP', 'LASER_DROP'];
+
+const SHOP_ITEMS = [
+  { id: 'HEALTH_PLUS', name: '生命+1', desc: '最大生命值+1', icon: '❤️', color: '#ff69b4', price: 500, type: 'health' },
+  { id: 'SPEED_BOOST', name: '移動加速', desc: '移動速度+20%', icon: '⚡', color: '#44ff44', price: 800, type: 'speed' },
+  { id: 'PIERCE_AMMO', name: '穿甲彈', desc: '子彈可貫穿敵人', icon: '🎯', color: '#ffaa00', price: 1200, type: 'pierce' },
+  { id: 'RAPID_FIRE', name: '快速射擊', desc: '射速+25%', icon: '🔥', color: '#ff6b00', price: 1000, type: 'rapid' },
+  { id: 'EXTRA_LIFE', name: '額外生命', desc: '接關次數+1', icon: '💖', color: '#ff0000', price: 600, type: 'life' },
+  { id: 'PERM_WALL', name: '永久堡壘', desc: '鋼鐵城墙永久有效', icon: '🏰', color: '#888888', price: 2000, type: 'wall' },
+  { id: 'WEAPON_UP', name: '武器升級', desc: '武器升一級', icon: '⭐', color: '#ffd700', price: 1500, type: 'weapon' }
+];
 
 // 全域狀態
 const G = {
@@ -692,7 +717,8 @@ const G = {
   directorEvents: [],
   touch: { dir: -1, fire: false, joyActive: false, joyDx: 0, joyDy: 0 },
   wallTimer: 0, timeFreezeTimer: 0,
-  permanentStats: { scr: 0, upgradePoints: 0, permanentWall: false }
+  permanentStats: { scr: 0, upgradePoints: 0, permanentWall: false },
+  levelWeaponStacks: {}, levelClearedCount: 0
 };
 
 // ==================== 升級卡系統（分支流派） ====================
@@ -985,8 +1011,12 @@ function callAirStrike() {
           const dist = Math.hypot(dx, dy);
           if (dist < 40) {
             e.hp -= 3;
-            spawnPopup(e.x, e.y, '-3', '#ff0');
-            if (e.hp <= 0) { e.alive = false; G.score += e.type === 'BOSS' ? 500 : 50; }
+            addScorePopup(e.x, e.y, '-3');
+            if (e.hp <= 0) { 
+              e.alive = false; 
+              G.score += e.type === 'BOSS' ? 500 : 50; 
+              G.aliveEnemies--;
+            }
           }
         }
       }
@@ -1016,7 +1046,7 @@ function boostMode() {
 function activatePowerUp(type) {
   const pu = POWER_UPS[type];
   if (!pu) return;
-  Sound.play('click');
+  Sound.pulse(440, 0.05, 0.2, 'square');
 
   switch (type) {
     case 'BOMB':
@@ -1055,7 +1085,38 @@ function activatePowerUp(type) {
     case 'ONEUP':
       G.continues++;
       break;
+    default:
+      if (pu.weaponType) {
+        applyLevelWeapon(pu.weaponType);
+      }
+      break;
   }
+}
+
+function applyLevelWeapon(weaponType) {
+  const stackKey = weaponType;
+  if (!G.levelWeaponStacks[stackKey]) {
+    G.levelWeaponStacks[stackKey] = 0;
+  }
+  
+  const weaponData = WEAPON_TREE[weaponType];
+  if (!weaponData) return;
+  
+  if (G.levelClearedCount >= 5) {
+    G.levelWeaponStacks[stackKey]++;
+    addScorePopup(G.player.x, G.player.y - 20, `疊加 x${G.levelWeaponStacks[stackKey]}`);
+  } else {
+    if (G.levelWeaponStacks[stackKey] === 0) {
+      G.playerStats.weapon = weaponType;
+      G.playerStats.weaponTier = weaponData.tier;
+      G.playerStats.route = weaponData.route;
+      if (G.player) G.player.applyTypeStats();
+      addScorePopup(G.player.x, G.player.y - 20, weaponData.name);
+    }
+  }
+  
+  const mult = 1 + G.levelWeaponStacks[stackKey] * 0.3;
+  G.playerStats.weaponDamageMult = (G.playerStats.weaponDamageMult || 1) * mult;
 }
 
 // ==================== 武器射擊系統（擴展） ====================
@@ -1149,7 +1210,11 @@ function spawnBullet(x, y, dir, isPlayer, pierce = false, power = 1) {
   b.dir = dir;
   b.isPlayer = isPlayer;
   b.pierce = pierce;
-  b.power = power;
+  let finalPower = power;
+  if (isPlayer && G.playerStats.weaponDamageMult) {
+    finalPower = power * G.playerStats.weaponDamageMult;
+  }
+  b.power = finalPower;
   b.vx = DX[dir];
   b.vy = DY[dir];
   b.speed = isPlayer ? CONFIG.BULLET.SPEED_PLAYER : CONFIG.BULLET.SPEED_ENEMY;
@@ -1159,6 +1224,7 @@ function spawnBullet(x, y, dir, isPlayer, pierce = false, power = 1) {
 function spawnSpreadBullets(cx, cy, count, spreadAngle) {
   const baseDir = G.player ? G.player.aimDir : DOWN;
   const dx = DX[baseDir], dy = DY[baseDir];
+  const powerMult = G.playerStats.weaponDamageMult || 1;
 
   for (let i = 0; i < count; i++) {
     const angle = spreadAngle * (i - (count - 1) / 2);
@@ -1173,7 +1239,7 @@ function spawnSpreadBullets(cx, cy, count, spreadAngle) {
     b.vx = vx;
     b.vy = vy;
     b.speed = CONFIG.BULLET.SPEED_PLAYER * 0.8;
-    b.power = 1;
+    b.power = 1 * powerMult;
     b.hitTanks.length = 0;
   }
 }
@@ -1218,7 +1284,7 @@ function spawnChainBullet(x, y, target) {
     b.vx = dx / len; b.vy = dy / len;
     b.speed = 8;
     b.isPlayer = true;
-    b.power = 0.5;
+    b.power = 0.5 * (G.playerStats.weaponDamageMult || 1);
     b.chainCount = 1;
     b.hitTanks.length = 0;
   }
@@ -1247,7 +1313,7 @@ function chainLightning(x, y, source) {
     b.speed = 10;
     b.isPlayer = true;
     b.pierce = false;
-    b.power = 1;
+    b.power = 1 * (G.playerStats.weaponDamageMult || 1);
     b.type = 'PLASMA';
     b.hitTanks.length = 0;
     spawnExplosion(x, y, 'spark');
@@ -2645,10 +2711,16 @@ function spawnEnemyAt(x, y) {
     clampPos(y + (Math.random() - 0.5) * TILE * 4),
     (Math.random() * 4) | 0, type, false
   );
-  // 20% 機率生成攜帶道具的發光敵軍
-  if (Math.random() < 0.2) {
+  // 30% 機率生成攜帶道具的發光敵軍
+  if (Math.random() < 0.3) {
     e.hasPowerUp = true;
-    const powerTypes = ['BOMB', 'WALL', 'STAR', 'TIME', 'SHIELD', 'ONEUP'];
+    let powerTypes;
+    // 武器道具從第1關開始就有機會掉落
+    if (Math.random() < 0.5) {
+      powerTypes = WEAPON_DROPS;
+    } else {
+      powerTypes = ['BOMB', 'WALL', 'STAR', 'TIME', 'SHIELD', 'ONEUP'];
+    }
     e.powerUpType = powerTypes[(Math.random() * powerTypes.length) | 0];
     e.glowTimer = 30;
   }
@@ -2812,6 +2884,18 @@ function spawnEnemy() {
   e.shieldHits = elitePrefix === 'SHIELDED' ? 3 : 0;
   e.regenTimer = 0;
   e.summonTimer = 0;
+  // 30% 機率攜帶道具
+  if (Math.random() < 0.3) {
+    e.hasPowerUp = true;
+    let powerTypes;
+    if (Math.random() < 0.5) {
+      powerTypes = WEAPON_DROPS;
+    } else {
+      powerTypes = ['BOMB', 'WALL', 'STAR', 'TIME', 'SHIELD', 'ONEUP'];
+    }
+    e.powerUpType = powerTypes[(Math.random() * powerTypes.length) | 0];
+    e.glowTimer = 30;
+  }
   G.enemies.push(e);
   G.enemiesSpawned++;
   G.aliveEnemies++;
@@ -2827,6 +2911,7 @@ function spawnEnemy() {
 function checkLevelComplete() {
   if (G.aliveEnemies <= 0 && G.enemiesSpawned >= G.maxEnemies) {
     G.state = 'levelComplete';
+    G.levelClearedCount++;
     if (G.level % 5 === 0) {
       setTimeout(showUpgradeScreen, 1200);
     } else {
@@ -2844,6 +2929,11 @@ function updateVSModeDifficulty() {
 
 function startLevel() {
   G.isVSMode = (G.level % CONFIG.GAMEPLAY.VS_MODE_INTERVAL === 0);
+
+  if (G.level % 5 !== 0) {
+    G.levelWeaponStacks = {};
+    G.playerStats.weaponDamageMult = 1;
+  }
 
   if (G.isVSMode) {
     G.maxEnemies = 50 + G.level * 4;
@@ -2890,12 +2980,14 @@ function restartGame() {
   G.score = 0;
   G.level = 1;
   G.continues = CONFIG.GAMEPLAY.STARTING_CONTINUES;
+  G.levelWeaponStacks = {};
+  G.levelClearedCount = 0;
   G.playerStats = {
     weapon: 'NORMAL', weaponTier: 0, pierce: false, speedMult: 1,
     maxHp: 3, hp: 3, route: null,
     passives: [], activeSkill: null, activeCooldown: 0,
     heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0,
-    combo: 0, comboTimer: 0, boostTimer: 0
+    combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageMult: 1
   };
   G.summonEntities = [];
   G.mapEvent = null;
@@ -3017,6 +3109,8 @@ document.addEventListener('keydown', e => {
     if (e.code === 'F3') { e.preventDefault(); Perf.toggle(); }
     else if (e.code === 'KeyM') { e.preventDefault(); Sound.toggle(); }
     else if (e.code === 'KeyP' && (G.state === 'playing' || G.state === 'paused')) { e.preventDefault(); togglePause(); }
+    else if (e.code === 'KeyB' && G.state === 'playing') { e.preventDefault(); openShop(); }
+    else if (e.code === 'Escape' && G.state === 'shop') { e.preventDefault(); closeShop(); }
   }
   if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
 });
@@ -3044,13 +3138,107 @@ function togglePause() {
     ov.innerHTML = `<h2>PAUSED</h2><p>按 <b>P</b> 繼續</p><button class="start-btn" id="resumeBtn">繼續</button>`;
     document.getElementById('resumeBtn').onclick = togglePause;
     document.getElementById('resumeBtn').focus();
-    Sound.play('click');
+    Sound.pulse(440, 0.05, 0.2, 'square');
   } else if (G.state === 'paused') {
     G.state = 'playing';
     ov.classList.remove('translucent');
     ov.classList.add('hidden');
-    Sound.play('click');
+    Sound.pulse(440, 0.05, 0.2, 'square');
   }
+}
+
+// ==================== 商店系統 ====================
+function openShop() {
+  if (G.state !== 'playing') return;
+  G.state = 'shop';
+  
+  const ov = document.getElementById('overlay');
+  ov.classList.remove('hidden');
+  ov.classList.remove('translucent');
+  
+  let shopHTML = `<h1>🏪 商店</h1>
+    <p style="color:#ffd700;margin-bottom:15px;">分數: ${G.score}</p>
+    <div class="shop-grid">`;
+  
+  for (const item of SHOP_ITEMS) {
+    const canAfford = G.score >= item.price;
+    const btnClass = canAfford ? 'shop-item' : 'shop-item disabled';
+    shopHTML += `
+      <div class="${btnClass}" data-id="${item.id}" ${canAfford ? '' : 'style="opacity:0.5;pointer-events:none;"'}>
+        <div style="font-size:24px;">${item.icon}</div>
+        <div class="card-title" style="color:${item.color}">${item.name}</div>
+        <div class="card-desc">${item.desc}</div>
+        <div style="color:#ffd700;font-size:9px;margin-top:5px;">💰 ${item.price}</div>
+      </div>
+    `;
+  }
+  
+  shopHTML += `</div>
+    <p style="margin-top:15px;color:#888;font-size:8px;">按 <b>B</b> 或 <b>ESC</b> 關閉商店</p>`;
+  
+  ov.innerHTML = shopHTML;
+  
+  document.querySelectorAll('.shop-item').forEach(el => {
+    el.onclick = () => buyItem(el.dataset.id);
+  });
+}
+
+function buyItem(itemId) {
+  const item = SHOP_ITEMS.find(i => i.id === itemId);
+  if (!item || G.score < item.price) {
+    addScorePopup(G.player.x, G.player.y - 30, '分數不足!', '#ff4444');
+    return;
+  }
+  
+  G.score -= item.price;
+  updateHUD();
+  
+  switch (item.type) {
+    case 'health':
+      G.playerStats.maxHp++;
+      G.playerStats.hp = G.playerStats.maxHp;
+      addScorePopup(G.player.x, G.player.y - 30, '生命+1!', '#ff69b4');
+      break;
+    case 'speed':
+      G.playerStats.speedMult *= 1.2;
+      addScorePopup(G.player.x, G.player.y - 30, '速度+20%!', '#44ff44');
+      break;
+    case 'pierce':
+      G.playerStats.pierce = true;
+      addScorePopup(G.player.x, G.player.y - 30, '穿甲彈!', '#ffaa00');
+      break;
+    case 'rapid':
+      CONFIG.BULLET.PLAYER_COOLDOWN = Math.max(2, CONFIG.BULLET.PLAYER_COOLDOWN * 0.8);
+      addScorePopup(G.player.x, G.player.y - 30, '射速+25%!', '#ff6b00');
+      break;
+    case 'life':
+      G.continues++;
+      addScorePopup(G.player.x, G.player.y - 30, '額外生命+1!', '#ff0000');
+      break;
+    case 'wall':
+      G.permanentStats.permanentWall = true;
+      addScorePopup(G.player.x, G.player.y - 30, '永久堡壘!', '#888888');
+      break;
+    case 'weapon':
+      const currentWp = WEAPON_TREE[G.playerStats.weapon];
+      if (currentWp && currentWp.next) {
+        const nextWp = WEAPON_TREE[currentWp.next];
+        G.playerStats.weapon = nextWp.id;
+        G.playerStats.weaponTier = nextWp.tier;
+        G.playerStats.route = nextWp.route;
+        if (G.player) G.player.applyTypeStats();
+        addScorePopup(G.player.x, G.player.y - 30, nextWp.name, '#ffd700');
+      }
+      break;
+  }
+  
+  Sound.pulse(660, 0.1, 0.3, 'square');
+  openShop();
+}
+
+function closeShop() {
+  G.state = 'playing';
+  document.getElementById('overlay').classList.add('hidden');
 }
 
 // ==================== 手機觸控輸入 ====================
@@ -3270,7 +3458,7 @@ function update() {
             Math.hypot(pu.x - G.player.x - G.player.size/2, pu.y - G.player.y - G.player.size/2) < TILE) {
           activatePowerUp(pu.type);
           pu.alive = false;
-          spawnPopup(G.player.x, G.player.y, POWER_UPS[pu.type].name, POWER_UPS[pu.type].color);
+          addScorePopup(G.player.x, G.player.y, POWER_UPS[pu.type].name);
         }
       }
 
