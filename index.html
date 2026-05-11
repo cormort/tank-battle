@@ -3144,14 +3144,22 @@ function buyItem(itemId) {
       addScorePopup(G.player.x, G.player.y - 30, '永久堡壘!', '#888888');
       break;
     case 'weapon':
-      const currentWp = WEAPON_TREE[G.playerStats.weapon];
-      if (currentWp && currentWp.next) {
-        const nextWp = WEAPON_TREE[currentWp.next];
-        G.playerStats.weapon = nextWp.id;
-        G.playerStats.weaponTier = nextWp.tier;
-        G.playerStats.route = nextWp.route;
+      if (!G.playerStats.route) {
+        G.playerStats.weapon = 'RAPID';
+        G.playerStats.weaponTier = 1;
+        G.playerStats.route = 'A';
         if (G.player) G.player.applyTypeStats();
-        addScorePopup(G.player.x, G.player.y - 30, nextWp.name, '#ffd700');
+        addScorePopup(G.player.x, G.player.y - 30, '快速射擊 (默認)', '#ff6b00');
+      } else {
+        const currentWp = WEAPON_TREE[G.playerStats.weapon];
+        if (currentWp && currentWp.next) {
+          const nextWp = WEAPON_TREE[currentWp.next];
+          G.playerStats.weapon = nextWp.id;
+          G.playerStats.weaponTier = nextWp.tier;
+          G.playerStats.route = nextWp.route;
+          if (G.player) G.player.applyTypeStats();
+          addScorePopup(G.player.x, G.player.y - 30, nextWp.name, '#ffd700');
+        }
       }
       break;
   }
