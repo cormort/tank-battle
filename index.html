@@ -2998,7 +2998,11 @@ document.addEventListener('keydown', e => {
     if (e.code === 'F3') { e.preventDefault(); Perf.toggle(); }
     else if (e.code === 'KeyM') { e.preventDefault(); Sound.toggle(); }
     else if (e.code === 'KeyP' && (G.state === 'playing' || G.state === 'paused')) { e.preventDefault(); togglePause(); }
-    else if (e.code === 'KeyB' && G.state === 'playing') { e.preventDefault(); openShop(); }
+    else if (e.code === 'KeyB' && (G.state === 'playing' || G.state === 'paused')) { 
+      e.preventDefault(); 
+      if (G.state === 'paused') togglePause();
+      openShop(); 
+    }
     else if (e.code === 'Escape' && G.state === 'shop') { e.preventDefault(); closeShop(); }
   }
   if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
