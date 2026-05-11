@@ -669,15 +669,13 @@ const POWER_UPS = {
   TIME: { name: '時光', desc: '凍敵 10 秒', icon: '⏱️', color: '#00ffff', duration: 10 },
   SHIELD: { name: '護盾', desc: '無敵 10 秒', icon: '🛡️', color: '#8800ff', duration: 10 },
   ONEUP: { name: '+1', desc: '接關次數+1', icon: '❤️', color: '#ff69b4', duration: 0 },
-  RAPID_DROP: { name: '快速射擊', desc: '射速+30% (本關有效)', icon: '⚡', color: '#ff6b00', duration: 0, weaponType: 'RAPID' },
+  RAPID_DROP: { name: '快速射擊', desc: '射速+20% (本關有效)', icon: '⚡', color: '#ff6b00', duration: 0, weaponType: 'RAPID' },
   SPREAD_DROP: { name: '散彈', desc: '扇形射擊 (本關有效)', icon: '💫', color: '#ffdd00', duration: 0, weaponType: 'SPREAD' },
   PLASMA_DROP: { name: '電漿炮', desc: '貫穿彈 (本關有效)', icon: '🔷', color: '#00ddff', duration: 0, weaponType: 'PLASMA' },
-  GATLING_DROP: { name: '格林機槍', desc: '雙管掃射 (本關有效)', icon: '🔥', color: '#ff4400', duration: 0, weaponType: 'GATLING' },
-  CLUSTER_DROP: { name: '集束彈', desc: '分裂彈 (本關有效)', icon: '💛', color: '#ffaa00', duration: 0, weaponType: 'CLUSTER' },
-  LASER_DROP: { name: '光束炮', desc: '追蹤光束 (本關有效)', icon: '🔶', color: '#00aaff', duration: 0, weaponType: 'D_LASER' }
+  SUMMON_DROP: { name: '工程師', desc: '部署砲塔 (本關有效)', icon: '🛠️', color: '#44ff88', duration: 0, weaponType: 'SUMMON' }
 };
 
-const WEAPON_DROPS = ['RAPID_DROP', 'SPREAD_DROP', 'PLASMA_DROP', 'GATLING_DROP', 'CLUSTER_DROP', 'LASER_DROP'];
+const WEAPON_DROPS = ['RAPID_DROP', 'SPREAD_DROP', 'PLASMA_DROP', 'SUMMON_DROP'];
 
 const SHOP_ITEMS = [
   { id: 'HEALTH_PLUS', name: '生命+1', desc: '最大生命值+1', icon: '❤️', color: '#ff69b4', price: 500, type: 'health' },
@@ -1098,21 +1096,30 @@ function applyLevelWeapon(weaponType) {
   const weaponData = WEAPON_TREE[weaponType];
   if (!weaponData) return;
   
-  if (G.levelClearedCount >= 5) {
+  const currentRoute = G.playerStats.route;
+  const isSameRoute = !currentRoute || currentRoute === weaponData.route;
+  
+  if (G.levelClearedCount >= 5 && isSameRoute) {
     G.levelWeaponStacks[stackKey]++;
-    addScorePopup(G.player.x, G.player.y - 20, `疊加 x${G.levelWeaponStacks[stackKey]}`);
+    G.playerStats.weaponDamageBonus = (G.playerStats.weaponDamageBonus || 0) + 0.2;
+    addScorePopup(G.player.x, G.player.y - 20, `疊加 +20%`);
   } else {
     if (G.levelWeaponStacks[stackKey] === 0) {
-      G.playerStats.weapon = weaponType;
-      G.playerStats.weaponTier = weaponData.tier;
-      G.playerStats.route = weaponData.route;
-      if (G.player) G.player.applyTypeStats();
-      addScorePopup(G.player.x, G.player.y - 20, weaponData.name);
+      if (!isSameRoute && currentRoute) {
+        G.playerStats.weaponDamageBonus = (G.playerStats.weaponDamageBonus || 0) + 0.15;
+        addScorePopup(G.player.x, G.player.y - 20, `+15% (路線不符)`);
+      } else {
+        G.playerStats.weapon = weaponType;
+        G.playerStats.weaponTier = weaponData.tier;
+        G.playerStats.route = weaponData.route;
+        if (G.player) G.player.applyTypeStats();
+        addScorePopup(G.player.x, G.player.y - 20, weaponData.name);
+      }
+    } else {
+      G.playerStats.weaponDamageBonus = (G.playerStats.weaponDamageBonus || 0) + 0.1;
+      addScorePopup(G.player.x, G.player.y - 20, `+10%`);
     }
   }
-  
-  const mult = 1 + G.levelWeaponStacks[stackKey] * 0.3;
-  G.playerStats.weaponDamageMult = (G.playerStats.weaponDamageMult || 1) * mult;
 }
 
 // ==================== 武器射擊系統（擴展） ====================
@@ -1207,8 +1214,8 @@ function spawnBullet(x, y, dir, isPlayer, pierce = false, power = 1) {
   b.isPlayer = isPlayer;
   b.pierce = pierce;
   let finalPower = power;
-  if (isPlayer && G.playerStats.weaponDamageMult) {
-    finalPower = power * G.playerStats.weaponDamageMult;
+  if (isPlayer && G.playerStats.weaponDamageBonus) {
+    finalPower = power + G.playerStats.weaponDamageBonus;
   }
   b.power = finalPower;
   b.vx = DX[dir];
@@ -1220,7 +1227,7 @@ function spawnBullet(x, y, dir, isPlayer, pierce = false, power = 1) {
 function spawnSpreadBullets(cx, cy, count, spreadAngle) {
   const baseDir = G.player ? G.player.aimDir : DOWN;
   const dx = DX[baseDir], dy = DY[baseDir];
-  const powerMult = G.playerStats.weaponDamageMult || 1;
+  const powerBonus = G.playerStats.weaponDamageBonus || 0;
 
   for (let i = 0; i < count; i++) {
     const angle = spreadAngle * (i - (count - 1) / 2);
@@ -1235,7 +1242,7 @@ function spawnSpreadBullets(cx, cy, count, spreadAngle) {
     b.vx = vx;
     b.vy = vy;
     b.speed = CONFIG.BULLET.SPEED_PLAYER * 0.8;
-    b.power = 1 * powerMult;
+    b.power = 1 + powerBonus;
     b.hitTanks.length = 0;
   }
 }
@@ -1280,7 +1287,7 @@ function spawnChainBullet(x, y, target) {
     b.vx = dx / len; b.vy = dy / len;
     b.speed = 8;
     b.isPlayer = true;
-    b.power = 0.5 * (G.playerStats.weaponDamageMult || 1);
+    b.power = 0.5 + (G.playerStats.weaponDamageBonus || 0);
     b.chainCount = 1;
     b.hitTanks.length = 0;
   }
@@ -1309,7 +1316,7 @@ function chainLightning(x, y, source) {
     b.speed = 10;
     b.isPlayer = true;
     b.pierce = false;
-    b.power = 1 * (G.playerStats.weaponDamageMult || 1);
+    b.power = 1 + (G.playerStats.weaponDamageBonus || 0);
     b.type = 'PLASMA';
     b.hitTanks.length = 0;
     spawnExplosion(x, y, 'spark');
@@ -2826,7 +2833,7 @@ function startLevel() {
 
   if (G.level % 5 !== 0) {
     G.levelWeaponStacks = {};
-    G.playerStats.weaponDamageMult = 1;
+    G.playerStats.weaponDamageBonus = 0;
   }
 
   if (G.isVSMode) {
@@ -2880,7 +2887,7 @@ function restartGame() {
     maxHp: 3, hp: 3, route: null,
     passives: [], activeSkill: null, activeCooldown: 0,
     heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0,
-    combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageMult: 1
+    combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 0
   };
   G.summonEntities = [];
   G.mapEvent = null;
