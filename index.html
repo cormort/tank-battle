@@ -2056,9 +2056,9 @@ function updateBullet(b) {
   }
 
   if (b.isPlayer) {
-    // 擴大查詢範圍：覆蓋子彈移動距離 + 安全邊距
+    // 擴大查詢範圍：覆蓋子彈移動距離 + 安全邊際
     const speed = b.speed;
-    const margin = b.size + 10;
+    const margin = b.size + TILE; // 查詢範圍覆蓋整個格子
     const qx = Math.min(prevX, b.x) - margin;
     const qy = Math.min(prevY, b.y) - margin;
     const qw = Math.abs(b.x - prevX) + margin * 2;
@@ -2069,16 +2069,25 @@ function updateBullet(b) {
     for (let i = 0; i < _queryBuf.length; i++) {
       const t = _queryBuf[i];
       if (!t.alive || t.isPlayer) continue;
-      // 跳過本幀已命中的敵人（防重複判定）
       if (b.hitTanks.indexOf(t) !== -1) continue;
 
-      // 使用距離檢測更精確，避免矩形邊緣漏檢
-      const dx = (b.x + b.size/2) - (t.x + t.size/2);
-      const dy = (b.y + b.size/2) - (t.y + t.size/2);
-      const dist = Math.sqrt(dx*dx + dy*dy);
-      const hitDist = (b.size + t.size) * 0.45; // 更寬鬆的判定距離
+      // 掃描碰撞檢測：沿子彈軌跡取樣，避免高速穿透
+      let hit = false;
+      const steps = Math.max(1, Math.ceil(b.speed / 4)); // 每 4px 取樾
+      for (let s = 0; s <= steps; s++) {
+        const tLerp = s / steps;
+        const bx = prevX + (b.x - prevX) * tLerp;
+        const by = prevY + (b.y - prevY) * tLerp;
+        const dx = (bx + b.size/2) - (t.x + t.size/2);
+        const dy = (by + b.size/2) - (t.y + t.size/2);
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < (b.size + t.size) * 0.45) {
+          hit = true;
+          break;
+        }
+      }
 
-      if (dist < hitDist) {
+      if (hit) {
         handleBulletHit(b, t);
         if (!b.alive) return;
       }
