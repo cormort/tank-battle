@@ -2892,8 +2892,6 @@ function startLevel() {
 }
 
 function restartGame() {
-  const savedPermStats = { ...G.permanentStats };
-  
   G.score = 0;
   G.level = 1;
   G.continues = CONFIG.GAMEPLAY.STARTING_CONTINUES;
@@ -2906,27 +2904,6 @@ function restartGame() {
     heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0,
     combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 0
   };
-  
-  if (savedPermStats.maxHpBonus) {
-    G.playerStats.maxHp += savedPermStats.maxHpBonus;
-    G.playerStats.hp = G.playerStats.maxHp;
-  }
-  if (savedPermStats.speedBonus) {
-    G.playerStats.speedMult *= (1 + savedPermStats.speedBonus);
-  }
-  if (savedPermStats.pierce) {
-    G.playerStats.pierce = true;
-  }
-  if (savedPermStats.rapidBonus) {
-    CONFIG.BULLET.PLAYER_COOLDOWN = Math.max(2, CONFIG.BULLET.PLAYER_COOLDOWN * (1 - savedPermStats.rapidBonus));
-  }
-  if (savedPermStats.extraLife) {
-    G.continues += savedPermStats.extraLife;
-  }
-  if (savedPermStats.permanentWall) {
-    G.permanentStats.permanentWall = true;
-  }
-  
   G.summonEntities = [];
   G.mapEvent = null;
   G.directorEvents = [];
@@ -3144,28 +3121,23 @@ function buyItem(itemId) {
     case 'health':
       G.playerStats.maxHp++;
       G.playerStats.hp = G.playerStats.maxHp;
-      G.permanentStats.maxHpBonus = (G.permanentStats.maxHpBonus || 0) + 1;
-      addScorePopup(G.player.x, G.player.y - 30, '生命+1 (永久)!', '#ff69b4');
+      addScorePopup(G.player.x, G.player.y - 30, '生命+1!', '#ff69b4');
       break;
     case 'speed':
       G.playerStats.speedMult *= 1.2;
-      G.permanentStats.speedBonus = (G.permanentStats.speedBonus || 0) + 0.2;
-      addScorePopup(G.player.x, G.player.y - 30, '速度+20% (永久)!', '#44ff44');
+      addScorePopup(G.player.x, G.player.y - 30, '速度+20%!', '#44ff44');
       break;
     case 'pierce':
       G.playerStats.pierce = true;
-      G.permanentStats.pierce = true;
-      addScorePopup(G.player.x, G.player.y - 30, '穿甲彈 (永久)!', '#ffaa00');
+      addScorePopup(G.player.x, G.player.y - 30, '穿甲彈!', '#ffaa00');
       break;
     case 'rapid':
       CONFIG.BULLET.PLAYER_COOLDOWN = Math.max(2, CONFIG.BULLET.PLAYER_COOLDOWN * 0.8);
-      G.permanentStats.rapidBonus = (G.permanentStats.rapidBonus || 0) + 0.25;
-      addScorePopup(G.player.x, G.player.y - 30, '射速+25% (永久)!', '#ff6b00');
+      addScorePopup(G.player.x, G.player.y - 30, '射速+25%!', '#ff6b00');
       break;
     case 'life':
       G.continues++;
-      G.permanentStats.extraLife = (G.permanentStats.extraLife || 0) + 1;
-      addScorePopup(G.player.x, G.player.y - 30, '額外生命+1 (永久)!', '#ff0000');
+      addScorePopup(G.player.x, G.player.y - 30, '額外生命+1!', '#ff0000');
       break;
     case 'wall':
       G.permanentStats.permanentWall = true;
