@@ -110,6 +110,15 @@
     border: 2px solid #ffd700; border-radius: 4px; cursor: pointer; text-shadow: 0 0 8px rgba(255,215,0,0.5);
   }
   .start-btn:hover, .start-btn:active { background: linear-gradient(180deg, #ffe14d, #ffb700); color: #000; text-shadow: none; box-shadow: 0 0 25px rgba(255,215,0,0.7); }
+  .difficulty-btn {
+    padding: 12px 24px; font-size: 13px; font-family: 'Press Start 2P', monospace;
+    background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(0,0,0,0.1)); color: var(--btn-color, #ccc);
+    border: 2px solid var(--btn-border, #888); border-radius: 4px; cursor: pointer;
+    text-shadow: 0 0 6px var(--btn-glow, rgba(255,255,255,0.3));
+    transition: all 0.2s ease;
+  }
+  .difficulty-btn:hover, .difficulty-btn:active { background: linear-gradient(180deg, rgba(255,255,255,0.15), rgba(255,255,255,0.05)); box-shadow: 0 0 20px var(--btn-glow, rgba(255,255,255,0.2)); transform: scale(1.05); }
+  .difficulty-btn.selected { background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.02)); box-shadow: 0 0 25px var(--btn-glow, rgba(255,255,255,0.3)); }
   #controls { color: #6a6a78; font-size: 8px; margin-top: 12px; text-align: center; letter-spacing: 2px; }
   
   /* 性能監測面板 */
@@ -277,7 +286,12 @@
     <p style="color:#ffd700;" class="kbd-hint">空白鍵 <b>射擊</b> · F3 <b>性能監測</b></p>
     <p style="margin-top:12px; color:#ffd700;" class="touch-hint" hidden>左搖桿 <b>移動</b></p>
     <p style="color:#ffd700;" class="touch-hint" hidden>右按鈕 <b>射擊</b></p>
-    <button class="start-btn" id="startBtn">START</button>
+    <div style="display:flex; gap:12px; margin-top:20px; flex-wrap:wrap; justify-content:center;">
+      <button class="difficulty-btn" id="btnNormal" style="--btn-color:#ffd700; --btn-border:#ffd700;">NORMAL</button>
+      <button class="difficulty-btn" id="btnEasy" style="--btn-color:#44ff44; --btn-border:#44ff44;">EASY</button>
+      <button class="difficulty-btn" id="btnTest" style="--btn-color:#ff44ff; --btn-border:#ff44ff; animation: titlePulse 1.2s infinite;">TEST</button>
+    </div>
+    <p id="difficultyDesc" style="margin-top:10px; font-size:9px; color:#aaa;">標準難度 · 正常體驗</p>
   </div>
 
   <div id="upgradeUI" class="hidden">
@@ -697,6 +711,7 @@ const SHOP_ITEMS = [
 // 全域狀態
 const G = {
   state: 'menu', score: 0, level: 1, continues: 3, isVSMode: false,
+  difficulty: 'normal',
   enemiesRemaining: 0, enemiesSpawned: 0, maxEnemies: 10, aliveEnemies: 0,
   spawnInterval: 120, spawnTimer: 0, baseDestroyed: false,
   keys: {}, map: [], player: null, basePos: null, playerSpawnPos: null,
@@ -726,6 +741,7 @@ const G = {
 function generateUpgradeOptions() {
   const options = [];
   const ps = G.playerStats;
+  const isEasy = G.difficulty === 'easy';
 
   // 1. 武器進化（如果可以）
   const weapon = ps.weapon || 'NORMAL';
@@ -750,10 +766,21 @@ function generateUpgradeOptions() {
       options.push({
         type: 'starter',
         id: w,
-        title: `${wp.name}`,
-        desc: wp.desc,
+        title: `${wp.name}${isEasy ? ' ★' : ''}`,
+        desc: wp.desc + (isEasy ? ` (路線: ${wp.route})` : ''),
         icon: wp.icon,
         color: wp.color
+      });
+    }
+    // Easy 模式額外：隨機派系選項
+    if (isEasy) {
+      options.push({
+        type: 'starter',
+        id: 'RANDOM',
+        title: '🎲 隨機派系',
+        desc: '隨機選擇一個路線 +10% 掉落加成',
+        icon: '🎲',
+        color: '#88ccff'
       });
     }
   }
@@ -793,6 +820,10 @@ function generateUpgradeOptions() {
     { id: 'HEAL', title: '裝甲修復', desc: '最大生命 +1', icon: '💚', color: '#ff44ff' },
     { id: 'PIERCE', title: '穿甲彈頭', desc: '子彈可貫穿', icon: '🎯', color: '#ffaa00' }
   ];
+  // Easy 模式額外：添加護盾增益選項
+  if (isEasy) {
+    generalUpgrades.push({ id: 'SHIELD', title: '能量護盾', desc: '抵擋一次致命傷害', icon: '🛡️', color: '#44ccff' });
+  }
   const shuffledGeneral = generalUpgrades.sort(() => 0.5 - Math.random()).slice(0, 1);
   for (const g of shuffledGeneral) {
     options.push(g);
@@ -836,11 +867,24 @@ function applyUpgrade(opt) {
   const ps = G.playerStats;
 
   if (opt.type === 'weapon' || opt.type === 'starter') {
-    ps.weapon = opt.id;
-    const wp = WEAPON_TREE[opt.id];
-    if (wp) {
-      ps.route = wp.route;
-      ps.weaponTier = wp.tier;
+    if (opt.id === 'RANDOM') {
+      // 隨機派系
+      const starters = ['RAPID', 'SPREAD', 'PLASMA', 'SUMMON'];
+      const chosen = starters[(Math.random() * starters.length) | 0];
+      ps.weapon = chosen;
+      const wp = WEAPON_TREE[chosen];
+      if (wp) {
+        ps.route = wp.route;
+        ps.weaponTier = wp.tier;
+      }
+      ps.weaponDamageBonus += 0.1; // +10% 掉落加成
+    } else {
+      ps.weapon = opt.id;
+      const wp = WEAPON_TREE[opt.id];
+      if (wp) {
+        ps.route = wp.route;
+        ps.weaponTier = wp.tier;
+      }
     }
   }
 
@@ -857,6 +901,7 @@ function applyUpgrade(opt) {
   if (opt.id === 'SPEED') ps.speedMult *= 1.2;
   if (opt.id === 'HEAL') { ps.maxHp++; ps.hp = ps.maxHp; }
   if (opt.id === 'PIERCE') ps.pierce = true;
+  if (opt.id === 'SHIELD') ps.invulTimer = 30; // 抵擋一次
 
   document.getElementById('upgradeUI').classList.add('hidden');
   G.level++;
@@ -2964,8 +3009,9 @@ function startLevel() {
     G.spawnTimer = 10;
     G.vsModeStartFrame = G.frameCount;
   } else {
-    G.maxEnemies = 10 + G.level * 2;
-    G.spawnInterval = Math.max(40, 120 - G.level * 8);
+    const diffMult = G.difficulty === 'easy' ? 0.6 : G.difficulty === 'test' ? 1.5 : 1;
+    G.maxEnemies = Math.floor((10 + G.level * 2) * diffMult);
+    G.spawnInterval = Math.max(40, Math.floor((120 - G.level * 8) / (G.difficulty === 'easy' ? 1.5 : 1)));
     G.spawnTimer = 30;
   }
 
@@ -3004,29 +3050,101 @@ function restartGame() {
   G.continues = CONFIG.GAMEPLAY.STARTING_CONTINUES;
   G.levelWeaponStacks = {};
   G.levelClearedCount = 0;
-  G.playerStats = {
-    weapon: 'NORMAL', weaponTier: 0, pierce: false, speedMult: 1,
-    maxHp: 3, hp: 3, route: null,
-    passives: [], activeSkill: null, activeCooldown: 0,
-    heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0,
-    combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 0
-  };
-  G.summonEntities = [];
-  G.mapEvent = null;
-  G.directorEvents = [];
-  G.permanentStats = { scr: 0, upgradePoints: 0 };
-  G.mapEvent = rollMapEvent();
 
-  document.getElementById('overlay').innerHTML = `
-    <h1>TANK WARS v2</h1>
-    <p>四條武器流派 · 被動技能 · 菁英詞綴 · 主動技能</p>
-    <p>選擇你的流派，每局玩法都不同!</p>
-    ${IS_MOBILE
-      ? '<p style="margin-top:12px; color:#ffd700;">左搖桿 <b>移動</b></p><p style="color:#ffd700;">右按鈕 <b>射擊</b></p>'
-      : '<p style="margin-top:12px; color:#ffd700;">WASD / 方向鍵 <b>移動</b></p><p style="color:#ffd700;">空白鍵 <b>射擊</b> · Q <b>主動技能</b></p>'
-    }
+  if (G.difficulty === 'test') {
+    G.playerStats = {
+      weapon: 'OMEGA', weaponTier: 4, pierce: true, speedMult: 2,
+      maxHp: 99, hp: 99, route: 'C',
+      passives: Object.keys(ELITE_PREFIXES),
+      activeSkill: null, activeCooldown: 0,
+      heatStacks: 20, rageMultiplier: 1, invulTimer: 9999, barrierTimer: 0,
+      combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 5
+    };
+    G.continues = 99;
+    G.summonEntities = [];
+    G.mapEvent = null;
+    G.directorEvents = [];
+    G.permanentStats = { scr: 0, upgradePoints: 0 };
+    G.mapEvent = rollMapEvent();
+    updateHUD();
+    startLevel();
+  } else if (G.difficulty === 'easy') {
+    // Easy 模式：先讓玩家選擇派系
+    G.playerStats = {
+      weapon: 'NORMAL', weaponTier: 0, pierce: false, speedMult: 1,
+      maxHp: 5, hp: 5, route: null,
+      passives: [], activeSkill: null, activeCooldown: 0,
+      heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0,
+      combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 0
+    };
+    updateHUD();
+    showEasyFactionSelect();
+  } else {
+    // Normal 模式
+    G.playerStats = {
+      weapon: 'NORMAL', weaponTier: 0, pierce: false, speedMult: 1,
+      maxHp: 3, hp: 3, route: null,
+      passives: [], activeSkill: null, activeCooldown: 0,
+      heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0,
+      combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 0
+    };
+    updateHUD();
+    G.summonEntities = [];
+    G.mapEvent = null;
+    G.directorEvents = [];
+    G.permanentStats = { scr: 0, upgradePoints: 0 };
+    G.mapEvent = rollMapEvent();
+    document.getElementById('overlay').innerHTML = `
+      <h1>TANK WARS v2</h1>
+      <p>四條武器流派 · 被動技能 · 菁英詞綴 · 主動技能</p>
+      <p>選擇你的流派，每局玩法都不同!</p>
+      ${IS_MOBILE
+        ? '<p style="margin-top:12px; color:#ffd700;">左搖桿 <b>移動</b></p><p style="color:#ffd700;">右按鈕 <b>射擊</b></p>'
+        : '<p style="margin-top:12px; color:#ffd700;">WASD / 方向鍵 <b>移動</b></p><p style="color:#ffd700;">空白鍵 <b>射擊</b> · Q <b>主動技能</b></p>'
+      }
+    `;
+    startLevel();
+  }
+}
+
+function showEasyFactionSelect() {
+  G.state = 'factionSelect';
+  Sound.jingleLevelClear();
+  const ov = document.getElementById('overlay');
+  ov.classList.remove('hidden');
+  ov.innerHTML = `
+    <h1>EASY MODE</h1>
+    <p style="font-size:10px; color:#aaa; margin:8px 0 18px;">選擇你的陣營</p>
+    <div style="display:flex; gap:14px; flex-wrap:wrap; justify-content:center;">
+      <button class="start-btn" id="factionRapid" style="color:#ffaa00; border-color:#ffaa00;">⚡ 快速</button>
+      <button class="start-btn" id="factionSpread" style="color:#44ff44; border-color:#44ff44;">🌀 散射</button>
+      <button class="start-btn" id="factionPlasma" style="color:#ff6666; border-color:#ff6666;">💥 等離子</button>
+      <button class="start-btn" id="factionSummon" style="color:#cc88ff; border-color:#cc88ff;">👻 召喚</button>
+    </div>
+    <p style="margin-top:14px; font-size:8px; color:#888;">Easy 模式 · 5HP · 派系專屬掉落 +10%</p>
   `;
-  startLevel();
+
+  const factions = {
+    factionRapid: 'RAPID',
+    factionSpread: 'SPREAD',
+    factionPlasma: 'PLASMA',
+    factionSummon: 'SUMMON'
+  };
+
+  for (const [id, weapon] of Object.entries(factions)) {
+    document.getElementById(id).addEventListener('click', () => {
+      const wp = WEAPON_TREE[weapon];
+      G.playerStats.weapon = weapon;
+      G.playerStats.route = wp.route;
+      G.playerStats.weaponTier = wp.tier;
+      G.summonEntities = [];
+      G.mapEvent = null;
+      G.directorEvents = [];
+      G.permanentStats = { scr: 0, upgradePoints: 0 };
+      G.mapEvent = rollMapEvent();
+      startLevel();
+    });
+  }
 }
 
 function showGameOver() {
@@ -3135,14 +3253,47 @@ document.addEventListener('keydown', e => {
       openShop(); 
     }
     else if (e.code === 'Escape' && G.state === 'shop') { e.preventDefault(); closeShop(); }
+    else if ((e.code === 'Enter' || e.code === 'Space') && G.state === 'menu') {
+      e.preventDefault();
+      const focused = document.querySelector('.difficulty-btn:focus, .difficulty-btn.selected');
+      if (focused) focused.click();
+      else document.getElementById('btnNormal').click();
+    }
+    else if ((e.code === 'Enter' || e.code === 'Space') && G.state === 'factionSelect') {
+      e.preventDefault();
+      const hovered = document.querySelector('#overlay .start-btn:hover, #overlay .start-btn:focus');
+      if (hovered) hovered.click();
+    }
   }
   if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
 });
 document.addEventListener('keyup', e => G.keys[e.code] = false);
-document.getElementById('startBtn').addEventListener('click', () => {
+document.getElementById('btnNormal').addEventListener('click', () => {
   Sound.init(); Sound.resume();
+  G.difficulty = 'normal';
+  updateDifficultyUI();
   restartGame();
 });
+document.getElementById('btnEasy').addEventListener('click', () => {
+  Sound.init(); Sound.resume();
+  G.difficulty = 'easy';
+  updateDifficultyUI();
+  restartGame();
+});
+document.getElementById('btnTest').addEventListener('click', () => {
+  Sound.init(); Sound.resume();
+  G.difficulty = 'test';
+  updateDifficultyUI();
+  restartGame();
+});
+function updateDifficultyUI() {
+  ['btnNormal','btnEasy','btnTest'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('selected', id === ({normal:'btnNormal',easy:'btnEasy',test:'btnTest'}[G.difficulty]));
+  });
+  const descEl = document.getElementById('difficultyDesc');
+  if (descEl) descEl.textContent = { normal:'標準難度 · 正常體驗', easy:'簡單模式 · 選擇陣營 · 更多生命', test:'測試模式 · 無敵 + 滿級武器' }[G.difficulty] || '標準難度 · 正常體驗';
+}
 document.getElementById('soundToggle').addEventListener('click', e => {
   e.stopPropagation();
   Sound.init(); Sound.resume();
@@ -3732,7 +3883,9 @@ function render() {
     ctx.translate((Math.random() - 0.5) * G.shakeIntensity, (Math.random() - 0.5) * G.shakeIntensity);
   }
 
-  if (G.state !== 'menu') {
+  const isGameplay = ['playing','paused','gameover'].includes(G.state);
+
+  if (isGameplay) {
     ctx.drawImage(staticCanvas, 0, 0);
     const phase = ((G.frameCount >> 4) & 1);
     const tiles = G.dynamicTiles;
@@ -3756,13 +3909,13 @@ function render() {
 
   renderBullets();
 
-  if (G.state !== 'menu') ctx.drawImage(forestCanvas, 0, 0);
+  if (isGameplay) ctx.drawImage(forestCanvas, 0, 0);
 
   drawParticles();
   drawDirectorEvents();
-  if (G.state !== 'menu') drawScorePopups();
+  if (isGameplay) drawScorePopups();
 
-  if (G.playerStats.combo > 0) {
+  if (G.playerStats && G.playerStats.combo > 0 && isGameplay) {
     ctx.fillStyle = '#ff6600';
     ctx.font = '12px "Press Start 2P"';
     ctx.fillText(`${G.playerStats.combo} COMBO`, 10, H - 30);
