@@ -2095,12 +2095,23 @@ function updateBullet(b) {
   } else {
     if (G.player && G.player.alive && G.player.flashTimer === 0) {
       Perf.collisionChecks++;
-      // 同樣使用距離檢測
-      const dx = (b.x + b.size/2) - (G.player.x + G.player.size/2);
-      const dy = (b.y + b.size/2) - (G.player.y + G.player.size/2);
-      const dist = Math.sqrt(dx*dx + dy*dy);
-      const hitDist = (b.size + G.player.size) * 0.45;
-      if (dist < hitDist) {
+      // 掃描碰撞檢測：玩家子弹
+      let hit = false;
+      const steps = Math.max(1, Math.ceil(b.speed / 4));
+      for (let s = 0; s <= steps; s++) {
+        const tLerp = s / steps;
+        const bx = prevX + (b.x - prevX) * tLerp;
+        const by = prevY + (b.y - prevY) * tLerp;
+        const dx = (bx + b.size/2) - (G.player.x + G.player.size/2);
+        const dy = (by + b.size/2) - (G.player.y + G.player.size/2);
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        const hitDist = (b.size + G.player.size) * 0.45;
+        if (dist < hitDist) {
+          hit = true;
+          break;
+        }
+      }
+      if (hit) {
         handleBulletHit(b, G.player);
       }
     }
@@ -2108,34 +2119,42 @@ function updateBullet(b) {
 }
 
 function handleBulletHit(b, t) {
-  if (t.shieldHits > 0) {
-    t.shieldHits--;
-    b.alive = false;
-    spawnExplosion(b.x, b.y, 'shield');
-    return;
+  // t 是被击中的目标
+  // b.isPlayer === true  → 玩家子弹击中敌人
+  // b.isPlayer === false → 敌人子弹击中玩家
+
+  // 装甲护盾：只在玩家目标时生效
+  if (t === G.player) {
+    if (t.shieldHits > 0) {
+      t.shieldHits--;
+      b.alive = false;
+      spawnExplosion(b.x, b.y, 'shield');
+      return;
+    }
+    if (G.playerStats.passives.includes('BARRIER') && G.playerStats.barrierTimer <= 0) {
+      b.alive = false;
+      spawnExplosion(b.x, b.y, 'shield');
+      G.playerStats.barrierTimer = 120;
+      return;
+    }
+    if (G.playerStats.barrierTimer > 0) {
+      b.alive = false;
+      spawnExplosion(b.x, b.y, 'shield');
+      return;
+    }
   }
 
-  if (G.playerStats.passives.includes('BARRIER') && G.playerStats.barrierTimer <= 0) {
-    b.alive = false;
-    spawnExplosion(b.x, b.y, 'shield');
-    G.playerStats.barrierTimer = 120;
-    return;
-  }
-  if (G.playerStats.barrierTimer > 0) {
-    b.alive = false;
-    spawnExplosion(b.x, b.y, 'shield');
-    return;
-  }
-
-  if (G.playerStats.barrierTimer > 0) G.playerStats.barrierTimer--;
-
+  // 计算伤害倍率
   let powerMult = 1;
-  if (G.playerStats.passives.includes('RAGE') && G.player && t === G.player) {
+
+  // RAGE 被动：玩家生命越低伤害越高（只在玩家被击中时触发）
+  if (G.playerStats.passives.includes('RAGE') && t === G.player) {
     const hpRatio = G.playerStats.hp / G.playerStats.maxHp;
     powerMult = hpRatio < 0.5 ? 2 : hpRatio < 0.75 ? 1.5 : 1;
   }
 
-  if (G.playerStats.passives.includes('WEAKEN') && t.type === 'BOSS') {
+  // WEAKEN 被动：对 Boss 额外伤害（只在敌人被玩家击中时）
+  if (b.isPlayer && G.playerStats.passives.includes('WEAKEN') && t.type === 'BOSS') {
     powerMult *= 1.5;
   }
 
