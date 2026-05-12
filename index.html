@@ -2187,6 +2187,11 @@ function handleBulletHit(b, t) {
       spawnExplosion(b.x, b.y, 'shield');
       return;
     }
+    if (G.playerStats.invulTimer > 0) {
+      b.alive = false;
+      spawnExplosion(b.x, b.y, 'shield');
+      return;
+    }
   }
 
   // 计算伤害倍率
