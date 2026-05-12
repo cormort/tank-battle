@@ -684,7 +684,7 @@ const SHOP_ITEMS = [
   { id: 'PIERCE_AMMO', name: '穿甲彈', desc: '子彈可貫穿敵人', icon: '🎯', color: '#ffaa00', price: 1200, type: 'pierce' },
   { id: 'RAPID_FIRE', name: '快速射擊', desc: '射速+25%', icon: '🔥', color: '#ff6b00', price: 1000, type: 'rapid' },
   { id: 'EXTRA_LIFE', name: '額外生命', desc: '接關次數+1', icon: '💖', color: '#ff0000', price: 600, type: 'life' },
-  { id: 'PERM_WALL', name: '永久堡壘', desc: '鋼鐵城墙永久有效', icon: '🏰', color: '#888888', price: 2000, type: 'wall' },
+  { id: 'PERM_WALL', name: '堡壘', desc: '鋼鐵城墙 15 秒', icon: '🏰', color: '#888888', price: 2000, type: 'wall' },
   { id: 'WEAPON_UP', name: '武器升級', desc: '武器升一級', icon: '⭐', color: '#ffd700', price: 1500, type: 'weapon' }
 ];
 
@@ -710,7 +710,7 @@ const G = {
   directorEvents: [],
   touch: { dir: -1, fire: false, joyActive: false, joyDx: 0, joyDy: 0 },
   wallTimer: 0, timeFreezeTimer: 0,
-  permanentStats: { scr: 0, upgradePoints: 0, permanentWall: false },
+  permanentStats: { scr: 0, upgradePoints: 0 },
   levelWeaponStacks: {}, levelClearedCount: 0
 };
 
@@ -1059,7 +1059,7 @@ function activatePowerUp(type) {
       Sound.bigExplode();
       break;
     case 'WALL':
-      G.wallTimer = G.permanentStats.permanentWall ? 999999 : 900;
+      G.wallTimer = 900;
       break;
     case 'STAR':
       const currentWp = WEAPON_TREE[G.playerStats.weapon];
@@ -1998,7 +1998,7 @@ function updateBullet(b) {
     }
     if (t === BASE) {
       b.alive = false;
-      if (G.wallTimer > 0 || G.permanentStats.permanentWall) {
+      if (G.wallTimer > 0) {
         spawnExplosion(b.x, b.y, 'spark');
         return;
       }
@@ -3140,8 +3140,8 @@ function buyItem(itemId) {
       addScorePopup(G.player.x, G.player.y - 30, '額外生命+1!', '#ff0000');
       break;
     case 'wall':
-      G.permanentStats.permanentWall = true;
-      addScorePopup(G.player.x, G.player.y - 30, '永久堡壘!', '#888888');
+      G.wallTimer = 900;
+      addScorePopup(G.player.x, G.player.y - 30, '堡壘 15秒!', '#888888');
       break;
     case 'weapon':
       if (!G.playerStats.route) {
