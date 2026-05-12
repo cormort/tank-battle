@@ -558,73 +558,73 @@ const WEAPON_TREE = {
   // A 路線：高射速流 - 超高DPS，單發低，剋重甲
   RAPID: {
     route: 'A', tier: 1, name: '快速射擊', desc: '射速提升 20%',
-    next: 'GATLING', color: '#ff6b00', icon: '⚡'
+    next: 'GATLING', color: '#ff6b00', icon: '⚡', basePower: 1.0
   },
   GATLING: {
     route: 'A', tier: 2, name: '格林機槍', desc: '射速再提升 35%',
-    next: 'CHAINGUN', color: '#ff4400', icon: '🔥'
+    next: 'CHAINGUN', color: '#ff4400', icon: '🔥', basePower: 1.1
   },
   CHAINGUN: {
     route: 'A', tier: 3, name: '連環炮', desc: '子彈連射，擊中追加連鎖傷害',
-    next: 'OVERDRIVE', color: '#cc2200', icon: '💥'
+    next: 'OVERDRIVE', color: '#cc2200', icon: '💥', basePower: 1.2
   },
   OVERDRIVE: {
     route: 'A', tier: 4, name: '過載出火', desc: '雙管格林炮，全螢幕橫掃',
-    next: null, color: '#880000', icon: '💀'
+    next: null, color: '#880000', icon: '💀', basePower: 1.4
   },
 
   // B 路線：範圍爆破流 - 清怪神，打王弱，有爆炸連鎖
   SPREAD: {
     route: 'B', tier: 1, name: '散彈核心', desc: '扇形發射 3 發子彈',
-    next: 'CLUSTER', color: '#ffdd00', icon: '💫'
+    next: 'CLUSTER', color: '#ffdd00', icon: '💫', basePower: 1.0
   },
   CLUSTER: {
     route: 'B', tier: 2, name: '集束彈頭', desc: '命中後分裂成 5 發小彈',
-    next: 'NAPALM', color: '#ffaa00', icon: '💛'
+    next: 'NAPALM', color: '#ffaa00', icon: '💛', basePower: 1.1
   },
   NAPALM: {
     route: 'B', tier: 3, name: '凝固汽油彈', desc: '子彈留下燃燒地帶',
-    next: 'APOCALYPSE', color: '#ff6600', icon: '🔥'
+    next: 'APOCALYPSE', color: '#ff6600', icon: '🔥', basePower: 1.2
   },
   APOCALYPSE: {
     route: 'B', tier: 4, name: '末日轟炸', desc: '全螢幕轰炸，每 3 秒觸發一次',
-    next: null, color: '#ff0000', icon: '☠️'
+    next: null, color: '#ff0000', icon: '☠️', basePower: 1.5
   },
 
   // C 路線：雷射科技流 - 貫穿，超遠距，打王強，有過熱
   PLASMA: {
     route: 'C', tier: 1, name: '電漿武器', desc: '高傷貫穿子彈',
-    next: 'D_LASER', color: '#00ddff', icon: '⚡'
+    next: 'D_LASER', color: '#00ddff', icon: '⚡', basePower: 1.2
   },
   D_LASER: {
     route: 'C', tier: 2, name: '雙光束炮', desc: '雙光束追蹤射擊',
-    next: 'T_LASER', color: '#00aaff', icon: '🔷'
+    next: 'T_LASER', color: '#00aaff', icon: '🔷', basePower: 1.3
   },
   T_LASER: {
     route: 'C', tier: 3, name: '三路光束', desc: '三道光束同時射擊',
-    next: 'OMEGA', color: '#0077ff', icon: '🔶'
+    next: 'OMEGA', color: '#0077ff', icon: '🔶', basePower: 1.4
   },
   OMEGA: {
     route: 'C', tier: 4, name: '歐米茄射線', desc: '持續光束掃射，無視障礙',
-    next: null, color: '#0044cc', icon: '👁️'
+    next: null, color: '#0044cc', icon: '👁️', basePower: 1.6
   },
 
   // D 路線：召喚塔防流 - 本體弱，召喚物強，越拖越強
   SUMMON: {
     route: 'D', tier: 1, name: '工程師', desc: '部署 1 個自動砲塔',
-    next: 'DRONE', color: '#44ff88', icon: '🛠️'
+    next: 'DRONE', color: '#44ff88', icon: '🛠️', basePower: 0.8
   },
   DRONE: {
     route: 'D', tier: 2, name: '維修無人機', desc: '砲塔自動修復，召喚無人機',
-    next: 'TURRET', color: '#22cc66', icon: '🤖'
+    next: 'TURRET', color: '#22cc66', icon: '🤖', basePower: 0.9
   },
   TURRET: {
     route: 'D', tier: 3, name: '自動砲台', desc: '砲塔升級為導彈發射器',
-    next: 'FORTRESS', color: '#11aa44', icon: '🏰'
+    next: 'FORTRESS', color: '#11aa44', icon: '🏰', basePower: 1.0
   },
   FORTRESS: {
     route: 'D', tier: 4, name: '要塞核心', desc: '終極塔防，毀滅光束',
-    next: null, color: '#008833', icon: '⚔️'
+    next: null, color: '#008833', icon: '⚔️', basePower: 1.3
   }
 };
 
@@ -673,10 +673,16 @@ const POWER_UPS = {
   RAPID_DROP: { name: '快速射擊', desc: '射速+20% (本關有效)', icon: '⚡', color: '#ff6b00', duration: 0, weaponType: 'RAPID' },
   SPREAD_DROP: { name: '散彈', desc: '扇形射擊 (本關有效)', icon: '💫', color: '#ffdd00', duration: 0, weaponType: 'SPREAD' },
   PLASMA_DROP: { name: '電漿炮', desc: '貫穿彈 (本關有效)', icon: '🔷', color: '#00ddff', duration: 0, weaponType: 'PLASMA' },
-  SUMMON_DROP: { name: '工程師', desc: '部署砲塔 (本關有效)', icon: '🛠️', color: '#44ff88', duration: 0, weaponType: 'SUMMON' }
+  SUMMON_DROP: { name: '工程師', desc: '部署砲塔 (本關有效)', icon: '🛠️', color: '#44ff88', duration: 0, weaponType: 'SUMMON' },
+  GATLING_DROP: { name: '格林機槍', desc: '格林機槍 (本關有效)', icon: '🔥', color: '#ff4400', duration: 0, weaponType: 'GATLING', tier: 2 },
+  CLUSTER_DROP: { name: '集束彈', desc: '集束彈頭 (本關有效)', icon: '💛', color: '#ffaa00', duration: 0, weaponType: 'CLUSTER', tier: 2 },
+  D_LASER_DROP: { name: '雙光束炮', desc: '雙光束炮 (本關有效)', icon: '🔷', color: '#00aaff', duration: 0, weaponType: 'D_LASER', tier: 2 }
 };
 
-const WEAPON_DROPS = ['RAPID_DROP', 'SPREAD_DROP', 'PLASMA_DROP', 'SUMMON_DROP'];
+// Tier 1 weapons (always available)
+const WEAPON_DROPS_T1 = ['RAPID_DROP', 'SPREAD_DROP', 'PLASMA_DROP', 'SUMMON_DROP'];
+// Tier 2+ weapons (only available when player has higher tier weapons)
+const WEAPON_DROPS_T2 = ['GATLING_DROP', 'CLUSTER_DROP', 'D_LASER_DROP'];
 
 const SHOP_ITEMS = [
   { id: 'HEALTH_PLUS', name: '生命+1', desc: '最大生命值+1', icon: '❤️', color: '#ff69b4', price: 500, type: 'health' },
@@ -1093,33 +1099,38 @@ function applyLevelWeapon(weaponType) {
   if (!G.levelWeaponStacks[stackKey]) {
     G.levelWeaponStacks[stackKey] = 0;
   }
-  
+
   const weaponData = WEAPON_TREE[weaponType];
   if (!weaponData) return;
-  
+
   const currentRoute = G.playerStats.route;
-  const isSameRoute = !currentRoute || currentRoute === weaponData.route;
-  
-  if (G.levelClearedCount >= CONFIG.GAMEPLAY.UPGRADE_INTERVAL && isSameRoute) {
+  const isSameRoute = currentRoute && currentRoute === weaponData.route;
+  const isFirstWeapon = !currentRoute;
+
+  if (isFirstWeapon) {
+    // 第一次獲得武器，設定武器和路線
+    G.playerStats.weapon = weaponType;
+    G.playerStats.weaponTier = weaponData.tier;
+    G.playerStats.route = weaponData.route;
     G.levelWeaponStacks[stackKey]++;
-    G.playerStats.weaponDamageBonus = (G.playerStats.weaponDamageBonus || 0) + 0.2;
-    addScorePopup(G.player.x, G.player.y - 20, `疊加 +20%`);
-  } else {
-    if (G.levelWeaponStacks[stackKey] === 0) {
-      if (!isSameRoute && currentRoute) {
-        G.playerStats.weaponDamageBonus = (G.playerStats.weaponDamageBonus || 0) + 0.15;
-        addScorePopup(G.player.x, G.player.y - 20, `+15% (路線不符)`);
-      } else {
-        G.playerStats.weapon = weaponType;
-        G.playerStats.weaponTier = weaponData.tier;
-        G.playerStats.route = weaponData.route;
-        if (G.player) G.player.applyTypeStats();
-        addScorePopup(G.player.x, G.player.y - 20, weaponData.name);
-      }
+    if (G.player) G.player.applyTypeStats();
+    addScorePopup(G.player.x, G.player.y - 20, weaponData.name);
+  } else if (isSameRoute) {
+    // 同路線：可以進化或疊加
+    G.levelWeaponStacks[stackKey]++;
+
+    if (G.levelClearedCount >= CONFIG.GAMEPLAY.UPGRADE_INTERVAL) {
+      // 已通關足夠關卡：疊加傷害+20%
+      G.playerStats.weaponDamageBonus = (G.playerStats.weaponDamageBonus || 0) + 0.2;
+      addScorePopup(G.player.x, G.player.y - 20, `疊加 +20%`);
     } else {
-      G.playerStats.weaponDamageBonus = (G.playerStats.weaponDamageBonus || 0) + 0.1;
-      addScorePopup(G.player.x, G.player.y - 20, `+10%`);
+      // 尚未通關足夠關卡：不疊加，只顯示提示
+      addScorePopup(G.player.x, G.player.y - 20, weaponData.name);
     }
+  } else {
+    // 不同路線：不更換武器，只加少量傷害
+    G.playerStats.weaponDamageBonus = (G.playerStats.weaponDamageBonus || 0) + 0.1;
+    addScorePopup(G.player.x, G.player.y - 20, `+10%`);
   }
 }
 
@@ -1138,30 +1149,33 @@ function shootWeapon(player) {
   const actualCD = Math.max(2, Math.floor(baseCD * cooldownMult));
   player.bulletTimer = actualCD;
 
+  const weaponData = WEAPON_TREE[player.weapon];
+  const basePower = weaponData ? weaponData.basePower : 1.0;
+
   switch (player.weapon) {
     case 'NORMAL':
-      spawnBullet(cx, cy, player.aimDir, true, player.pierce);
+      spawnBullet(cx, cy, player.aimDir, true, player.pierce, basePower);
       break;
     case 'RAPID':
     case 'GATLING':
     case 'CHAINGUN':
     case 'OVERDRIVE':
-      spawnBullet(cx, cy, player.aimDir, true, true);
-      if (player.weapon === 'GATLING' || player.weapon === 'OVERDRIVE') spawnBullet(cx, cy - 2, player.aimDir, true, true);
-      if (player.weapon === 'CHAINGUN') spawnBullet(cx, cy + 2, player.aimDir, true, true);
+      spawnBullet(cx, cy, player.aimDir, true, true, basePower);
+      if (player.weapon === 'GATLING' || player.weapon === 'OVERDRIVE') spawnBullet(cx, cy - 2, player.aimDir, true, true, basePower);
+      if (player.weapon === 'CHAINGUN') spawnBullet(cx, cy + 2, player.aimDir, true, true, basePower);
       if (player.weapon === 'OVERDRIVE') {
-        spawnBullet(cx, cy - 4, player.aimDir, true, true);
-        spawnBullet(cx, cy + 4, player.aimDir, true, true);
+        spawnBullet(cx, cy - 4, player.aimDir, true, true, basePower);
+        spawnBullet(cx, cy + 4, player.aimDir, true, true, basePower);
       }
       break;
     case 'SPREAD':
     case 'CLUSTER':
     case 'NAPALM':
     case 'APOCALYPSE':
-      if (player.weapon === 'SPREAD') spawnSpreadBullets(cx, cy, 3, 0.25);
-      else if (player.weapon === 'CLUSTER') spawnSpreadBullets(cx, cy, 5, 0.3);
-      else if (player.weapon === 'NAPALM') { spawnSpreadBullets(cx, cy, 3, 0.25); spawnFireZone(cx, cy); }
-      else if (player.weapon === 'APOCALYPSE') spawnSpreadBullets(cx, cy, 5, 0.4);
+      if (player.weapon === 'SPREAD') spawnSpreadBullets(cx, cy, 3, 0.25, basePower);
+      else if (player.weapon === 'CLUSTER') spawnSpreadBullets(cx, cy, 5, 0.3, basePower);
+      else if (player.weapon === 'NAPALM') { spawnSpreadBullets(cx, cy, 3, 0.25, basePower); spawnFireZone(cx, cy); }
+      else if (player.weapon === 'APOCALYPSE') spawnSpreadBullets(cx, cy, 5, 0.4, basePower);
       if (player.weapon === 'APOCALYPSE' && G.frameCount % 180 === 0) {
         for (let i = 0; i < 20; i++) {
           const bx = Math.random() * W;
@@ -1177,11 +1191,11 @@ function shootWeapon(player) {
     case 'D_LASER':
     case 'T_LASER':
     case 'OMEGA':
-      spawnBullet(cx, cy, player.aimDir, true, true, 2);
-      if (player.weapon === 'D_LASER') spawnBullet(cx, cy - 3, player.aimDir, true, true, 2);
+      spawnBullet(cx, cy, player.aimDir, true, true, basePower);
+      if (player.weapon === 'D_LASER') spawnBullet(cx, cy - 3, player.aimDir, true, true, basePower);
       if (player.weapon === 'T_LASER') {
-        spawnBullet(cx, cy - 3, player.aimDir, true, true, 2);
-        spawnBullet(cx, cy + 3, player.aimDir, true, true, 2);
+        spawnBullet(cx, cy - 3, player.aimDir, true, true, basePower);
+        spawnBullet(cx, cy + 3, player.aimDir, true, true, basePower);
       }
       if (player.weapon === 'OMEGA') {
         spawnLaserBeam(player.aimDir);
@@ -1191,7 +1205,7 @@ function shootWeapon(player) {
     case 'DRONE':
     case 'TURRET':
     case 'FORTRESS':
-      spawnBullet(cx, cy, player.aimDir, true, false, 1);
+      spawnBullet(cx, cy, player.aimDir, true, false, basePower);
       const maxTurrets = 1 + player.weaponTier;
       if (G.summonEntities.filter(e => e.type === 'turret').length < maxTurrets) {
         G.summonEntities.push({
@@ -1225,7 +1239,7 @@ function spawnBullet(x, y, dir, isPlayer, pierce = false, power = 1) {
   b.hitTanks.length = 0;
 }
 
-function spawnSpreadBullets(cx, cy, count, spreadAngle) {
+function spawnSpreadBullets(cx, cy, count, spreadAngle, basePower) {
   const baseDir = G.player ? G.player.aimDir : DOWN;
   const dx = DX[baseDir], dy = DY[baseDir];
   const powerBonus = G.playerStats.weaponDamageBonus || 0;
@@ -1243,7 +1257,7 @@ function spawnSpreadBullets(cx, cy, count, spreadAngle) {
     b.vx = vx;
     b.vy = vy;
     b.speed = CONFIG.BULLET.SPEED_PLAYER * 0.8;
-    b.power = 1 + powerBonus;
+    b.power = basePower + powerBonus;
     b.hitTanks.length = 0;
   }
 }
@@ -1288,8 +1302,28 @@ function spawnChainBullet(x, y, target) {
     b.vx = dx / len; b.vy = dy / len;
     b.speed = 8;
     b.isPlayer = true;
-    b.power = 0.5 + (G.playerStats.weaponDamageBonus || 0);
+    const basePower = WEAPON_TREE[G.playerStats.weapon]?.basePower || 1;
+    const powerBonus = G.playerStats.weaponDamageBonus || 0;
+    b.power = 0.5 * basePower + powerBonus;
     b.chainCount = 1;
+    b.hitTanks.length = 0;
+  }
+}
+
+function spawnLaserBeam(dir) {
+  const weaponData = WEAPON_TREE[G.playerStats.weapon];
+  const basePower = weaponData ? weaponData.basePower : 1.0;
+  for (let i = 0; i < 30; i++) {
+    const b = bulletsPool.acquire();
+    b.x = G.player.x + i * 15 * DX[dir];
+    b.y = G.player.y + i * 15 * DY[dir];
+    b.dir = dir;
+    b.isPlayer = true;
+    b.vx = 0;
+    b.vy = 0;
+    b.speed = 0;
+    b.power = basePower;
+    b.laserLife = 15;
     b.hitTanks.length = 0;
   }
 }
@@ -1317,7 +1351,9 @@ function chainLightning(x, y, source) {
     b.speed = 10;
     b.isPlayer = true;
     b.pierce = false;
-    b.power = 1 + (G.playerStats.weaponDamageBonus || 0);
+    const basePower = WEAPON_TREE[G.playerStats.weapon]?.basePower || 1;
+    const powerBonus = G.playerStats.weaponDamageBonus || 0;
+    b.power = basePower + powerBonus;
     b.type = 'PLASMA';
     b.hitTanks.length = 0;
     spawnExplosion(x, y, 'spark');
@@ -2619,27 +2655,31 @@ function spawnEnemyAt(x, y) {
 // 30% 機率生成攜帶道具的發光敵軍
   if (Math.random() < 0.3) {
     e.hasPowerUp = true;
-    let powerTypes;
+    let powerTypes = [];
     const playerRoute = G.playerStats.route;
-    // 武器道具從第1關開始就有機會掉落，優先掉落同路線武器
-    if (Math.random() < 0.5 && playerRoute) {
+
+    if (playerRoute) {
+      // 同路線武器掉落
       const routeWeapons = Object.keys(WEAPON_TREE).filter(k => WEAPON_TREE[k].route === playerRoute);
-      if (routeWeapons.length > 0) {
-        const playerWeapon = G.playerStats.weapon;
-        const currentTier = WEAPON_TREE[playerWeapon]?.tier || 0;
-        const availableWeapons = routeWeapons.filter(w => (WEAPON_TREE[w].tier || 0) <= currentTier + 1);
-        if (availableWeapons.length > 0) {
-          powerTypes = availableWeapons.map(w => w + '_DROP').filter(t => POWER_UPS[t]);
-          if (powerTypes.length === 0) powerTypes = WEAPON_DROPS;
-        } else {
-          powerTypes = WEAPON_DROPS;
-        }
-      } else {
-        powerTypes = WEAPON_DROPS;
+      const playerWeapon = G.playerStats.weapon;
+      const currentTier = WEAPON_TREE[playerWeapon]?.tier || 0;
+      const availableWeapons = routeWeapons.filter(w => (WEAPON_TREE[w].tier || 0) <= currentTier + 1);
+
+      if (availableWeapons.length > 0) {
+        powerTypes = availableWeapons.map(w => w + '_DROP').filter(t => POWER_UPS[t]);
       }
-    } else {
-      powerTypes = WEAPON_DROPS;
     }
+
+    // 如果沒有同路線武器或玩家沒有選擇路線，加入所有基本武器掉落
+    if (powerTypes.length === 0) {
+      powerTypes = WEAPON_DROPS_T1;
+    }
+
+    // 70% 機率掉落基本武器，30% 掉落進階武器
+    if (Math.random() < 0.3 && G.playerStats.weaponTier >= 2) {
+      powerTypes = powerTypes.concat(WEAPON_DROPS_T2);
+    }
+
     e.powerUpType = powerTypes[(Math.random() * powerTypes.length) | 0];
     e.glowTimer = 30;
   }
