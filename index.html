@@ -2845,12 +2845,27 @@ function spawnEnemy() {
   // 30% 機率攜帶道具
   if (Math.random() < 0.3) {
     e.hasPowerUp = true;
-    let powerTypes;
-    if (Math.random() < 0.5) {
-      powerTypes = WEAPON_DROPS;
-    } else {
-      powerTypes = ['BOMB', 'WALL', 'STAR', 'TIME', 'SHIELD', 'ONEUP'];
+    let powerTypes = [];
+    const playerRoute = G.playerStats.route;
+
+    if (playerRoute) {
+      const routeWeapons = Object.keys(WEAPON_TREE).filter(k => WEAPON_TREE[k].route === playerRoute);
+      const playerWeapon = G.playerStats.weapon;
+      const currentTier = WEAPON_TREE[playerWeapon]?.tier || 0;
+      const availableWeapons = routeWeapons.filter(w => (WEAPON_TREE[w].tier || 0) <= currentTier + 1);
+      if (availableWeapons.length > 0) {
+        powerTypes = availableWeapons.map(w => w + '_DROP').filter(t => POWER_UPS[t]);
+      }
     }
+
+    if (powerTypes.length === 0) {
+      powerTypes = WEAPON_DROPS_T1;
+    }
+
+    if (Math.random() < 0.3 && G.playerStats.weaponTier >= 2) {
+      powerTypes = powerTypes.concat(WEAPON_DROPS_T2);
+    }
+
     e.powerUpType = powerTypes[(Math.random() * powerTypes.length) | 0];
     e.glowTimer = 30;
   }
