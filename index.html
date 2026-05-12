@@ -2010,11 +2010,15 @@ function drawNESShield(x, y, size) {
 // ==================== 子彈邏輯 ====================
 function updateBullet(b) {
   if (!b.alive) return;
-  b.x += b.vx * b.speed; 
+
+  // 記錄移動前的位置，用於碰撞回溯
+  const prevX = b.x, prevY = b.y;
+
+  b.x += b.vx * b.speed;
   b.y += b.vy * b.speed;
 
-  if (b.x < 0 || b.x > W || b.y < 0 || b.y > H) { 
-    b.alive = false; return; 
+  if (b.x < 0 || b.x > W || b.y < 0 || b.y > H) {
+    b.alive = false; return;
   }
 
   const bc = ((b.x + 3) / TILE) | 0, br = ((b.y + 3) / TILE) | 0;
@@ -2052,14 +2056,29 @@ function updateBullet(b) {
   }
 
   if (b.isPlayer) {
-    spatialGrid.queryRect(b.x - 4, b.y - 4, b.size + 8, b.size + 8, _queryBuf);
+    // 擴大查詢範圍：覆蓋子彈移動距離 + 安全邊距
+    const speed = b.speed;
+    const margin = b.size + 10;
+    const qx = Math.min(prevX, b.x) - margin;
+    const qy = Math.min(prevY, b.y) - margin;
+    const qw = Math.abs(b.x - prevX) + margin * 2;
+    const qh = Math.abs(b.y - prevY) + margin * 2;
+    spatialGrid.queryRect(qx, qy, qw, qh, _queryBuf);
     Perf.collisionChecks += _queryBuf.length;
-    
+
     for (let i = 0; i < _queryBuf.length; i++) {
       const t = _queryBuf[i];
-      if (!t.alive || t.isPlayer || b.hitTanks.indexOf(t) !== -1) continue;
-      
-      if (rectsOverlap(b.x, b.y, b.size, b.size, t.x, t.y, t.size, t.size)) {
+      if (!t.alive || t.isPlayer) continue;
+      // 跳過本幀已命中的敵人（防重複判定）
+      if (b.hitTanks.indexOf(t) !== -1) continue;
+
+      // 使用距離檢測更精確，避免矩形邊緣漏檢
+      const dx = (b.x + b.size/2) - (t.x + t.size/2);
+      const dy = (b.y + b.size/2) - (t.y + t.size/2);
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const hitDist = (b.size + t.size) * 0.45; // 更寬鬆的判定距離
+
+      if (dist < hitDist) {
         handleBulletHit(b, t);
         if (!b.alive) return;
       }
@@ -2067,7 +2086,12 @@ function updateBullet(b) {
   } else {
     if (G.player && G.player.alive && G.player.flashTimer === 0) {
       Perf.collisionChecks++;
-      if (rectsOverlap(b.x, b.y, b.size, b.size, G.player.x, G.player.y, G.player.size, G.player.size)) {
+      // 同樣使用距離檢測
+      const dx = (b.x + b.size/2) - (G.player.x + G.player.size/2);
+      const dy = (b.y + b.size/2) - (G.player.y + G.player.size/2);
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const hitDist = (b.size + G.player.size) * 0.45;
+      if (dist < hitDist) {
         handleBulletHit(b, G.player);
       }
     }
