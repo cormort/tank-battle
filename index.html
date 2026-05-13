@@ -645,6 +645,37 @@ const WEAPON_TREE = {
 // 起始武器
 const STARTER_WEAPONS = ['NORMAL', 'RAPID', 'SPREAD', 'PLASMA', 'SUMMON'];
 
+// 狀態常數
+const STATE = { MENU:'menu', PLAYING:'playing', PAUSED:'paused', UPGRADE:'upgrade', SHOP:'shop', GAMEOVER:'gameover', LEVEL_COMPLETE:'levelComplete', FACTION_SELECT:'factionSelect' };
+
+// 特殊敵人類別查詢加速
+const SPECIAL_ENEMY_TYPES = new Set(['SNIPER','ENGINEER','INTERFERER','GUARD','MINELAYER']);
+
+// Fisher-Yates 洗牌
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// 陣列原地壓縮（移除 !alive 的元素）
+function compact(arr, aliveKey = 'alive') {
+  let w = 0;
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i][aliveKey]) { if (w !== i) arr[w] = arr[i]; w++; }
+  }
+  arr.length = w;
+  return arr;
+}
+
+// 距離平方（取代 Math.hypot 進行中）
+function distSq(a, b) {
+  const dx = a.x - b.x, dy = a.y - b.y;
+  return dx * dx + dy * dy;
+}
+
 // 被動技能池
 const PASSIVE_SKILLS = [
   { id: 'HEAT', name: '熱能反應', desc: '連續射擊越久，攻速越快', icon: '🔥', color: '#ff6600' },
@@ -710,7 +741,7 @@ const SHOP_ITEMS = [
 
 // 全域狀態
 const G = {
-  state: 'menu', score: 0, level: 1, continues: 3, isVSMode: false,
+  state: STATE.MENU, score: 0, level: 1, continues: 3, isVSMode: false,
   difficulty: 'normal',
   enemiesRemaining: 0, enemiesSpawned: 0, maxEnemies: 10, aliveEnemies: 0,
   spawnInterval: 120, spawnTimer: 0, baseDestroyed: false,
@@ -787,7 +818,8 @@ function generateUpgradeOptions() {
 
   // 3. 被動技能（最多 3 個）
   const availablePassives = PASSIVE_SKILLS.filter(p => !ps.passives.includes(p.id));
-  const shuffledPassives = availablePassives.sort(() => 0.5 - Math.random()).slice(0, 2);
+  shuffle(availablePassives);
+  const shuffledPassives = availablePassives.slice(0, 2);
   for (const p of shuffledPassives) {
     options.push({
       type: 'passive',
@@ -801,7 +833,7 @@ function generateUpgradeOptions() {
 
   // 4. 主動技能
   if (!ps.activeSkill && ACTIVE_SKILLS.length > 0) {
-    const shuffledActive = ACTIVE_SKILLS.sort(() => 0.5 - Math.random()).slice(0, 1);
+    const shuffledActive = shuffle([...ACTIVE_SKILLS]).slice(0, 1);
     for (const a of shuffledActive) {
       options.push({
         type: 'active',
@@ -824,17 +856,19 @@ function generateUpgradeOptions() {
   if (isEasy) {
     generalUpgrades.push({ id: 'SHIELD', title: '能量護盾', desc: '抵擋一次致命傷害', icon: '🛡️', color: '#44ccff' });
   }
-  const shuffledGeneral = generalUpgrades.sort(() => 0.5 - Math.random()).slice(0, 1);
+  shuffle(generalUpgrades);
+  const shuffledGeneral = generalUpgrades.slice(0, 1);
   for (const g of shuffledGeneral) {
     options.push(g);
   }
 
   // 只保留 3 張，隨機
-  return options.sort(() => 0.5 - Math.random()).slice(0, 3);
+  shuffle(options);
+  return options.slice(0, 3);
 }
 
 function showUpgradeScreen() {
-  G.state = 'upgrade';
+  G.state = STATE.UPGRADE;
   Sound.jingleLevelClear();
   const ui = document.getElementById('upgradeUI');
   const container = document.getElementById('cards');
@@ -968,8 +1002,9 @@ function applyPassiveTick() {
   }
   // 被動技能：核融合引擎（移動時對周圍敵人造成持續灼燒傷害）
   if (ps.passives.includes('NUCLEAR') && G.player && G.player.alive && G.player.moving) {
+    const nucRangeSq = (TILE * 2) ** 2;
     for (const e of G.enemies) {
-      if (e.alive && Math.hypot(e.x - G.player.x, e.y - G.player.y) < TILE * 2) {
+      if (e.alive && distSq(e, G.player) < nucRangeSq) {
         e.hp -= 0.05;
         if (e.hp <= 0) {
           e.alive = false;
@@ -1046,7 +1081,7 @@ function callAirStrike() {
     const x = Math.random() * W;
     const y = Math.random() * H;
     setTimeout(() => {
-      if (G.level !== currentLevel || G.state !== 'playing') return;
+      if (G.level !== currentLevel || G.state !== STATE.PLAYING) return;
       spawnExplosion(x, y, 'big');
       triggerShake(3, 4);
       Sound.bigExplode();
@@ -1311,21 +1346,6 @@ function spawnFireZone(x, y) {
   G.summonEntities.push({
     type: 'fire', x, y, life: 120, maxLife: 120, damage: 0.5, alive: true
   });
-}
-
-function spawnLaserBeam(dir) {
-  for (let i = 0; i < 30; i++) {
-    const b = bulletsPool.acquire();
-    b.x = G.player.x + i * 15 * DX[dir];
-    b.y = G.player.y + i * 15 * DY[dir];
-    b.dir = dir;
-    b.isPlayer = true;
-    b.vx = 0;
-    b.vy = 0;
-    b.speed = 0;
-    b.laserLife = 15;
-    b.hitTanks.length = 0;
-  }
 }
 
 function spawnChainBullet(x, y, target) {
@@ -2745,6 +2765,33 @@ function updateSpecialEnemyAI(e) {
   }
 }
 
+function assignPowerUpDrop(e) {
+  if (Math.random() < 0.3) {
+    e.hasPowerUp = true;
+    let powerTypes = [];
+    const playerRoute = G.playerStats.route;
+
+    if (playerRoute) {
+      const routeWeapons = Object.keys(WEAPON_TREE).filter(k => WEAPON_TREE[k].route === playerRoute);
+      const playerWeapon = G.playerStats.weapon;
+      const currentTier = WEAPON_TREE[playerWeapon]?.tier || 0;
+      const availableWeapons = routeWeapons.filter(w => (WEAPON_TREE[w].tier || 0) <= currentTier + 1);
+      if (availableWeapons.length > 0) {
+        powerTypes = availableWeapons.map(w => w + '_DROP').filter(t => POWER_UPS[t]);
+      }
+    }
+
+    if (powerTypes.length === 0) powerTypes = WEAPON_DROPS_T1;
+
+    if (Math.random() < 0.3 && G.playerStats.weaponTier >= 2) {
+      powerTypes = powerTypes.concat(WEAPON_DROPS_T2);
+    }
+
+    e.powerUpType = powerTypes[(Math.random() * powerTypes.length) | 0];
+    e.glowTimer = 30;
+  }
+}
+
 function spawnEnemyAt(x, y) {
   if (G.enemies.length >= G.maxEnemies) return;
   const types = ['NORMAL', 'FAST', 'HEAVY'];
@@ -2754,37 +2801,7 @@ function spawnEnemyAt(x, y) {
     clampPos(y + (Math.random() - 0.5) * TILE * 4),
     (Math.random() * 4) | 0, type, false
   );
-// 30% 機率生成攜帶道具的發光敵軍
-  if (Math.random() < 0.3) {
-    e.hasPowerUp = true;
-    let powerTypes = [];
-    const playerRoute = G.playerStats.route;
-
-    if (playerRoute) {
-      // 同路線武器掉落
-      const routeWeapons = Object.keys(WEAPON_TREE).filter(k => WEAPON_TREE[k].route === playerRoute);
-      const playerWeapon = G.playerStats.weapon;
-      const currentTier = WEAPON_TREE[playerWeapon]?.tier || 0;
-      const availableWeapons = routeWeapons.filter(w => (WEAPON_TREE[w].tier || 0) <= currentTier + 1);
-
-      if (availableWeapons.length > 0) {
-        powerTypes = availableWeapons.map(w => w + '_DROP').filter(t => POWER_UPS[t]);
-      }
-    }
-
-    // 如果沒有同路線武器或玩家沒有選擇路線，加入所有基本武器掉落
-    if (powerTypes.length === 0) {
-      powerTypes = WEAPON_DROPS_T1;
-    }
-
-    // 70% 機率掉落基本武器，30% 掉落進階武器
-    if (Math.random() < 0.3 && G.playerStats.weaponTier >= 2) {
-      powerTypes = powerTypes.concat(WEAPON_DROPS_T2);
-    }
-
-    e.powerUpType = powerTypes[(Math.random() * powerTypes.length) | 0];
-    e.glowTimer = 30;
-  }
+  assignPowerUpDrop(e);
   G.enemies.push(e);
   G.aliveEnemies++;
 }
@@ -2813,7 +2830,7 @@ function updateEnemyAI(e) {
     if (G.frameCount % 30 === 0) e.shoot();
   }
 
-  if (['SNIPER', 'ENGINEER', 'INTERFERER', 'GUARD', 'MINELAYER'].includes(e.type)) {
+  if (SPECIAL_ENEMY_TYPES.has(e.type)) {
     updateSpecialEnemyAI(e);
   }
 
@@ -2897,7 +2914,8 @@ function spawnEnemy() {
     }
     
     if (sx < 0) {
-      for (const sp of pts.sort(() => Math.random() - 0.5)) {
+      shuffle(pts);
+      for (const sp of pts) {
         let free = true;
         spatialGrid.queryRect(sp[1], sp[0], TILE, TILE, _queryBuf);
         for (let i = 0; i < _queryBuf.length; i++) {
@@ -2944,33 +2962,7 @@ function spawnEnemy() {
   e.shieldHits = elitePrefix === 'SHIELDED' ? 3 : 0;
   e.regenTimer = 0;
   e.summonTimer = 0;
-  // 30% 機率攜帶道具
-  if (Math.random() < 0.3) {
-    e.hasPowerUp = true;
-    let powerTypes = [];
-    const playerRoute = G.playerStats.route;
-
-    if (playerRoute) {
-      const routeWeapons = Object.keys(WEAPON_TREE).filter(k => WEAPON_TREE[k].route === playerRoute);
-      const playerWeapon = G.playerStats.weapon;
-      const currentTier = WEAPON_TREE[playerWeapon]?.tier || 0;
-      const availableWeapons = routeWeapons.filter(w => (WEAPON_TREE[w].tier || 0) <= currentTier + 1);
-      if (availableWeapons.length > 0) {
-        powerTypes = availableWeapons.map(w => w + '_DROP').filter(t => POWER_UPS[t]);
-      }
-    }
-
-    if (powerTypes.length === 0) {
-      powerTypes = WEAPON_DROPS_T1;
-    }
-
-    if (Math.random() < 0.3 && G.playerStats.weaponTier >= 2) {
-      powerTypes = powerTypes.concat(WEAPON_DROPS_T2);
-    }
-
-    e.powerUpType = powerTypes[(Math.random() * powerTypes.length) | 0];
-    e.glowTimer = 30;
-  }
+  assignPowerUpDrop(e);
   G.enemies.push(e);
   G.enemiesSpawned++;
   G.aliveEnemies++;
@@ -2983,7 +2975,7 @@ function spawnEnemy() {
 // ==================== 關卡與升級 ====================
 function checkLevelComplete() {
   if (G.aliveEnemies <= 0 && G.enemiesSpawned >= G.maxEnemies - 5) {
-    G.state = 'levelComplete';
+    G.state = STATE.LEVEL_COMPLETE;
     G.levelClearedCount++;
     if (G.level % CONFIG.GAMEPLAY.UPGRADE_INTERVAL === 0) {
       setTimeout(showUpgradeScreen, 1200);
@@ -3042,7 +3034,7 @@ function startLevel() {
   if (!ps.weapon) ps.weapon = 'NORMAL';
   G.player = new Tank(G.playerSpawnPos.x, G.playerSpawnPos.y, UP, ps.weapon, true);
   G.player.flashTimer = 60;
-  G.state = 'playing';
+  G.state = STATE.PLAYING;
   document.getElementById('overlay').classList.add('hidden');
   updateMobileControlsForMode();
   updateHUD();
@@ -3113,7 +3105,7 @@ function restartGame() {
 }
 
 function showEasyFactionSelect() {
-  G.state = 'factionSelect';
+  G.state = STATE.FACTION_SELECT;
   Sound.jingleLevelClear();
   const ov = document.getElementById('overlay');
   ov.classList.remove('hidden');
@@ -3153,7 +3145,7 @@ function showEasyFactionSelect() {
 }
 
 function showGameOver() {
-  G.state = 'gameover';
+  G.state = STATE.GAMEOVER;
   Sound.jingleGameOver();
   if (G.continues > 0) showContinuePrompt();
   else showFinalGameOver();
@@ -3251,26 +3243,26 @@ document.addEventListener('keydown', e => {
   if (!e.repeat) {
     if (e.code === 'F3') { e.preventDefault(); Perf.toggle(); }
     else if (e.code === 'KeyM') { e.preventDefault(); Sound.toggle(); }
-    else if (e.code === 'KeyP' && (G.state === 'playing' || G.state === 'paused')) { e.preventDefault(); togglePause(); }
-    else if (e.code === 'KeyB' && (G.state === 'playing' || G.state === 'paused')) { 
+    else if (e.code === 'KeyP' && (G.state === STATE.PLAYING || G.state === STATE.PAUSED)) { e.preventDefault(); togglePause(); }
+    else if (e.code === 'KeyB' && (G.state === STATE.PLAYING || G.state === STATE.PAUSED)) { 
       e.preventDefault(); 
-      if (G.state === 'paused') togglePause();
+      if (G.state === STATE.PAUSED) togglePause();
       openShop(); 
     }
-    else if (e.code === 'Escape' && G.state === 'shop') { e.preventDefault(); closeShop(); }
-    else if ((e.code === 'Enter' || e.code === 'Space') && G.state === 'menu') {
+    else if (e.code === 'Escape' && G.state === STATE.SHOP) { e.preventDefault(); closeShop(); }
+    else if ((e.code === 'Enter' || e.code === 'Space') && G.state === STATE.MENU) {
       e.preventDefault();
       const focused = document.querySelector('.difficulty-btn:focus, .difficulty-btn.selected');
       if (focused) focused.click();
       else document.getElementById('btnNormal').click();
     }
-    else if ((e.code === 'Enter' || e.code === 'Space') && G.state === 'factionSelect') {
+    else if ((e.code === 'Enter' || e.code === 'Space') && G.state === STATE.FACTION_SELECT) {
       e.preventDefault();
       const hovered = document.querySelector('#overlay .start-btn:hover, #overlay .start-btn:focus');
       if (hovered) hovered.click();
     }
   }
-  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+  if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
 });
 document.addEventListener('keyup', e => G.keys[e.code] = false);
 document.getElementById('btnNormal').addEventListener('click', () => {
@@ -3306,13 +3298,13 @@ document.getElementById('soundToggle').addEventListener('click', e => {
 });
 document.getElementById('pauseToggle').addEventListener('click', e => {
   e.stopPropagation();
-  if (G.state === 'playing' || G.state === 'paused') togglePause();
+  if (G.state === STATE.PLAYING || G.state === STATE.PAUSED) togglePause();
 });
 
 function togglePause() {
   const ov = document.getElementById('overlay');
-  if (G.state === 'playing') {
-    G.state = 'paused';
+  if (G.state === STATE.PLAYING) {
+    G.state = STATE.PAUSED;
     ov.classList.add('translucent');
     ov.classList.remove('hidden');
     ov.innerHTML = `<h2>PAUSED</h2><p>按 <b>P</b> 繼續</p>
@@ -3322,8 +3314,8 @@ function togglePause() {
     document.getElementById('shopBtn').onclick = () => { togglePause(); openShop(); };
     document.getElementById('resumeBtn').focus();
     Sound.pulse(440, 0.05, 0.2, 'square');
-  } else if (G.state === 'paused') {
-    G.state = 'playing';
+  } else if (G.state === STATE.PAUSED) {
+    G.state = STATE.PLAYING;
     ov.classList.remove('translucent');
     ov.classList.add('hidden');
     Sound.pulse(440, 0.05, 0.2, 'square');
@@ -3332,8 +3324,8 @@ function togglePause() {
 
 // ==================== 商店系統 ====================
 function openShop() {
-  if (G.state !== 'playing') return;
-  G.state = 'shop';
+  if (G.state !== STATE.PLAYING) return;
+  G.state = STATE.SHOP;
   
   const ov = document.getElementById('overlay');
   ov.classList.remove('hidden');
@@ -3432,7 +3424,7 @@ function buyItem(itemId) {
 }
 
 function closeShop() {
-  G.state = 'playing';
+  G.state = STATE.PLAYING;
   document.getElementById('overlay').classList.add('hidden');
 }
 
@@ -3605,7 +3597,7 @@ let _lastFrameTime = 0;
 function update() {
   G.frameCount++;
 
-  if (G.state === 'playing') {
+  if (G.state === STATE.PLAYING) {
     spatialGrid.clear();
     for (let i = 0; i < G.enemies.length; i++) {
       spatialGrid.insert(G.enemies[i]);
@@ -3671,7 +3663,6 @@ function update() {
 
     if (mapEventState.active) {
       updateMapEvent();
-      drawMapEvent();
     }
 
     updateSummonEntities();
@@ -3694,17 +3685,10 @@ function update() {
     for (let i = 0; i < ba.length; i++) updateBullet(ba[i]);
     bulletsPool.sweep();
 
-    let writeIdx = 0;
-    for (let i = 0; i < G.enemies.length; i++) {
-      if (G.enemies[i].alive) {
-        if (writeIdx !== i) G.enemies[writeIdx] = G.enemies[i];
-        writeIdx++;
-      }
-    }
-    G.enemies.length = writeIdx;
+    compact(G.enemies);
 
     if (G.baseDestroyed && !G.isVSMode) {
-      G.state = 'gameover';
+      G.state = STATE.GAMEOVER;
       setTimeout(showGameOver, 1200);
     }
 
@@ -3770,28 +3754,14 @@ function updateSummonEntities() {
     if (se.life <= 0) se.alive = false;
   }
 
-  let writeIdx = 0;
-  for (let i = 0; i < G.summonEntities.length; i++) {
-    if (G.summonEntities[i].alive) {
-      if (writeIdx !== i) G.summonEntities[writeIdx] = G.summonEntities[i];
-      writeIdx++;
-    }
-  }
-  G.summonEntities.length = writeIdx;
+  compact(G.summonEntities);
 
   for (let i = G.powerUps.length - 1; i >= 0; i--) {
     const pu = G.powerUps[i];
     pu.life--;
     if (pu.life <= 0) pu.alive = false;
   }
-  let puWrite = 0;
-  for (let i = 0; i < G.powerUps.length; i++) {
-    if (G.powerUps[i].alive) {
-      if (puWrite !== i) G.powerUps[puWrite] = G.powerUps[i];
-      puWrite++;
-    }
-  }
-  G.powerUps.length = puWrite;
+  compact(G.powerUps);
 
   if (G.wallTimer > 0) G.wallTimer--;
   if (G.timeFreezeTimer > 0) G.timeFreezeTimer--;
@@ -3888,7 +3858,7 @@ function render() {
     ctx.translate((Math.random() - 0.5) * G.shakeIntensity, (Math.random() - 0.5) * G.shakeIntensity);
   }
 
-  const isGameplay = ['playing','paused','gameover'].includes(G.state);
+  const isGameplay = G.state === STATE.PLAYING || G.state === STATE.PAUSED || G.state === STATE.GAMEOVER;
 
   if (isGameplay) {
     ctx.drawImage(staticCanvas, 0, 0);
@@ -3902,6 +3872,8 @@ function render() {
     }
   }
 
+  drawMapEvent();
+
   for (let i = 0; i < G.spawnEffects.length; i++) {
     const sp = G.spawnEffects[i];
     drawNESSpawnEffect(sp.x, sp.y, sp.size, sp.life, sp.maxLife);
@@ -3910,7 +3882,7 @@ function render() {
   drawSummonEntities();
   drawPowerUps();
   for (let i = 0; i < G.enemies.length; i++) G.enemies[i].draw();
-  if (G.player && G.state === 'playing') G.player.draw();
+  if (G.player && G.state === STATE.PLAYING) G.player.draw();
 
   renderBullets();
 
@@ -3939,7 +3911,7 @@ function gameLoop(now) {
   let updates = 0;
   while (_accumMs >= TICK_MS && updates < MAX_UPDATES_PER_FRAME) {
     Perf.begin();
-    if (G.state !== 'paused') update();
+    if (G.state !== STATE.PAUSED) update();
     Perf.end();
     _accumMs -= TICK_MS;
     updates++;
