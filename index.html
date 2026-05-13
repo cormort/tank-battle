@@ -272,6 +272,7 @@
   <div class="hud-item"><span class="label">HP</span><span class="value lives" id="livesDisplay">♥♥♥</span></div>
   <div class="hud-item"><span class="label">EN</span><span class="value" id="enemiesDisplay">0</span></div>
   <button id="soundToggle" title="切換音效 (M)" aria-label="切換音效">🔊</button>
+  <button id="shopToggle" title="商店 (B)" aria-label="商店" style="background:transparent;border:1px solid #2a2a35;color:#ffd700;font-size:14px;padding:2px 8px;border-radius:4px;cursor:pointer;font-family:inherit;line-height:1;">🏪</button>
   <button id="pauseToggle" title="暫停 (P)" aria-label="暫停">⏸</button>
 </div>
 <div id="powerStatus"></div>
@@ -733,11 +734,15 @@ const SHOP_ITEMS = [
   { id: 'HEALTH_PLUS', name: '生命+1', desc: '最大生命值+1', icon: '❤️', color: '#ff69b4', price: 500, type: 'health' },
   { id: 'SPEED_BOOST', name: '移動加速', desc: '移動速度+20%', icon: '⚡', color: '#44ff44', price: 800, type: 'speed' },
   { id: 'PIERCE_AMMO', name: '穿甲彈', desc: '子彈可貫穿敵人', icon: '🎯', color: '#ffaa00', price: 1200, type: 'pierce' },
-  { id: 'RAPID_FIRE', name: '快速射擊', desc: '射速+25%', icon: '🔥', color: '#ff6b00', price: 1000, type: 'rapid' },
+  { id: 'RAPID_FIRE', name: '快速射擊', desc: '射速+20%', icon: '🔥', color: '#ff6b00', price: 1000, type: 'rapid' },
   { id: 'EXTRA_LIFE', name: '額外生命', desc: '接關次數+1', icon: '💖', color: '#ff0000', price: 600, type: 'life' },
-  { id: 'PERM_WALL', name: '堡壘', desc: '鋼鐵城墙 15 秒', icon: '🏰', color: '#888888', price: 2000, type: 'wall' },
+  { id: 'PERM_WALL', name: '堡壘', desc: '鋼鐵城牆 15 秒', icon: '🏰', color: '#888888', price: 2000, type: 'wall' },
   { id: 'WEAPON_UP', name: '武器升級', desc: '武器升一級', icon: '⭐', color: '#ffd700', price: 1500, type: 'weapon' }
 ];
+
+function getShopPrice(basePrice) {
+  return Math.floor(basePrice * (1 + (G.level - 1) * 0.15));
+}
 
 // 全域狀態
 const G = {
@@ -755,7 +760,7 @@ const G = {
     maxHp: 3, hp: 3, route: null,
     passives: [], activeSkill: null, activeCooldown: 0,
     heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0,
-    combo: 0, comboTimer: 0
+    combo: 0, comboTimer: 0, shopFireRateBonus: 0
   },
   summonEntities: [],
   mapEvent: null,
@@ -1139,6 +1144,7 @@ function activatePowerUp(type) {
           spawnExplosion(e.x + e.size/2, e.y + e.size/2, 'big');
           G.score += e.type === 'BOSS' ? 500 : 50;
           if (G.aliveEnemies > 0) G.aliveEnemies--;
+          addCombo(true);
         }
       }
       triggerShake(15, 8);
@@ -1147,7 +1153,7 @@ function activatePowerUp(type) {
     case 'WALL':
       G.wallTimer = 900;
       break;
-    case 'STAR':
+    case 'STAR': {
       const currentWp = WEAPON_TREE[G.playerStats.weapon];
       if (currentWp && currentWp.next) {
         const nextWp = WEAPON_TREE[currentWp.next];
@@ -1155,8 +1161,12 @@ function activatePowerUp(type) {
         G.playerStats.weaponTier = nextWp.tier;
         G.playerStats.route = nextWp.route;
         G.player.applyTypeStats();
+        addScorePopup(G.player.x, G.player.y - 30, nextWp.name, '#ffd700');
+      } else {
+        addScorePopup(G.player.x, G.player.y - 30, '已達最大等級!', '#ff4444');
       }
       break;
+    }
     case 'TIME':
       G.timeFreezeTimer = 600;
       break;
@@ -1226,7 +1236,8 @@ function shootWeapon(player) {
   if (G.playerStats.boostTimer > 0) cooldownMult *= 2;
 
   const baseCD = G.isVSMode ? CONFIG.BULLET.PLAYER_COOLDOWN_VS : CONFIG.BULLET.PLAYER_COOLDOWN;
-  const actualCD = Math.max(2, Math.floor(baseCD * cooldownMult));
+  const fireRateBonus = G.playerStats.shopFireRateBonus || 0;
+  const actualCD = Math.max(2, Math.floor(baseCD * cooldownMult * (1 - fireRateBonus)));
   player.bulletTimer = actualCD;
 
   const weaponData = WEAPON_TREE[player.weapon];
@@ -1553,14 +1564,16 @@ function generateMap(level) {
   map[baseR][baseC] = BASE;
   [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1]].forEach(([dr,dc]) => map[baseR+dr][baseC+dc] = BRICK);
 
+  const density = Math.min(0.45, 0.22 + level * 0.012);
+  const steelRatio = Math.min(0.35, 0.06 + level * 0.015);
   for (let r = 2; r < ROWS - 2; r++) {
     for (let c = 1; c < COLS - 1; c++) {
       if (r >= ROWS - 4 && c >= baseC - 3 && c <= baseC + 3) continue;
       const rnd = Math.random();
-      if (rnd < 0.12) map[r][c] = BRICK;
-      else if (rnd < 0.18) map[r][c] = STEEL;
-      else if (rnd < 0.22) map[r][c] = WATER;
-      else if (rnd < 0.26) map[r][c] = FOREST;
+      if (rnd < density * 0.55) map[r][c] = BRICK;
+      else if (rnd < density * (0.55 + steelRatio)) map[r][c] = STEEL;
+      else if (rnd < density * (0.55 + steelRatio + 0.04)) map[r][c] = WATER;
+      else if (rnd < density * (0.55 + steelRatio + 0.08)) map[r][c] = FOREST;
     }
   }
   return map;
@@ -2799,6 +2812,8 @@ function updateSpecialEnemyAI(e) {
   }
 }
 
+const COMMON_DROPS = ['BOMB', 'WALL', 'STAR', 'TIME', 'SHIELD', 'ONEUP'];
+
 function assignPowerUpDrop(e) {
   if (Math.random() < 0.3) {
     e.hasPowerUp = true;
@@ -2815,13 +2830,18 @@ function assignPowerUpDrop(e) {
       }
     }
 
-    if (powerTypes.length === 0) powerTypes = WEAPON_DROPS_T1;
+    if (powerTypes.length === 0) powerTypes = [...WEAPON_DROPS_T1];
 
     if (Math.random() < 0.3 && G.playerStats.weaponTier >= 2) {
       powerTypes = powerTypes.concat(WEAPON_DROPS_T2);
     }
 
-    e.powerUpType = powerTypes[(Math.random() * powerTypes.length) | 0];
+    // 15% 機率掉落非武器道具（BOMB/WALL/STAR 等）
+    if (Math.random() < 0.15) {
+      e.powerUpType = COMMON_DROPS[(Math.random() * COMMON_DROPS.length) | 0];
+    } else {
+      e.powerUpType = powerTypes[(Math.random() * powerTypes.length) | 0];
+    }
     e.glowTimer = 30;
   }
 }
@@ -2978,10 +2998,13 @@ function spawnEnemy() {
   } else if (isBoss) {
     type = 'BOSS';
   } else if (G.level > 1) {
+    const fastChance = Math.min(0.3, 0.1 + G.level * 0.01);
+    const heavyChance = Math.min(0.25, 0.05 + G.level * 0.012);
+    const suicideChance = Math.min(0.2, 0.05 + G.level * 0.008);
     const r = Math.random();
-    if (r < 0.15) type = 'FAST';
-    else if (r < 0.3) type = 'HEAVY';
-    else if (r < 0.4) type = 'SUICIDE';
+    if (r < fastChance) type = 'FAST';
+    else if (r < fastChance + heavyChance) type = 'HEAVY';
+    else if (r < fastChance + heavyChance + suicideChance) type = 'SUICIDE';
   }
 
   let elitePrefix = null;
@@ -3042,7 +3065,7 @@ function startLevel() {
   } else {
     const diffMult = G.difficulty === 'easy' ? 0.6 : G.difficulty === 'test' ? 1.5 : 1;
     G.maxEnemies = Math.floor((10 + G.level * 2) * diffMult);
-    G.spawnInterval = Math.max(40, Math.floor((120 - G.level * 8) / (G.difficulty === 'easy' ? 1.5 : 1)));
+    G.spawnInterval = Math.max(40, Math.floor((120 - G.level * 8) * (G.difficulty === 'easy' ? 1.5 : 1)));
     G.spawnTimer = 30;
   }
 
@@ -3106,7 +3129,7 @@ function restartGame() {
       maxHp: 5, hp: 5, route: null,
       passives: [], activeSkill: null, activeCooldown: 0,
       heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0,
-      combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 0
+      combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 0, shopFireRateBonus: 0
     };
     updateHUD();
     showEasyFactionSelect();
@@ -3117,7 +3140,7 @@ function restartGame() {
       maxHp: 3, hp: 3, route: null,
       passives: [], activeSkill: null, activeCooldown: 0,
       heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0,
-      combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 0
+      combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 0, shopFireRateBonus: 0
     };
     updateHUD();
     G.summonEntities = [];
@@ -3249,6 +3272,7 @@ function updateHUD() {
   }
   if (G.playerStats.pierce) chips.push(`<span class="power-chip">PIERCE</span>`);
   if (G.playerStats.speedMult > 1) chips.push(`<span class="power-chip">SPEED+</span>`);
+  if (G.playerStats.shopFireRateBonus > 0) chips.push(`<span class="power-chip">RAPID+</span>`);
   if (G.playerStats.passives.length > 0) {
     chips.push(`<span class="power-chip" style="background:#330033;border-color:#ff00ff">P${G.playerStats.passives.length}</span>`);
   }
@@ -3334,6 +3358,10 @@ document.getElementById('pauseToggle').addEventListener('click', e => {
   e.stopPropagation();
   if (G.state === STATE.PLAYING || G.state === STATE.PAUSED) togglePause();
 });
+document.getElementById('shopToggle').addEventListener('click', e => {
+  e.stopPropagation();
+  if (G.state === STATE.PLAYING) openShop();
+});
 
 function togglePause() {
   const ov = document.getElementById('overlay');
@@ -3370,14 +3398,16 @@ function openShop() {
     <div class="shop-grid">`;
   
   for (const item of SHOP_ITEMS) {
-    const canAfford = G.score >= item.price;
-    const btnClass = canAfford ? 'shop-item' : 'shop-item disabled';
+    const price = getShopPrice(item.price);
+    const canAfford = G.score >= price;
+    const disabled = !canAfford || (item.type === 'pierce' && G.playerStats.pierce);
+    const btnClass = disabled ? 'shop-item disabled' : 'shop-item';
     shopHTML += `
-      <div class="${btnClass}" data-id="${item.id}" ${canAfford ? '' : 'style="opacity:0.5;pointer-events:none;"'}>
+      <div class="${btnClass}" data-id="${item.id}" ${disabled ? 'style="opacity:0.4;pointer-events:none;"' : ''}>
         <div style="font-size:24px;">${item.icon}</div>
         <div class="card-title" style="color:${item.color}">${item.name}</div>
         <div class="card-desc">${item.desc}</div>
-        <div style="color:#ffd700;font-size:9px;margin-top:5px;">💰 ${item.price}</div>
+        <div style="color:#ffd700;font-size:9px;margin-top:5px;">💰 ${price}</div>
       </div>
     `;
   }
@@ -3398,12 +3428,18 @@ function openShop() {
 
 function buyItem(itemId) {
   const item = SHOP_ITEMS.find(i => i.id === itemId);
-  if (!item || G.score < item.price) {
+  if (!item) return;
+  if (item.type === 'pierce' && G.playerStats.pierce) {
+    addScorePopup(G.player.x, G.player.y - 30, '已擁有穿甲能力!', '#888');
+    return;
+  }
+  const price = getShopPrice(item.price);
+  if (G.score < price) {
     addScorePopup(G.player.x, G.player.y - 30, '分數不足!', '#ff4444');
     return;
   }
   
-  G.score -= item.price;
+  G.score -= price;
   updateHUD();
   
   switch (item.type) {
@@ -3421,8 +3457,8 @@ function buyItem(itemId) {
       addScorePopup(G.player.x, G.player.y - 30, '穿甲彈!', '#ffaa00');
       break;
     case 'rapid':
-      CONFIG.BULLET.PLAYER_COOLDOWN = Math.max(2, CONFIG.BULLET.PLAYER_COOLDOWN * 0.8);
-      addScorePopup(G.player.x, G.player.y - 30, '射速+25%!', '#ff6b00');
+      G.playerStats.shopFireRateBonus = (G.playerStats.shopFireRateBonus || 0) + 0.2;
+      addScorePopup(G.player.x, G.player.y - 30, '射速+20%!', '#ff6b00');
       break;
     case 'life':
       G.continues++;
@@ -3432,25 +3468,20 @@ function buyItem(itemId) {
       G.wallTimer = 900;
       addScorePopup(G.player.x, G.player.y - 30, '堡壘 15秒!', '#888888');
       break;
-    case 'weapon':
-      if (!G.playerStats.route) {
-        G.playerStats.weapon = 'RAPID';
-        G.playerStats.weaponTier = 1;
-        G.playerStats.route = 'A';
+    case 'weapon': {
+      const currentWp = WEAPON_TREE[G.playerStats.weapon];
+      if (currentWp && currentWp.next) {
+        const nextWp = WEAPON_TREE[currentWp.next];
+        G.playerStats.weapon = nextWp.id;
+        G.playerStats.weaponTier = nextWp.tier;
+        G.playerStats.route = nextWp.route;
         if (G.player) G.player.applyTypeStats();
-        addScorePopup(G.player.x, G.player.y - 30, '快速射擊 (默認)', '#ff6b00');
+        addScorePopup(G.player.x, G.player.y - 30, nextWp.name, '#ffd700');
       } else {
-        const currentWp = WEAPON_TREE[G.playerStats.weapon];
-        if (currentWp && currentWp.next) {
-          const nextWp = WEAPON_TREE[currentWp.next];
-          G.playerStats.weapon = nextWp.id;
-          G.playerStats.weaponTier = nextWp.tier;
-          G.playerStats.route = nextWp.route;
-          if (G.player) G.player.applyTypeStats();
-          addScorePopup(G.player.x, G.player.y - 30, nextWp.name, '#ffd700');
-        }
+        addScorePopup(G.player.x, G.player.y - 30, '已達最大等級!', '#ff4444');
       }
       break;
+    }
   }
   
   Sound.pulse(660, 0.1, 0.3, 'square');
@@ -3662,7 +3693,7 @@ function update() {
         const pu = G.powerUps[i];
         if (!pu.alive) continue;
         if (G.player && G.player.alive &&
-            Math.hypot(pu.x - G.player.x - G.player.size/2, pu.y - G.player.y - G.player.size/2) < TILE) {
+            Math.hypot(pu.x - G.player.x - G.player.size/2, pu.y - G.player.y - G.player.size/2) < TILE * 1.5) {
           activatePowerUp(pu.type);
           pu.alive = false;
           addScorePopup(G.player.x, G.player.y, POWER_UPS[pu.type].name);
