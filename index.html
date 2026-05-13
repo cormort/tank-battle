@@ -3151,7 +3151,7 @@ function spawnEnemy() {
 
 // ==================== 關卡與升級 ====================
 function checkLevelComplete() {
-  if (G.aliveEnemies <= 0 && G.enemiesSpawned >= G.maxEnemies - 5) {
+  if (G.aliveEnemies <= 0 && G.enemiesSpawned >= G.maxEnemies - 5 && G.player && G.player.alive) {
     G.state = STATE.LEVEL_COMPLETE;
     G.levelClearedCount++;
     if (G.level % CONFIG.GAMEPLAY.UPGRADE_INTERVAL === 0) {
