@@ -571,19 +571,19 @@ const Perf = {
 const WEAPON_TREE = {
   // A 路線：高射速流 - 超高DPS，單發低，剋重甲
   RAPID: {
-    route: 'A', tier: 1, name: '快速射擊', desc: '射速提升 20%',
+    route: 'A', tier: 1, name: '快速射擊', desc: '雙連發模式，子彈貫穿',
     next: 'GATLING', color: '#ff6b00', icon: '⚡', basePower: 1.0
   },
   GATLING: {
-    route: 'A', tier: 2, name: '格林機槍', desc: '射速再提升 35%',
+    route: 'A', tier: 2, name: '格林機槍', desc: '雙管射擊，火力+10%',
     next: 'CHAINGUN', color: '#ff4400', icon: '🔥', basePower: 1.1
   },
   CHAINGUN: {
-    route: 'A', tier: 3, name: '連環炮', desc: '子彈連射，擊中追加連鎖傷害',
+    route: 'A', tier: 3, name: '連環炮', desc: '三管齊射，火力+20%',
     next: 'OVERDRIVE', color: '#cc2200', icon: '💥', basePower: 1.2
   },
   OVERDRIVE: {
-    route: 'A', tier: 4, name: '過載出火', desc: '雙管格林炮，全螢幕橫掃',
+    route: 'A', tier: 4, name: '過載出火', desc: '四管齊射，全螢幕橫掃',
     next: null, color: '#880000', icon: '💀', basePower: 1.4
   },
 
@@ -593,7 +593,7 @@ const WEAPON_TREE = {
     next: 'CLUSTER', color: '#ffdd00', icon: '💫', basePower: 1.0
   },
   CLUSTER: {
-    route: 'B', tier: 2, name: '集束彈頭', desc: '命中後分裂成 5 發小彈',
+    route: 'B', tier: 2, name: '集束彈頭', desc: '命中分裂 5 發小彈',
     next: 'NAPALM', color: '#ffaa00', icon: '💛', basePower: 1.1
   },
   NAPALM: {
@@ -601,7 +601,7 @@ const WEAPON_TREE = {
     next: 'APOCALYPSE', color: '#ff6600', icon: '🔥', basePower: 1.2
   },
   APOCALYPSE: {
-    route: 'B', tier: 4, name: '末日轟炸', desc: '全螢幕轰炸，每 3 秒觸發一次',
+    route: 'B', tier: 4, name: '末日轟炸', desc: '5 發散彈 + 每 3 秒全螢幕轟炸',
     next: null, color: '#ff0000', icon: '☠️', basePower: 1.5
   },
 
@@ -611,7 +611,7 @@ const WEAPON_TREE = {
     next: 'D_LASER', color: '#00ddff', icon: '⚡', basePower: 1.2
   },
   D_LASER: {
-    route: 'C', tier: 2, name: '雙光束炮', desc: '雙光束追蹤射擊',
+    route: 'C', tier: 2, name: '雙光束炮', desc: '雙光束射擊',
     next: 'T_LASER', color: '#00aaff', icon: '🔷', basePower: 1.3
   },
   T_LASER: {
@@ -619,7 +619,7 @@ const WEAPON_TREE = {
     next: 'OMEGA', color: '#0077ff', icon: '🔶', basePower: 1.4
   },
   OMEGA: {
-    route: 'C', tier: 4, name: '歐米茄射線', desc: '持續光束掃射，無視障礙',
+    route: 'C', tier: 4, name: '歐米茄射線', desc: '光束掃射，穿透障礙',
     next: null, color: '#0044cc', icon: '👁️', basePower: 1.6
   },
 
@@ -629,15 +629,15 @@ const WEAPON_TREE = {
     next: 'DRONE', color: '#44ff88', icon: '🛠️', basePower: 0.8
   },
   DRONE: {
-    route: 'D', tier: 2, name: '維修無人機', desc: '砲塔自動修復，召喚無人機',
+    route: 'D', tier: 2, name: '維修無人機', desc: '砲塔生命與傷害提升',
     next: 'TURRET', color: '#22cc66', icon: '🤖', basePower: 0.9
   },
   TURRET: {
-    route: 'D', tier: 3, name: '自動砲台', desc: '砲塔升級為導彈發射器',
+    route: 'D', tier: 3, name: '自動砲台', desc: '砲塔傷害大幅提升',
     next: 'FORTRESS', color: '#11aa44', icon: '🏰', basePower: 1.0
   },
   FORTRESS: {
-    route: 'D', tier: 4, name: '要塞核心', desc: '終極塔防，毀滅光束',
+    route: 'D', tier: 4, name: '要塞核心', desc: '終極塔防，四座砲台',
     next: null, color: '#008833', icon: '⚔️', basePower: 1.3
   }
 };
@@ -988,7 +988,7 @@ function applyPassiveEffects(target, source, effectType) {
 }
 
 function getHeatStacksMultiplier() {
-  return 1 + (G.playerStats.heatStacks * 0.03);
+  return 1 / (1 + G.playerStats.heatStacks * 0.03);
 }
 
 function applyPassiveTick() {
@@ -1253,7 +1253,7 @@ function shootWeapon(player) {
     case 'NAPALM':
     case 'APOCALYPSE':
       if (player.weapon === 'SPREAD') spawnSpreadBullets(cx, cy, 3, 0.25, basePower);
-      else if (player.weapon === 'CLUSTER') spawnSpreadBullets(cx, cy, 5, 0.3, basePower);
+      else if (player.weapon === 'CLUSTER') spawnSpreadBullets(cx, cy, 3, 0.25, basePower);
       else if (player.weapon === 'NAPALM') { spawnSpreadBullets(cx, cy, 3, 0.25, basePower); spawnFireZone(cx, cy); }
       else if (player.weapon === 'APOCALYPSE') spawnSpreadBullets(cx, cy, 5, 0.4, basePower);
       if (player.weapon === 'APOCALYPSE' && G.frameCount % 180 === 0) {
@@ -1290,7 +1290,7 @@ function shootWeapon(player) {
       if (G.summonEntities.filter(e => e.type === 'turret').length < maxTurrets) {
         G.summonEntities.push({
           type: 'turret', x: player.x, y: player.y,
-          life: 300 + player.weaponTier * 100, maxLife: 300,
+          life: 300 + player.weaponTier * 100, maxLife: 300 + player.weaponTier * 100,
           damage: 1 + player.weaponTier, cooldown: 0, alive: true
         });
       }
@@ -1389,6 +1389,7 @@ function spawnLaserBeam(dir) {
     b.speed = 0;
     b.power = basePower;
     b.laserLife = 15;
+    b.ignoreTiles = true;
     b.hitTanks.length = 0;
   }
 }
@@ -1470,12 +1471,16 @@ const particlesPool = new Pool(
 );
 
 const bulletsPool = new Pool(
-  () => ({ x:0, y:0, dir:0, vx:0, vy:0, isPlayer:false, speed:0, size:CONFIG.BULLET.SIZE, alive:false, power:1, pierce:false, hitTanks:[] }),
+  () => ({ x:0, y:0, dir:0, vx:0, vy:0, isPlayer:false, speed:0, size:CONFIG.BULLET.SIZE, alive:false, power:1, pierce:false, hitTanks:[], ignoreTiles:false, _isChild:false, laserLife:0, chainCount:0 }),
   (b) => { 
     b.alive = true; 
     b.size = CONFIG.BULLET.SIZE; 
     b.pierce = false; 
     b.hitTanks.length = 0;
+    b.ignoreTiles = false;
+    b._isChild = false;
+    b.laserLife = 0;
+    b.chainCount = 0;
   }, 
   CONFIG.POOL.BULLET_INITIAL,
   CONFIG.POOL.BULLET_MAX
@@ -2087,7 +2092,7 @@ function updateBullet(b) {
   }
 
   const bc = ((b.x + 3) / TILE) | 0, br = ((b.y + 3) / TILE) | 0;
-  if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS) {
+  if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS && !b.ignoreTiles) {
     const t = G.map[br][bc];
     if (t === BRICK) {
       b.alive = false; breakTile(bc, br);
@@ -2217,10 +2222,16 @@ function handleBulletHit(b, t) {
   // 计算伤害倍率
   let powerMult = 1;
 
-  // RAGE 被动：玩家生命越低伤害越高（只在玩家被击中时触发）
+  // RAGE 被动：受伤加倍（被击中时）
   if (G.playerStats.passives.includes('RAGE') && t === G.player) {
     const hpRatio = G.playerStats.hp / G.playerStats.maxHp;
     powerMult = hpRatio < 0.5 ? 2 : hpRatio < 0.75 ? 1.5 : 1;
+  }
+
+  // RAGE 攻击增益：玩家生命越低伤害越高
+  if (b.isPlayer && G.playerStats.passives.includes('RAGE')) {
+    const hpRatio = G.playerStats.hp / G.playerStats.maxHp;
+    powerMult *= hpRatio < 0.5 ? 2 : hpRatio < 0.75 ? 1.5 : 1;
   }
 
   // WEAKEN 被动：对 Boss 额外伤害（只在敌人被玩家击中时）
@@ -2230,6 +2241,30 @@ function handleBulletHit(b, t) {
 
   b.hitTanks.push(t);
   if (!b.pierce) b.alive = false;
+
+  // CLUSTER 分裂：擊中後分裂成 5 發小彈
+  if (b.isPlayer && G.playerStats.weapon === 'CLUSTER' && !b._isChild) {
+    const childPower = b.power * 0.5;
+    const dir = b.dir;
+    for (let i = 0; i < 5; i++) {
+      const angle = 0.3 * (i - 2);
+      const cos = Math.cos(angle), sin = Math.sin(angle);
+      const c = bulletsPool.acquire();
+      c.x = t.x + t.size/2 - 3; c.y = t.y + t.size/2 - 3;
+      c.dir = dir;
+      c.isPlayer = true;
+      c.vx = DX[dir] * cos - DY[dir] * sin;
+      c.vy = DX[dir] * sin + DY[dir] * cos;
+      c.speed = CONFIG.BULLET.SPEED_PLAYER * 0.8;
+      c.power = childPower;
+      c._isChild = true;
+    }
+  }
+
+  // CHAIN 被动：子彈彈跳到附近敵人
+  if (b.isPlayer && G.playerStats.passives.includes('CHAIN') && !b._isChild) {
+    spawnChainBullet(t.x + t.size/2, t.y + t.size/2, t);
+  }
 
   t.hp -= b.power * powerMult;
   t.flashTimer = CONFIG.GAMEPLAY.PLAYER_HIT_FLASH;
@@ -2284,9 +2319,8 @@ function handleBulletHit(b, t) {
         });
       }
 
-      if (b.isPlayer && (b.type === 'PLASMA' || b.speed > CONFIG.BULLET.SPEED_PLAYER)) {
-        const result = applyPassiveEffects(t, b, 'laser_kill');
-        if (result && result.triggered) {  }
+      if (b.isPlayer && G.playerStats.route === 'C') {
+        applyPassiveEffects(t, b, 'laser_kill');
       }
 
       if (G.playerStats.passives.includes('VAMPIRE')) {
