@@ -272,6 +272,7 @@
   <div class="hud-item"><span class="label">HP</span><span class="value lives" id="livesDisplay">♥♥♥</span></div>
   <div class="hud-item"><span class="label">EN</span><span class="value" id="enemiesDisplay">0</span></div>
   <button id="soundToggle" title="切換音效 (M)" aria-label="切換音效">🔊</button>
+  <button id="musicToggle" title="切換音樂 (N)" aria-label="切換音樂" style="background:transparent;border:1px solid #2a2a35;color:#ffd700;font-size:14px;padding:2px 8px;border-radius:4px;cursor:pointer;font-family:inherit;line-height:1;">🎵</button>
   <button id="shopToggle" title="商店 (B)" aria-label="商店" style="background:transparent;border:1px solid #2a2a35;color:#ffd700;font-size:14px;padding:2px 8px;border-radius:4px;cursor:pointer;font-family:inherit;line-height:1;">🏪</button>
   <button id="pauseToggle" title="暫停 (P)" aria-label="暫停">⏸</button>
 </div>
@@ -301,7 +302,7 @@
     <div class="card-container" id="cards"></div>
   </div>
 </div>
-<div id="controls">WASD / ARROWS MOVE &nbsp; · &nbsp; SPACE FIRE &nbsp; · &nbsp; F3 PERF</div>
+<div id="controls">WASD / ARROWS MOVE &nbsp; · &nbsp; SPACE FIRE &nbsp; · &nbsp; F3 PERF &nbsp; · &nbsp; N MUSIC</div>
 
 <div id="mobileControls">
   <div id="joystickArea">
@@ -510,6 +511,124 @@ const Sound = {
   jingleGameOver() {
     this.seq([[440, 0.18], [392, 0.18], [349, 0.18], [262, 0.45]]);
   },
+};
+
+// ==================== 背景音樂系統（Web Audio 合成） ====================
+const Music = {
+  _timer: null, _track: null, _beat: 0,
+  enabled: true,
+
+  TRACKS: {
+    MENU: {
+      bpm: 100,
+      bass: [73.42, 73.42, 98.00, 110.00],
+      melody: [
+        293.66, 349.23, 440.00, 587.33,
+        523.25, 440.00, 349.23, 293.66,
+        392.00, 493.88, 587.33, 659.25,
+        587.33, 523.25, 440.00, 392.00,
+        293.66, 349.23, 440.00, 587.33,
+        523.25, 440.00, 349.23, 293.66,
+        392.00, 440.00, 493.88, 523.25,
+        587.33, 0, 523.25, 0,
+      ]
+    },
+    LEVEL: {
+      bpm: 130,
+      bass: [110.00, 110.00, 146.83, 164.81],
+      melody: [
+        440.00, 523.25, 659.25, 880.00,
+        783.99, 659.25, 523.25, 440.00,
+        523.25, 587.33, 783.99, 587.33,
+        659.25, 523.25, 440.00, 392.00,
+        440.00, 523.25, 659.25, 880.00,
+        783.99, 659.25, 523.25, 440.00,
+        587.33, 659.25, 783.99, 880.00,
+        783.99, 659.25, 523.25, 440.00,
+      ]
+    },
+    BOSS: {
+      bpm: 150,
+      bass: [82.41, 82.41, 110.00, 123.47],
+      melody: [
+        329.63, 369.99, 493.88, 329.63,
+        493.88, 554.37, 659.25, 493.88,
+        329.63, 369.99, 493.88, 329.63,
+        659.25, 554.37, 493.88, 369.99,
+        329.63, 369.99, 493.88, 329.63,
+        493.88, 554.37, 659.25, 493.88,
+        329.63, 369.99, 493.88, 329.63,
+        440.00, 493.88, 554.37, 659.25,
+      ]
+    },
+    VICTORY: {
+      bpm: 120,
+      bass: [130.81, 130.81, 164.81, 196.00],
+      melody: [
+        523.25, 0, 659.25, 0,
+        783.99, 0, 1046.50, 0,
+        783.99, 659.25, 783.99, 1046.50,
+        783.99, 659.25, 523.25, 0,
+        659.25, 0, 783.99, 0,
+        1046.50, 0, 1318.51, 0,
+        1174.66, 1046.50, 783.99, 659.25,
+        523.25, 659.25, 783.99, 1046.50,
+      ]
+    },
+    GAMEOVER: {
+      bpm: 65,
+      bass: [73.42, 65.41, 58.27, 65.41],
+      melody: [
+        293.66, 261.63, 220.00, 196.00,
+        220.00, 261.63, 293.66, 0,
+        261.63, 220.00, 196.00, 174.61,
+        196.00, 220.00, 261.63, 0,
+        196.00, 174.61, 164.81, 146.83,
+        164.81, 174.61, 196.00, 0,
+        220.00, 196.00, 174.61, 164.81,
+        146.83, 164.81, 174.61, 196.00,
+      ]
+    }
+  },
+
+  play(trackName) {
+    this.stop();
+    if (!this.enabled || !Sound.ready) return;
+    this._track = this.TRACKS[trackName];
+    if (!this._track) return;
+    this._beat = 0;
+    this._tick();
+  },
+
+  _tick() {
+    if (!this._track || !this.enabled) return;
+    const t = this._track;
+    const msPerBeat = 60000 / t.bpm;
+
+    if (this._beat % 2 === 0) {
+      const bFreq = t.bass[(this._beat >> 1) % t.bass.length];
+      if (bFreq > 0) Sound.pulse(bFreq, msPerBeat / 1000 * 0.9, 0.1, 'triangle');
+    }
+
+    const mFreq = t.melody[this._beat % t.melody.length];
+    if (mFreq > 0) {
+      const vol = this._beat % 4 === 0 ? 0.14 : 0.09;
+      Sound.pulse(mFreq, msPerBeat / 1000 * 0.85, vol, 'square');
+    }
+
+    this._beat++;
+    this._timer = setTimeout(() => this._tick(), msPerBeat);
+  },
+
+  stop() {
+    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    this._track = null;
+  },
+
+  toggle() {
+    this.enabled = !this.enabled;
+    if (!this.enabled) this.stop();
+  }
 };
 
 // ==================== 性能監測系統 ====================
@@ -875,6 +994,7 @@ function generateUpgradeOptions() {
 function showUpgradeScreen() {
   G.state = STATE.UPGRADE;
   Sound.jingleLevelClear();
+  Music.stop();
   const ui = document.getElementById('upgradeUI');
   const container = document.getElementById('cards');
   ui.classList.remove('hidden');
@@ -3096,6 +3216,8 @@ function startLevel() {
   updateMobileControlsForMode();
   updateHUD();
   Sound.jingleLevelStart();
+  const isBossLevel = !G.isVSMode && G.level % CONFIG.GAMEPLAY.BOSS_LEVEL_INTERVAL === 0;
+  Music.play(G.isVSMode ? 'BOSS' : isBossLevel ? 'BOSS' : 'LEVEL');
 }
 
 function restartGame() {
@@ -3204,6 +3326,7 @@ function showEasyFactionSelect() {
 function showGameOver() {
   G.state = STATE.GAMEOVER;
   Sound.jingleGameOver();
+  Music.play('GAMEOVER');
   if (G.continues > 0) showContinuePrompt();
   else showFinalGameOver();
 }
@@ -3239,7 +3362,7 @@ function showFinalGameOver() {
     <p>SCORE: <span style="color:#ffd700;">${G.score}</span></p>
     <p>LEVEL: <span style="color:#6cc3ff;">${G.level}</span></p>
     <button class="start-btn" id="restartBtn">REBOOT</button>`;
-  document.getElementById('restartBtn').onclick = restartGame;
+  document.getElementById('restartBtn').onclick = () => { Music.play('MENU'); restartGame(); };
   updateMobileControlsForMode();
 }
 
@@ -3301,6 +3424,7 @@ document.addEventListener('keydown', e => {
   if (!e.repeat) {
     if (e.code === 'F3') { e.preventDefault(); Perf.toggle(); }
     else if (e.code === 'KeyM') { e.preventDefault(); Sound.toggle(); }
+    else if (e.code === 'KeyN') { e.preventDefault(); Music.toggle(); }
     else if (e.code === 'KeyP' && (G.state === STATE.PLAYING || G.state === STATE.PAUSED)) { e.preventDefault(); togglePause(); }
     else if (e.code === 'KeyB' && (G.state === STATE.PLAYING || G.state === STATE.PAUSED)) { 
       e.preventDefault(); 
@@ -3325,18 +3449,22 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => G.keys[e.code] = false);
 document.getElementById('btnNormal').addEventListener('click', () => {
   Sound.init(); Sound.resume();
+  Music.play('MENU');
+  G.difficulty = 'normal';
   G.difficulty = 'normal';
   updateDifficultyUI();
   restartGame();
 });
 document.getElementById('btnEasy').addEventListener('click', () => {
   Sound.init(); Sound.resume();
+  Music.play('MENU');
   G.difficulty = 'easy';
   updateDifficultyUI();
   restartGame();
 });
 document.getElementById('btnTest').addEventListener('click', () => {
   Sound.init(); Sound.resume();
+  Music.play('MENU');
   G.difficulty = 'test';
   updateDifficultyUI();
   restartGame();
@@ -3353,6 +3481,12 @@ document.getElementById('soundToggle').addEventListener('click', e => {
   e.stopPropagation();
   Sound.init(); Sound.resume();
   Sound.toggle();
+});
+document.getElementById('musicToggle').addEventListener('click', e => {
+  e.stopPropagation();
+  Sound.init(); Sound.resume();
+  Music.toggle();
+  if (Music.enabled && !Music._track) Music.play('MENU');
 });
 document.getElementById('pauseToggle').addEventListener('click', e => {
   e.stopPropagation();
