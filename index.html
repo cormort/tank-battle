@@ -879,7 +879,7 @@ const G = {
     maxHp: 3, hp: 3, route: null,
     passives: [], activeSkill: null, activeCooldown: 0,
     heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0,
-    combo: 0, comboTimer: 0, shopFireRateBonus: 0
+    combo: 0, comboTimer: 0, shopFireRateBonus: 0, weaponDamageBonus: 0
   },
   summonEntities: [],
   mapEvent: null,
@@ -1036,7 +1036,7 @@ function applyUpgrade(opt) {
         ps.route = wp.route;
         ps.weaponTier = wp.tier;
       }
-      ps.weaponDamageBonus += 0.1; // +10% 掉落加成
+      ps.weaponDamageBonus = (ps.weaponDamageBonus || 0) + 0.1;
     } else {
       ps.weapon = opt.id;
       const wp = WEAPON_TREE[opt.id];
@@ -1275,7 +1275,11 @@ function activatePowerUp(type) {
       break;
     case 'STAR': {
       const currentWp = WEAPON_TREE[G.playerStats.weapon];
-      if (currentWp && currentWp.next) {
+      if (!currentWp) {
+        // NORMAL 武器不在 WEAPON_TREE，給傷害加成代替
+        G.playerStats.weaponDamageBonus = (G.playerStats.weaponDamageBonus || 0) + 0.2;
+        addScorePopup(G.player.x, G.player.y - 30, '火力 +20%', '#ffd700');
+      } else if (currentWp.next) {
         const nextWp = WEAPON_TREE[currentWp.next];
         G.playerStats.weapon = nextWp.id;
         G.playerStats.weaponTier = nextWp.tier;
@@ -3789,11 +3793,13 @@ MobileInput.init();
 // ==================== 主迴圈 (固定時間步長 60Hz 模擬, 任意刷新率渲染) ====================
 const TICK_HZ = 60;
 const TICK_MS = 1000 / TICK_HZ;
-const MAX_UPDATES_PER_FRAME = 5;
+let _speedMult = 1;        // URL param: ?speed=N  (1-20)
+let _maxUpdatesPerFrame = 5;
 let _accumMs = 0;
 let _lastFrameTime = 0;
 
 function update() {
+  if (window.__botPreUpdate) window.__botPreUpdate();
   G.frameCount++;
 
   if (G.state === STATE.PLAYING) {
@@ -4105,17 +4111,17 @@ function gameLoop(now) {
   let dt = now - _lastFrameTime;
   _lastFrameTime = now;
   if (dt > 250) dt = TICK_MS;
-  _accumMs += dt;
+  _accumMs += dt * _speedMult;
 
   let updates = 0;
-  while (_accumMs >= TICK_MS && updates < MAX_UPDATES_PER_FRAME) {
+  while (_accumMs >= TICK_MS && updates < _maxUpdatesPerFrame) {
     Perf.begin();
     if (G.state !== STATE.PAUSED) update();
     Perf.end();
     _accumMs -= TICK_MS;
     updates++;
   }
-  if (_accumMs > TICK_MS * MAX_UPDATES_PER_FRAME) _accumMs = 0;
+  if (_accumMs > TICK_MS * _maxUpdatesPerFrame) _accumMs = 0;
 
   render();
   Perf.updateUI();
@@ -4123,6 +4129,37 @@ function gameLoop(now) {
 }
 
 requestAnimationFrame(gameLoop);
+
+/* ── Game speed & Bot loader ── */
+(function(){
+  var p = new URLSearchParams(location.search);
+  var s = parseFloat(p.get('speed'));
+  if (s > 0 && s <= 20) { _speedMult = s; _maxUpdatesPerFrame = Math.ceil(5 * s); console.log('[Speed] x' + s); }
+  if (p.has('mute') || p.has('bot')) { Sound.enabled = false; Music.enabled = false; Music.stop(); if (Sound.ctx) Sound.ctx.suspend(); }
+  if (!p.has('bot')) return;
+  /* expose game internals so dynamically-loaded scripts can access them */
+  window.__T = { G: G, STATE: STATE, CONFIG: CONFIG,
+    UP: UP, DOWN: DOWN, LEFT: LEFT, RIGHT: RIGHT,
+    DX: DX, DY: DY, TILE: TILE, W: W, H: H,
+    EMPTY: EMPTY, BRICK: BRICK, STEEL: STEEL, WATER: WATER, FOREST: FOREST, BASE: BASE,
+    bulletsPool: bulletsPool, particlesPool: particlesPool,
+    WEAPON_TREE: WEAPON_TREE, POWER_UPS: POWER_UPS,
+    ACTIVE_SKILLS: ACTIVE_SKILLS, PASSIVE_SKILLS: PASSIVE_SKILLS,
+    ELITE_PREFIXES: ELITE_PREFIXES, SHOP_ITEMS: SHOP_ITEMS,
+    Sound: Sound, Music: Music, Perf: Perf,
+    Tank: Tank, Pool: Pool, SpatialGrid: SpatialGrid,
+    generateMap: generateMap, startLevel: startLevel,
+    restartGame: restartGame, continueGame: continueGame,
+    showGameOver: showGameOver, showFinalGameOver: showFinalGameOver,
+    openShop: openShop, closeShop: closeShop,
+  };
+  ['bot.js','data-collector.js'].forEach(function(src){
+    var s = document.createElement('script');
+    s.src = src;
+    s.async = false;
+    document.body.appendChild(s);
+  });
+})();
 </script>
 </body>
 </html>
