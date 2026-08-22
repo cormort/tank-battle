@@ -110,15 +110,6 @@
     border: 2px solid #ffd700; border-radius: 4px; cursor: pointer; text-shadow: 0 0 8px rgba(255,215,0,0.5);
   }
   .start-btn:hover, .start-btn:active { background: linear-gradient(180deg, #ffe14d, #ffb700); color: #000; text-shadow: none; box-shadow: 0 0 25px rgba(255,215,0,0.7); }
-  .difficulty-btn {
-    padding: 12px 24px; font-size: 13px; font-family: 'Press Start 2P', monospace;
-    background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(0,0,0,0.1)); color: var(--btn-color, #ccc);
-    border: 2px solid var(--btn-border, #888); border-radius: 4px; cursor: pointer;
-    text-shadow: 0 0 6px var(--btn-glow, rgba(255,255,255,0.3));
-    transition: all 0.2s ease;
-  }
-  .difficulty-btn:hover, .difficulty-btn:active { background: linear-gradient(180deg, rgba(255,255,255,0.15), rgba(255,255,255,0.05)); box-shadow: 0 0 20px var(--btn-glow, rgba(255,255,255,0.2)); transform: scale(1.05); }
-  .difficulty-btn.selected { background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.02)); box-shadow: 0 0 25px var(--btn-glow, rgba(255,255,255,0.3)); }
   #controls { color: #6a6a78; font-size: 8px; margin-top: 12px; text-align: center; letter-spacing: 2px; }
   
   /* 性能監測面板 */
@@ -297,12 +288,7 @@
     <p style="color:#ffd700;" class="kbd-hint">空白鍵 <b>射擊</b> · F3 <b>性能監測</b></p>
     <p style="margin-top:12px; color:#ffd700;" class="touch-hint" hidden>左搖桿 <b>移動</b></p>
     <p style="color:#ffd700;" class="touch-hint" hidden>右按鈕 <b>射擊</b></p>
-    <div style="display:flex; gap:12px; margin-top:20px; flex-wrap:wrap; justify-content:center;">
-      <button class="difficulty-btn" id="btnNormal" style="--btn-color:#ffd700; --btn-border:#ffd700;">NORMAL</button>
-      <button class="difficulty-btn" id="btnEasy" style="--btn-color:#44ff44; --btn-border:#44ff44;">EASY</button>
-      <button class="difficulty-btn" id="btnTest" style="--btn-color:#ff44ff; --btn-border:#ff44ff; animation: titlePulse 1.2s infinite;">TEST</button>
-    </div>
-    <p id="difficultyDesc" style="margin-top:10px; font-size:9px; color:#aaa;">標準難度 · 正常體驗</p>
+    <button class="start-btn" id="startBtn">START GAME</button>
   </div>
 
   <div id="upgradeUI" class="hidden">
@@ -775,7 +761,7 @@ const WEAPON_TREE = {
 const STARTER_WEAPONS = ['NORMAL', 'RAPID', 'SPREAD', 'PLASMA', 'SUMMON'];
 
 // 狀態常數
-const STATE = { MENU:'menu', PLAYING:'playing', PAUSED:'paused', UPGRADE:'upgrade', SHOP:'shop', GAMEOVER:'gameover', LEVEL_COMPLETE:'levelComplete', FACTION_SELECT:'factionSelect' };
+const STATE = { MENU:'menu', PLAYING:'playing', PAUSED:'paused', UPGRADE:'upgrade', SHOP:'shop', GAMEOVER:'gameover', LEVEL_COMPLETE:'levelComplete' };
 
 // 特殊敵人類別查詢加速
 const SPECIAL_ENEMY_TYPES = new Set(['SNIPER','ENGINEER','INTERFERER','GUARD','MINELAYER']);
@@ -837,6 +823,175 @@ const ELITE_PREFIXES = {
   SUMMONER: { name: '召喚', effect: '持續召喚小兵', color: '#ffff00', icon: '🟡' }
 };
 
+// ==================== 武器配置 (Weapon Registry) ====================
+// 基础武器配置：攻击速度、子弹数量、散射角度、伤害、特殊效果
+const WEAPON_REGISTRY = {
+  // NORMAL: 普通发射
+  NORMAL:   { fireRate: 14, count: 1, spread: 0,   power: 1.0,  effect: null },
+  // RAPID: 快速射击链（貫穿）
+  RAPID:    { fireRate: 6,  count: 1, spread: 0,   power: 0.6,  effect: 'PIERCE' },
+  GATLING:  { fireRate: 5,  count: 2, spread: 0,   power: 0.55, effect: 'PIERCE' },
+  CHAINGUN: { fireRate: 4,  count: 3, spread: 0,   power: 0.5,  effect: 'PIERCE' },
+  OVERDRIVE:{ fireRate: 3,  count: 4, spread: 0,   power: 0.45, effect: 'PIERCE' },
+  // SPREAD: 散射
+  SPREAD:   { fireRate: 16, count: 3, spread: 0.25, power: 0.8,  effect: null },
+  CLUSTER:  { fireRate: 14, count: 3, spread: 0.25, power: 0.9,  effect: null },
+  NAPALM:   { fireRate: 12, count: 3, spread: 0.25, power: 0.7,  effect: 'BURN_ZONE' },
+  APOCALYPSE:{ fireRate: 10, count: 5, spread: 0.4, power: 0.8,  effect: 'BOMBARD' },
+  // PLASMA: 激光科技流
+  PLASMA:   { fireRate: 12, count: 1, spread: 0,   power: 1.2,  effect: 'PIERCE' },
+  D_LASER:  { fireRate: 10, count: 2, spread: 0,   power: 1.1,  effect: 'PIERCE' },
+  T_LASER:  { fireRate: 8,  count: 3, spread: 0,   power: 1.0,  effect: 'PIERCE' },
+  OMEGA:    { fireRate: 6,  count: 1, spread: 0,   power: 1.4,  effect: 'LASER_BEAM' },
+  // SUMMON: 召唤塔防流
+  SUMMON:   { fireRate: 20, count: 1, spread: 0,   power: 0.8,  effect: 'SPAWN_TURRET' },
+  DRONE:    { fireRate: 18, count: 1, spread: 0,   power: 0.9,  effect: 'SPAWN_TURRET' },
+  TURRET:   { fireRate: 16, count: 1, spread: 0,   power: 1.0,  effect: 'SPAWN_TURRET' },
+  FORTRESS: { fireRate: 14, count: 1, spread: 0,   power: 1.3,  effect: 'SPAWN_TURRET' }
+};
+
+// ==================== 武器管理器 (Weapon Manager) ====================
+const WeaponManager = {
+  fire(tank) {
+    if (!tank.isPlayer) {
+      // 敵人：維持原本行為（單發、各自冷卻、BOSS 用專用彈速、不觸發震屏/音效/特效）
+      if (!tank.alive || tank.bulletTimer > 0) return;
+      const hs = tank.size / 2;
+      const cx = tank.x + hs;
+      const cy = tank.y + hs;
+      const b = bulletsPool.acquire();
+      b.dir = tank.aimDir;
+      b.isPlayer = false;
+      b.pierce = false;
+      b.x = cx - 3 + DX[tank.aimDir] * (hs + 2);
+      b.y = cy - 3 + DY[tank.aimDir] * (hs + 2);
+      b.speed = tank.type === 'BOSS' ? CONFIG.BULLET.SPEED_BOSS : CONFIG.BULLET.SPEED_ENEMY;
+      b.vx = DX[tank.aimDir]; b.vy = DY[tank.aimDir];
+      b.power = tank.weapon === 'SPREAD' ? 2 : 1;
+      b.hitTanks.length = 0;
+      tank.bulletTimer = tank.bulletCooldown;
+      return;
+    }
+
+    const weaponKey = tank.weapon || 'NORMAL';
+    const config = WEAPON_REGISTRY[weaponKey] || WEAPON_REGISTRY.NORMAL;
+    
+    // 攻速計算
+    let cooldownMult = getHeatStacksMultiplier();
+    if (G.playerStats.boostTimer > 0) cooldownMult *= 2;
+    const fireRateBonus = G.playerStats.shopFireRateBonus || 0;
+    const actualCD = Math.max(2, Math.floor(config.fireRate * cooldownMult * (1 - fireRateBonus)));
+    tank.bulletTimer = actualCD;
+
+    // 获取基础伤害
+    const basePower = config.power;
+    const weaponData = WEAPON_TREE[weaponKey];
+    const weaponTreePower = weaponData ? weaponData.basePower : 1.0;
+    const damageBonus = tank.isPlayer ? (G.playerStats.weaponDamageBonus || 0) : 0;
+    const finalPower = weaponTreePower * basePower + damageBonus;
+
+    // 生成子弹
+    for (let i = 0; i < config.count; i++) {
+      const angle = config.spread * (i - (config.count - 1) / 2);
+      this.spawnBullet(tank, angle, finalPower, config.effect);
+    }
+
+    // 触发特殊效果
+    if (config.effect === 'BURN_ZONE') this.triggerBurnEffect(tank, finalPower);
+    if (config.effect === 'BOMBARD') this.triggerBombard();
+    if (config.effect === 'SPAWN_TURRET') this.spawnTurret(tank);
+
+    triggerShake(2, 1);
+    Sound.shoot();
+    if (tank.isPlayer) applyPassiveEffects(null, tank, 'shoot');
+  },
+
+  spawnBullet(tank, angle, power, effect) {
+    const hs = tank.size / 2;
+    const cx = tank.x + hs;
+    const cy = tank.y + hs;
+    
+    const baseDir = tank.aimDir;
+    const dx = DX[baseDir], dy = DY[baseDir];
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+    
+    const vx = dx * cos - dy * sin;
+    const vy = dx * sin + dy * cos;
+
+    const b = bulletsPool.acquire();
+    b.x = cx - 3; b.y = cy - 3;
+    b.dir = baseDir;
+    b.isPlayer = tank.isPlayer;
+    b.vx = vx; b.vy = vy;
+    b.speed = tank.isPlayer ? CONFIG.BULLET.SPEED_PLAYER : CONFIG.BULLET.SPEED_ENEMY;
+    b.power = power;
+    b.pierce = (effect === 'PIERCE' || effect === 'LASER_BEAM' || tank.pierce);
+    b.hitTanks.length = 0;
+    b.ignoreTiles = (effect === 'LASER_BEAM');
+    
+    if (effect === 'LASER_BEAM') {
+      b.laserLife = 15;
+      for (let i = 1; i < 30; i++) {
+        const lb = bulletsPool.acquire();
+        lb.x = tank.x + i * 15 * DX[baseDir];
+        lb.y = tank.y + i * 15 * DY[baseDir];
+        lb.dir = baseDir;
+        lb.isPlayer = true;
+        lb.vx = 0; lb.vy = 0;
+        lb.speed = 0;
+        lb.power = power;
+        lb.laserLife = 15;
+        lb.ignoreTiles = true;
+        lb.hitTanks.length = 0;
+      }
+    }
+  },
+
+  triggerBurnEffect(tank, power) {
+    G.summonEntities.push({
+      type: 'fire',
+      x: tank.x + DX[tank.aimDir] * TILE,
+      y: tank.y + DY[tank.aimDir] * TILE,
+      life: 120,
+      maxLife: 120,
+      damage: power * 0.5,
+      alive: true
+    });
+  },
+
+  triggerBombard() {
+    if (G.frameCount % 180 === 0) {
+      for (let i = 0; i < 20; i++) {
+        const bx = Math.random() * W;
+        const by = Math.random() * H;
+        setTimeout(() => {
+          if (G.level === G.level && G.state === STATE.PLAYING) {
+            spawnExplosion(bx, by, 'big');
+            triggerShake(4, 5);
+          }
+        }, i * 50);
+      }
+    }
+  },
+
+  spawnTurret(tank) {
+    const maxTurrets = 1 + (tank.weaponTier || 0);
+    const existingTurrets = G.summonEntities.filter(e => e.type === 'turret').length;
+    if (existingTurrets < maxTurrets) {
+      G.summonEntities.push({
+        type: 'turret',
+        x: tank.x,
+        y: tank.y,
+        life: 300 + (tank.weaponTier || 0) * 100,
+        maxLife: 300 + (tank.weaponTier || 0) * 100,
+        damage: 1 + (tank.weaponTier || 0),
+        cooldown: 0,
+        alive: true
+      });
+    }
+  }
+};
+
 const POWER_UPS = {
   BOMB: { name: '炸彈', desc: '秒殺全屏敵人', icon: '💣', color: '#ff4400', duration: 0 },
   WALL: { name: '堡壘', desc: '鋼鐵城墙 15 秒', icon: '🧱', color: '#888888', duration: 15 },
@@ -875,7 +1030,6 @@ function getShopPrice(basePrice) {
 // 全域狀態
 const G = {
   state: STATE.MENU, score: 0, level: 1, continues: 3, isVSMode: false,
-  difficulty: 'normal',
   enemiesRemaining: 0, enemiesSpawned: 0, maxEnemies: 10, aliveEnemies: 0,
   spawnInterval: 120, spawnTimer: 0, baseDestroyed: false,
   keys: {}, map: [], player: null, basePos: null, playerSpawnPos: null,
@@ -905,7 +1059,6 @@ const G = {
 function generateUpgradeOptions() {
   const options = [];
   const ps = G.playerStats;
-  const isEasy = G.difficulty === 'easy';
 
   // 1. 武器進化（如果可以）
   const weapon = ps.weapon || 'NORMAL';
@@ -930,21 +1083,10 @@ function generateUpgradeOptions() {
       options.push({
         type: 'starter',
         id: w,
-        title: `${wp.name}${isEasy ? ' ★' : ''}`,
-        desc: wp.desc + (isEasy ? ` (路線: ${wp.route})` : ''),
+        title: wp.name,
+        desc: wp.desc,
         icon: wp.icon,
         color: wp.color
-      });
-    }
-    // Easy 模式額外：隨機派系選項
-    if (isEasy) {
-      options.push({
-        type: 'starter',
-        id: 'RANDOM',
-        title: '🎲 隨機派系',
-        desc: '隨機選擇一個路線 +10% 掉落加成',
-        icon: '🎲',
-        color: '#88ccff'
       });
     }
   }
@@ -985,10 +1127,6 @@ function generateUpgradeOptions() {
     { id: 'HEAL', title: '裝甲修復', desc: '最大生命 +1', icon: '💚', color: '#ff44ff' },
     { id: 'PIERCE', title: '穿甲彈頭', desc: '子彈可貫穿', icon: '🎯', color: '#ffaa00' }
   ];
-  // Easy 模式額外：添加護盾增益選項
-  if (isEasy) {
-    generalUpgrades.push({ id: 'SHIELD', title: '能量護盾', desc: '抵擋一次致命傷害', icon: '🛡️', color: '#44ccff' });
-  }
   shuffle(generalUpgrades);
   const shuffledGeneral = generalUpgrades.slice(0, 1);
   for (const g of shuffledGeneral) {
@@ -1358,94 +1496,6 @@ function applyLevelWeapon(weaponType) {
 }
 
 // ==================== 武器射擊系統（擴展） ====================
-function shootWeapon(player) {
-  if (!player.alive || player.bulletTimer > 0) return;
-
-  const hs = player.size / 2;
-  const cx = player.x + hs;
-  const cy = player.y + hs;
-
-  let cooldownMult = getHeatStacksMultiplier();
-  if (G.playerStats.boostTimer > 0) cooldownMult *= 2;
-
-  const baseCD = G.isVSMode ? CONFIG.BULLET.PLAYER_COOLDOWN_VS : CONFIG.BULLET.PLAYER_COOLDOWN;
-  const fireRateBonus = G.playerStats.shopFireRateBonus || 0;
-  const actualCD = Math.max(2, Math.floor(baseCD * cooldownMult * (1 - fireRateBonus)));
-  player.bulletTimer = actualCD;
-
-  const weaponData = WEAPON_TREE[player.weapon];
-  const basePower = weaponData ? weaponData.basePower : 1.0;
-
-  switch (player.weapon) {
-    case 'NORMAL':
-      spawnBullet(cx, cy, player.aimDir, true, player.pierce, basePower);
-      break;
-    case 'RAPID':
-    case 'GATLING':
-    case 'CHAINGUN':
-    case 'OVERDRIVE':
-      spawnBullet(cx, cy, player.aimDir, true, true, basePower);
-      if (player.weapon === 'GATLING' || player.weapon === 'OVERDRIVE') spawnBullet(cx, cy - 2, player.aimDir, true, true, basePower);
-      if (player.weapon === 'CHAINGUN') spawnBullet(cx, cy + 2, player.aimDir, true, true, basePower);
-      if (player.weapon === 'OVERDRIVE') {
-        spawnBullet(cx, cy - 4, player.aimDir, true, true, basePower);
-        spawnBullet(cx, cy + 4, player.aimDir, true, true, basePower);
-      }
-      break;
-    case 'SPREAD':
-    case 'CLUSTER':
-    case 'NAPALM':
-    case 'APOCALYPSE':
-      if (player.weapon === 'SPREAD') spawnSpreadBullets(cx, cy, 3, 0.25, basePower);
-      else if (player.weapon === 'CLUSTER') spawnSpreadBullets(cx, cy, 3, 0.25, basePower);
-      else if (player.weapon === 'NAPALM') { spawnSpreadBullets(cx, cy, 3, 0.25, basePower); spawnFireZone(cx, cy); }
-      else if (player.weapon === 'APOCALYPSE') spawnSpreadBullets(cx, cy, 5, 0.4, basePower);
-      if (player.weapon === 'APOCALYPSE' && G.frameCount % 180 === 0) {
-        for (let i = 0; i < 20; i++) {
-          const bx = Math.random() * W;
-          const by = Math.random() * H;
-          setTimeout(() => {
-            spawnExplosion(bx, by, 'big');
-            triggerShake(4, 5);
-          }, i * 50);
-        }
-      }
-      break;
-    case 'PLASMA':
-    case 'D_LASER':
-    case 'T_LASER':
-    case 'OMEGA':
-      spawnBullet(cx, cy, player.aimDir, true, true, basePower);
-      if (player.weapon === 'D_LASER') spawnBullet(cx, cy - 3, player.aimDir, true, true, basePower);
-      if (player.weapon === 'T_LASER') {
-        spawnBullet(cx, cy - 3, player.aimDir, true, true, basePower);
-        spawnBullet(cx, cy + 3, player.aimDir, true, true, basePower);
-      }
-      if (player.weapon === 'OMEGA') {
-        spawnLaserBeam(player.aimDir);
-      }
-      break;
-    case 'SUMMON':
-    case 'DRONE':
-    case 'TURRET':
-    case 'FORTRESS':
-      spawnBullet(cx, cy, player.aimDir, true, false, basePower);
-      const maxTurrets = 1 + player.weaponTier;
-      if (G.summonEntities.filter(e => e.type === 'turret').length < maxTurrets) {
-        G.summonEntities.push({
-          type: 'turret', x: player.x, y: player.y,
-          life: 300 + player.weaponTier * 100, maxLife: 300 + player.weaponTier * 100,
-          damage: 1 + player.weaponTier, cooldown: 0, alive: true
-        });
-      }
-      break;
-  }
-
-  triggerShake(2, 1);
-  Sound.shoot();
-  applyPassiveEffects(null, player, 'shoot');
-}
-
 function spawnBullet(x, y, dir, isPlayer, pierce = false, power = 1) {
   const b = bulletsPool.acquire();
   b.x = x - 3; b.y = y - 3;
@@ -1461,35 +1511,6 @@ function spawnBullet(x, y, dir, isPlayer, pierce = false, power = 1) {
   b.vy = DY[dir];
   b.speed = isPlayer ? CONFIG.BULLET.SPEED_PLAYER : CONFIG.BULLET.SPEED_ENEMY;
   b.hitTanks.length = 0;
-}
-
-function spawnSpreadBullets(cx, cy, count, spreadAngle, basePower) {
-  const baseDir = G.player ? G.player.aimDir : DOWN;
-  const dx = DX[baseDir], dy = DY[baseDir];
-  const powerBonus = G.playerStats.weaponDamageBonus || 0;
-
-  for (let i = 0; i < count; i++) {
-    const angle = spreadAngle * (i - (count - 1) / 2);
-    const cos = Math.cos(angle), sin = Math.sin(angle);
-    const vx = dx * cos - dy * sin;
-    const vy = dx * sin + dy * cos;
-
-    const b = bulletsPool.acquire();
-    b.x = cx - 3; b.y = cy - 3;
-    b.dir = baseDir;
-    b.isPlayer = true;
-    b.vx = vx;
-    b.vy = vy;
-    b.speed = CONFIG.BULLET.SPEED_PLAYER * 0.8;
-    b.power = basePower + powerBonus;
-    b.hitTanks.length = 0;
-  }
-}
-
-function spawnFireZone(x, y) {
-  G.summonEntities.push({
-    type: 'fire', x, y, life: 120, maxLife: 120, damage: 0.5, alive: true
-  });
 }
 
 function spawnChainBullet(x, y, target) {
@@ -1515,25 +1536,6 @@ function spawnChainBullet(x, y, target) {
     const powerBonus = G.playerStats.weaponDamageBonus || 0;
     b.power = 0.5 * basePower + powerBonus;
     b.chainCount = 1;
-    b.hitTanks.length = 0;
-  }
-}
-
-function spawnLaserBeam(dir) {
-  const weaponData = WEAPON_TREE[G.playerStats.weapon];
-  const basePower = weaponData ? weaponData.basePower : 1.0;
-  for (let i = 0; i < 30; i++) {
-    const b = bulletsPool.acquire();
-    b.x = G.player.x + i * 15 * DX[dir];
-    b.y = G.player.y + i * 15 * DY[dir];
-    b.dir = dir;
-    b.isPlayer = true;
-    b.vx = 0;
-    b.vy = 0;
-    b.speed = 0;
-    b.power = basePower;
-    b.laserLife = 15;
-    b.ignoreTiles = true;
     b.hitTanks.length = 0;
   }
 }
@@ -2030,25 +2032,8 @@ class Tank {
   }
 
   shoot() {
-    if (this.isPlayer) {
-      shootWeapon(this);
-    } else {
-      if (!this.alive || this.bulletTimer > 0) return;
-      const hs = this.size / 2;
-      const cx = this.x + hs;
-      const cy = this.y + hs;
-      const b = bulletsPool.acquire();
-      b.dir = this.aimDir;
-      b.isPlayer = false;
-      b.pierce = false;
-      b.x = cx - 3 + DX[this.aimDir]*(hs+2);
-      b.y = cy - 3 + DY[this.aimDir]*(hs+2);
-      b.speed = this.type === 'BOSS' ? CONFIG.BULLET.SPEED_BOSS : CONFIG.BULLET.SPEED_ENEMY;
-      b.vx = DX[this.aimDir]; b.vy = DY[this.aimDir];
-      b.power = this.weapon === 'SPREAD' ? 2 : 1;
-      b.hitTanks.length = 0;
-      this.bulletTimer = this.bulletCooldown;
-    }
+    if (!this.alive || this.bulletTimer > 0) return;
+    WeaponManager.fire(this);
   }
 
   draw() {
@@ -2060,93 +2045,20 @@ class Tank {
 
     if (this.flashTimer > 0 && (G.frameCount & 2)) return;
 
-    ctx.save();
-
-    let colMain, colDark, colLight;
-    if (this.isPlayer) {
-      colMain = '#d4a72c';  colLight = '#fce560';  colDark = '#7a5a14';
-    } else if (this.type === 'FAST') {
-      colMain = '#dcdce8';  colLight = '#ffffff';  colDark = '#6a6a78';
-    } else if (this.type === 'HEAVY') {
-      colMain = '#5a8acc';  colLight = '#9ec0ff';  colDark = '#1c3a6a';
-    } else if (this.type === 'SUICIDE') {
-      colMain = '#e84418';  colLight = '#ff8c4a';  colDark = '#7a1a04';
-    } else if (this.type === 'BOSS') {
-      colMain = '#a02020';  colLight = '#e84040';  colDark = '#400000';
-    } else {
-      colMain = '#b8b8b8';  colLight = '#e8e8e8';  colDark = '#4a4a4a';
-    }
-
     const s = this.size;
     const x = this.x | 0;
     const y = this.y | 0;
-    const cx = x + s / 2;
-    const cy = y + s / 2;
-    const isHoriz = (this.aimDir === LEFT || this.aimDir === RIGHT);
-
-    const trackW = Math.max(3, (s / 7) | 0);
-    const seg = Math.max(2, (s / 6) | 0);
     const trackOffset = (G.frameCount >> 2) & 1;
+    // 履帶相位：移動中 0/1 交替；靜止固定用 seg 起點樣式（與原本 (trackOffset && moving) ? 0 : seg 一致）
+    const phase = this.moving ? trackOffset : 0;
 
-    ctx.fillStyle = colDark;
-    if (isHoriz) {
-      ctx.fillRect(x, y, s, trackW);
-      ctx.fillRect(x, y + s - trackW, s, trackW);
-      ctx.fillStyle = colMain;
-      for (let i = (trackOffset && this.moving) ? 0 : seg; i < s; i += seg * 2) {
-        ctx.fillRect(x + i, y, seg, trackW);
-        ctx.fillRect(x + i, y + s - trackW, seg, trackW);
-      }
-    } else {
-      ctx.fillRect(x, y, trackW, s);
-      ctx.fillRect(x + s - trackW, y, trackW, s);
-      ctx.fillStyle = colMain;
-      for (let i = (trackOffset && this.moving) ? 0 : seg; i < s; i += seg * 2) {
-        ctx.fillRect(x, y + i, trackW, seg);
-        ctx.fillRect(x + s - trackW, y + i, trackW, seg);
-      }
+    const key = (this.isPlayer ? 'P' : this.type) + '|' + this.aimDir + '|' + phase + '|' + s;
+    let spr = _tankSpriteCache.get(key);
+    if (!spr) {
+      spr = buildTankSprite(this.isPlayer ? 'PLAYER' : this.type, this.aimDir, phase, s);
+      _tankSpriteCache.set(key, spr);
     }
-
-    const bodyPad = trackW + 1;
-    ctx.fillStyle = colMain;
-    ctx.fillRect(x + bodyPad, y + bodyPad, s - bodyPad * 2, s - bodyPad * 2);
-
-    ctx.fillStyle = colLight;
-    if (isHoriz) {
-      ctx.fillRect(x + bodyPad, y + bodyPad, s - bodyPad * 2, 1);
-    } else {
-      ctx.fillRect(x + bodyPad, y + bodyPad, 1, s - bodyPad * 2);
-    }
-
-    const turretSize = Math.max(6, (s * 0.45) | 0);
-    const tx = (cx - turretSize / 2) | 0;
-    const ty = (cy - turretSize / 2) | 0;
-    ctx.fillStyle = colMain;
-    ctx.fillRect(tx, ty, turretSize, turretSize);
-    ctx.fillStyle = colLight;
-    ctx.fillRect(tx, ty, turretSize, 1);
-    ctx.fillRect(tx, ty, 1, turretSize);
-    ctx.fillStyle = colDark;
-    ctx.fillRect(tx, ty + turretSize - 1, turretSize, 1);
-    ctx.fillRect(tx + turretSize - 1, ty, 1, turretSize);
-
-    const barrelW = Math.max(2, (s / 8) | 0);
-    const barrelL = Math.max(6, (s * 0.45) | 0);
-    ctx.fillStyle = colLight;
-    if (this.aimDir === UP) {
-      ctx.fillRect((cx - barrelW / 2) | 0, y, barrelW, (cy - y) | 0);
-    } else if (this.aimDir === DOWN) {
-      ctx.fillRect((cx - barrelW / 2) | 0, cy | 0, barrelW, (y + s - cy) | 0);
-    } else if (this.aimDir === LEFT) {
-      ctx.fillRect(x, (cy - barrelW / 2) | 0, (cx - x) | 0, barrelW);
-    } else {
-      ctx.fillRect(cx | 0, (cy - barrelW / 2) | 0, (x + s - cx) | 0, barrelW);
-    }
-
-    if (this.type === 'BOSS') {
-      ctx.fillStyle = colDark;
-      ctx.fillRect((cx - 2) | 0, (cy - 2) | 0, 4, 4);
-    }
+    ctx.drawImage(spr, x, y);
 
     if (this.elitePrefix && this.eliteEffects) {
       const eff = this.eliteEffects;
@@ -2166,9 +2078,105 @@ class Tank {
       ctx.fillStyle = this.isPlayer ? '#3cf03c' : '#ff4040';
       ctx.fillRect(x, y - 6, (s * (this.hp / this.maxHp)) | 0, 3);
     }
-
-    ctx.restore();
   }
+}
+
+// ==================== 坦克 Sprite 離屏快取 ====================
+// 本體（履帶/車身/砲塔/砲管/BOSS 標記）靜態預渲染，僅按 型別|方向|相位|尺寸 快取。
+// 動態層（elite 特效、HP bar、護盾、受擊閃爍）仍每幀繪製，保持原有視覺。
+const _tankSpriteCache = new Map();
+
+function buildTankSprite(type, aimDir, phase, s) {
+  const cv = document.createElement('canvas');
+  cv.width = Math.ceil(s) + 1;
+  cv.height = Math.ceil(s) + 1;
+  const c2 = cv.getContext('2d');
+
+  let colMain, colDark, colLight;
+  if (type === 'PLAYER') {
+    colMain = '#d4a72c';  colLight = '#fce560';  colDark = '#7a5a14';
+  } else if (type === 'FAST') {
+    colMain = '#dcdce8';  colLight = '#ffffff';  colDark = '#6a6a78';
+  } else if (type === 'HEAVY') {
+    colMain = '#5a8acc';  colLight = '#9ec0ff';  colDark = '#1c3a6a';
+  } else if (type === 'SUICIDE') {
+    colMain = '#e84418';  colLight = '#ff8c4a';  colDark = '#7a1a04';
+  } else if (type === 'BOSS') {
+    colMain = '#a02020';  colLight = '#e84040';  colDark = '#400000';
+  } else {
+    colMain = '#b8b8b8';  colLight = '#e8e8e8';  colDark = '#4a4a4a';
+  }
+
+  const x = 0, y = 0;
+  const cx = s / 2;
+  const cy = s / 2;
+  const isHoriz = (aimDir === LEFT || aimDir === RIGHT);
+
+  const trackW = Math.max(3, (s / 7) | 0);
+  const seg = Math.max(2, (s / 6) | 0);
+  const trackOffset = phase === 0 ? 0 : 1;
+
+  c2.fillStyle = colDark;
+  if (isHoriz) {
+    c2.fillRect(x, y, s, trackW);
+    c2.fillRect(x, y + s - trackW, s, trackW);
+    c2.fillStyle = colMain;
+    for (let i = trackOffset ? 0 : seg; i < s; i += seg * 2) {
+      c2.fillRect(x + i, y, seg, trackW);
+      c2.fillRect(x + i, y + s - trackW, seg, trackW);
+    }
+  } else {
+    c2.fillRect(x, y, trackW, s);
+    c2.fillRect(x + s - trackW, y, trackW, s);
+    c2.fillStyle = colMain;
+    for (let i = trackOffset ? 0 : seg; i < s; i += seg * 2) {
+      c2.fillRect(x, y + i, trackW, seg);
+      c2.fillRect(x + s - trackW, y + i, trackW, seg);
+    }
+  }
+
+  const bodyPad = trackW + 1;
+  c2.fillStyle = colMain;
+  c2.fillRect(x + bodyPad, y + bodyPad, s - bodyPad * 2, s - bodyPad * 2);
+
+  c2.fillStyle = colLight;
+  if (isHoriz) {
+    c2.fillRect(x + bodyPad, y + bodyPad, s - bodyPad * 2, 1);
+  } else {
+    c2.fillRect(x + bodyPad, y + bodyPad, 1, s - bodyPad * 2);
+  }
+
+  const turretSize = Math.max(6, (s * 0.45) | 0);
+  const tx = (cx - turretSize / 2) | 0;
+  const ty = (cy - turretSize / 2) | 0;
+  c2.fillStyle = colMain;
+  c2.fillRect(tx, ty, turretSize, turretSize);
+  c2.fillStyle = colLight;
+  c2.fillRect(tx, ty, turretSize, 1);
+  c2.fillRect(tx, ty, 1, turretSize);
+  c2.fillStyle = colDark;
+  c2.fillRect(tx, ty + turretSize - 1, turretSize, 1);
+  c2.fillRect(tx + turretSize - 1, ty, 1, turretSize);
+
+  const barrelW = Math.max(2, (s / 8) | 0);
+  const barrelL = Math.max(6, (s * 0.45) | 0);
+  c2.fillStyle = colLight;
+  if (aimDir === UP) {
+    c2.fillRect((cx - barrelW / 2) | 0, y, barrelW, (cy - y) | 0);
+  } else if (aimDir === DOWN) {
+    c2.fillRect((cx - barrelW / 2) | 0, cy | 0, barrelW, (y + s - cy) | 0);
+  } else if (aimDir === LEFT) {
+    c2.fillRect(x, (cy - barrelW / 2) | 0, (cx - x) | 0, barrelW);
+  } else {
+    c2.fillRect(cx | 0, (cy - barrelW / 2) | 0, (x + s - cx) | 0, barrelW);
+  }
+
+  if (type === 'BOSS') {
+    c2.fillStyle = colDark;
+    c2.fillRect((cx - 2) | 0, (cy - 2) | 0, 4, 4);
+  }
+
+  return cv;
 }
 
 function drawNESSpawnEffect(x, y, size, life, maxLife) {
@@ -2994,8 +3002,29 @@ function spawnEnemyAt(x, y) {
 }
 
 // ==================== AI 系統（擴展菁英/BOSS） ====================
+
+// 敌人排斥机制 - 防止互相挤压
+Tank.prototype.applyRepulsion = function() {
+  if (!this.alive) return;
+  const range = this.size * 1.5;
+  spatialGrid.queryRect(this.x - range, this.y - range, range * 2, range * 2, _queryBuf);
+  for (const other of _queryBuf) {
+    if (other === this || !other.alive || other.isPlayer) continue;
+    const dx = this.x - other.x, dy = this.y - other.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < this.size && dist > 0) {
+      const push = 0.5;
+      this.x += (dx / dist) * push;
+      this.y += (dy / dist) * push;
+    }
+  }
+};
+
 function updateEnemyAI(e) {
   e.update();
+
+  // 1. 排斥机制 - 先处理位置避免挤压
+  e.applyRepulsion();
 
   let speedMult = 1;
   if (e.slowTimer > 0) { e.slowTimer--; speedMult = 0.5; }
@@ -3021,6 +3050,7 @@ function updateEnemyAI(e) {
     updateSpecialEnemyAI(e);
   }
 
+  // 2. AI 方向更新
   if (G.isVSMode && G.player && G.player.alive) {
     if (G.frameCount % CONFIG.AI.VS_UPDATE_INTERVAL === 0 || e.aiChangeTimer <= 0) {
       const dx = G.player.x - e.x;
@@ -3196,9 +3226,9 @@ function startLevel() {
     G.spawnTimer = 10;
     G.vsModeStartFrame = G.frameCount;
   } else {
-    const diffMult = G.difficulty === 'easy' ? 0.6 : G.difficulty === 'test' ? 1.5 : 1;
+    const diffMult = 1;
     G.maxEnemies = Math.floor((10 + G.level * 2) * diffMult);
-    G.spawnInterval = Math.max(40, Math.floor((120 - G.level * 8) * (G.difficulty === 'easy' ? 1.5 : 1)));
+    G.spawnInterval = Math.max(40, Math.floor((120 - G.level * 8) * 1));
     G.spawnTimer = 30;
   }
 
@@ -3240,100 +3270,29 @@ function restartGame() {
   G.levelWeaponStacks = {};
   G.levelClearedCount = 0;
 
-  if (G.difficulty === 'test') {
-    G.playerStats = {
-      weapon: 'OMEGA', weaponTier: 4, pierce: true, speedMult: 2,
-      maxHp: 99, hp: 99, route: 'C',
-      passives: Object.keys(ELITE_PREFIXES),
-      activeSkill: null, activeCooldown: 0,
-      heatStacks: 20, rageMultiplier: 1, invulTimer: 9999, barrierTimer: 0,
-      combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 5
-    };
-    G.continues = 99;
-    G.summonEntities = [];
-    G.mapEvent = null;
-    G.directorEvents = [];
-    G.permanentStats = { scr: 0, upgradePoints: 0 };
-    G.mapEvent = rollMapEvent();
-    updateHUD();
-    startLevel();
-  } else if (G.difficulty === 'easy') {
-    // Easy 模式：先讓玩家選擇派系
-    G.playerStats = {
-      weapon: 'NORMAL', weaponTier: 0, pierce: false, speedMult: 1,
-      maxHp: 5, hp: 5, route: null,
-      passives: [], activeSkill: null, activeCooldown: 0,
-      heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0,
-      combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 0, shopFireRateBonus: 0
-    };
-    updateHUD();
-    showEasyFactionSelect();
-  } else {
-    // Normal 模式
-    G.playerStats = {
-      weapon: 'NORMAL', weaponTier: 0, pierce: false, speedMult: 1,
-      maxHp: 3, hp: 3, route: null,
-      passives: [], activeSkill: null, activeCooldown: 0,
-      heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0,
-      combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 0, shopFireRateBonus: 0
-    };
-    updateHUD();
-    G.summonEntities = [];
-    G.mapEvent = null;
-    G.directorEvents = [];
-    G.permanentStats = { scr: 0, upgradePoints: 0 };
-    G.mapEvent = rollMapEvent();
-    document.getElementById('overlay').innerHTML = `
-      <h1>TANK WARS v2</h1>
-      <p>四條武器流派 · 被動技能 · 菁英詞綴 · 主動技能</p>
-      <p>選擇你的流派，每局玩法都不同!</p>
-      ${IS_MOBILE
-        ? '<p style="margin-top:12px; color:#ffd700;">左搖桿 <b>移動</b></p><p style="color:#ffd700;">右按鈕 <b>射擊</b></p>'
-        : '<p style="margin-top:12px; color:#ffd700;">WASD / 方向鍵 <b>移動</b></p><p style="color:#ffd700;">空白鍵 <b>射擊</b> · Q <b>主動技能</b></p>'
-      }
-    `;
-    startLevel();
-  }
-}
-
-function showEasyFactionSelect() {
-  G.state = STATE.FACTION_SELECT;
-  Sound.jingleLevelClear();
-  const ov = document.getElementById('overlay');
-  ov.classList.remove('hidden');
-  ov.innerHTML = `
-    <h1>EASY MODE</h1>
-    <p style="font-size:10px; color:#aaa; margin:8px 0 18px;">選擇你的陣營</p>
-    <div style="display:flex; gap:14px; flex-wrap:wrap; justify-content:center;">
-      <button class="start-btn" id="factionRapid" style="color:#ffaa00; border-color:#ffaa00;">⚡ 快速</button>
-      <button class="start-btn" id="factionSpread" style="color:#44ff44; border-color:#44ff44;">🌀 散射</button>
-      <button class="start-btn" id="factionPlasma" style="color:#ff6666; border-color:#ff6666;">💥 等離子</button>
-      <button class="start-btn" id="factionSummon" style="color:#cc88ff; border-color:#cc88ff;">👻 召喚</button>
-    </div>
-    <p style="margin-top:14px; font-size:8px; color:#888;">Easy 模式 · 5HP · 派系專屬掉落 +10%</p>
-  `;
-
-  const factions = {
-    factionRapid: 'RAPID',
-    factionSpread: 'SPREAD',
-    factionPlasma: 'PLASMA',
-    factionSummon: 'SUMMON'
+  G.playerStats = {
+    weapon: 'NORMAL', weaponTier: 0, pierce: false, speedMult: 1,
+    maxHp: 3, hp: 3, route: null,
+    passives: [], activeSkill: null, activeCooldown: 0,
+    heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0,
+    combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 0, shopFireRateBonus: 0
   };
-
-  for (const [id, weapon] of Object.entries(factions)) {
-    document.getElementById(id).addEventListener('click', () => {
-      const wp = WEAPON_TREE[weapon];
-      G.playerStats.weapon = weapon;
-      G.playerStats.route = wp.route;
-      G.playerStats.weaponTier = wp.tier;
-      G.summonEntities = [];
-      G.mapEvent = null;
-      G.directorEvents = [];
-      G.permanentStats = { scr: 0, upgradePoints: 0 };
-      G.mapEvent = rollMapEvent();
-      startLevel();
-    });
-  }
+  updateHUD();
+  G.summonEntities = [];
+  G.mapEvent = null;
+  G.directorEvents = [];
+  G.permanentStats = { scr: 0, upgradePoints: 0 };
+  G.mapEvent = rollMapEvent();
+  document.getElementById('overlay').innerHTML = `
+    <h1>TANK WARS v2</h1>
+    <p>四條武器流派 · 被動技能 · 菁英詞綴 · 主動技能</p>
+    <p>選擇你的流派，每局玩法都不同!</p>
+    ${IS_MOBILE
+      ? '<p style="margin-top:12px; color:#ffd700;">左搖桿 <b>移動</b></p><p style="color:#ffd700;">右按鈕 <b>射擊</b></p>'
+      : '<p style="margin-top:12px; color:#ffd700;">WASD / 方向鍵 <b>移動</b></p><p style="color:#ffd700;">空白鍵 <b>射擊</b> · Q <b>主動技能</b></p>'
+    }
+  `;
+  startLevel();
 }
 
 function showGameOver() {
@@ -3447,49 +3406,18 @@ document.addEventListener('keydown', e => {
     else if (e.code === 'Escape' && G.state === STATE.SHOP) { e.preventDefault(); closeShop(); }
     else if ((e.code === 'Enter' || e.code === 'Space') && G.state === STATE.MENU) {
       e.preventDefault();
-      const focused = document.querySelector('.difficulty-btn:focus, .difficulty-btn.selected');
-      if (focused) focused.click();
-      else document.getElementById('btnNormal').click();
-    }
-    else if ((e.code === 'Enter' || e.code === 'Space') && G.state === STATE.FACTION_SELECT) {
-      e.preventDefault();
-      const hovered = document.querySelector('#overlay .start-btn:hover, #overlay .start-btn:focus');
-      if (hovered) hovered.click();
+      const startBtn = document.getElementById('startBtn');
+      if (startBtn) startBtn.click();
     }
   }
   if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
 });
 document.addEventListener('keyup', e => G.keys[e.code] = false);
-document.getElementById('btnNormal').addEventListener('click', () => {
+document.getElementById('startBtn').addEventListener('click', () => {
   Sound.init(); Sound.resume();
   Music.play('MENU');
-  G.difficulty = 'normal';
-  G.difficulty = 'normal';
-  updateDifficultyUI();
   restartGame();
 });
-document.getElementById('btnEasy').addEventListener('click', () => {
-  Sound.init(); Sound.resume();
-  Music.play('MENU');
-  G.difficulty = 'easy';
-  updateDifficultyUI();
-  restartGame();
-});
-document.getElementById('btnTest').addEventListener('click', () => {
-  Sound.init(); Sound.resume();
-  Music.play('MENU');
-  G.difficulty = 'test';
-  updateDifficultyUI();
-  restartGame();
-});
-function updateDifficultyUI() {
-  ['btnNormal','btnEasy','btnTest'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.classList.toggle('selected', id === ({normal:'btnNormal',easy:'btnEasy',test:'btnTest'}[G.difficulty]));
-  });
-  const descEl = document.getElementById('difficultyDesc');
-  if (descEl) descEl.textContent = { normal:'標準難度 · 正常體驗', easy:'簡單模式 · 選擇陣營 · 更多生命', test:'測試模式 · 無敵 + 滿級武器' }[G.difficulty] || '標準難度 · 正常體驗';
-}
 document.getElementById('soundToggle').addEventListener('click', e => {
   e.stopPropagation();
   Sound.init(); Sound.resume();
