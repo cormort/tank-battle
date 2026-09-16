@@ -414,6 +414,194 @@ ok('F6 帶道具敵人的發光渲染不會拋錯（glowCanvas 事件：呼叫�
   glowEnemy.bannerShown === false && glowEnemy.glowTimer < 30,
   JSON.stringify(glowEnemy));
 
+console.log('\n=== G. 地圖事件（M4：被寫入端掃描揪出的死子系統） ===');
+// G1：rollMapEvent() 的結果必須真的被 activate。舊版只把它塞進一個從來沒人讀的 G.mapEvent，
+//     activateMapEvent() 因此沒有任何呼叫端 → updateMapEvent() 與 6 種事件效果全是死碼。
+const mapEventWiring = await page.evaluate(async () => {
+  const T = window.__T, G = T.G;
+  const VS = T.CONFIG.GAMEPLAY.VS_MODE_INTERVAL;   // VS 關卡是 10 的倍數（L10、L20…）
+  G.state = T.STATE.PLAYING;
+  // 逐個 seed 走「正式入口」startLevel()，直到擲中事件（20% 機率，60 次內必中）
+  let tries = 0, hit = null;
+  for (let s = 1; s <= 60 && !hit; s++) {
+    G.level = VS;
+    G.directorEvents.length = 0;
+    T.deactivateMapEvent();
+    T.setRngState(s);
+    const multBefore = G.playerStats.speedMult;
+    T.startLevel();
+    tries++;
+    if (T.mapEventState.active) {
+      hit = {
+        seed: s, type: T.mapEventState.type, timer: T.mapEventState.timer,
+        banners: G.directorEvents.length, bannerText: G.directorEvents.map((e) => `${e.name}／${e.desc}`).join('|'),
+        multBefore, multAfter: G.playerStats.speedMult,
+      };
+    }
+  }
+  return { tries, hit };
+});
+ok('G1 startLevel 會啟動 rollMapEvent() 擲到的地圖事件並公告（舊版整條子系統都是死碼）',
+  mapEventWiring.hit !== null && mapEventWiring.hit.timer > 0
+  && mapEventWiring.hit.banners > 0 && mapEventWiring.hit.bannerText.length > 0
+  && (mapEventWiring.hit.type !== 'DESERT'
+      || Math.abs(mapEventWiring.hit.multAfter / mapEventWiring.hit.multBefore - 0.7) < 1e-9),
+  JSON.stringify(mapEventWiring));
+
+// G2：DESERT 的減速要真的生效、到期要還原（舊版描述寫了「移速 -30%」卻完全沒實作）
+const desert = await page.evaluate(async () => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  T.deactivateMapEvent();
+  T.applyPlayerSpeed();
+  const before = { mult: G.playerStats.speedMult, speed: G.player.speed };
+  T.activateMapEvent(T.MAP_EVENTS.find((e) => e.id === 'DESERT'));
+  T.applyPlayerSpeed();                    // 玩家速度要跟著事件改變
+  const during = { mult: G.playerStats.speedMult, speed: G.player.speed, active: T.mapEventState.active };
+  T.mapEventState.timer = 1;
+  T.updateMapEvent(); T.updateMapEvent();  // 時間到 → deactivate
+  T.applyPlayerSpeed();
+  const after = { mult: G.playerStats.speedMult, speed: G.player.speed, active: T.mapEventState.active };
+  return { before, during, after, ratio: during.mult / before.mult };
+});
+ok('G2 DESERT 真的套用移速 -30%、玩家速度跟著變，事件到期完全還原',
+  Math.abs(desert.ratio - 0.7) < 1e-9 && desert.during.speed < desert.before.speed
+  && desert.after.active === false && Math.abs(desert.after.mult - desert.before.mult) < 1e-9
+  && Math.abs(desert.after.speed - desert.before.speed) < 1e-9,
+  JSON.stringify(desert));
+
+// G3：ICE = 真正的滑行慣性（放開方向後仍會滑行），而不是偷偷乘一個速度係數
+const ice = await page.evaluate(async () => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  G.enemies.length = 0;
+  G.enemiesSpawned = 0; G.maxEnemies = 1e9;      // 不要讓關卡在測試中途結算／換關
+  G.spawnTimer = 1e9; G.spawnInterval = 1e9;
+  G.playerStats.hp = 99; G.player.hp = 99; G.player.alive = true;
+  T.deactivateMapEvent();
+  T.applyPlayerSpeed();
+  const p = G.player;
+  const multBefore = G.playerStats.speedMult;
+
+  T.activateMapEvent(T.MAP_EVENTS.find((e) => e.id === 'ICE'));
+  const multDuring = G.playerStats.speedMult;
+
+  // 全部用 stepTicks() 同步推進（不受 rAF 與殘留 setTimeout 換關影響）
+  T.input.right = true; T.input.left = false; T.input.up = false; T.input.down = false;
+  T.stepTicks(4);
+  const xHeld = p.x;
+  const slideDirHeld = T.mapEventState.slideDir;
+  T.input.right = false;                          // 放開所有方向
+  const slideTicksHeld = T.mapEventState.slideTicks;
+
+  let movingSamples = 0;
+  for (let i = 0; i < 8; i++) { T.stepTicks(1); if (p.moving) movingSamples++; }
+  const xAfterSlide = p.x;
+
+  T.stepTicks(40);                                // 滑行量用完之後必須停下來
+  const stoppedMoving = p.moving === false;
+  const sameTank = G.player === p;
+  T.deactivateMapEvent();
+
+  // 對照組：沒有 ICE 時放開方向會立刻停（滑行是事件造成的，不是移動本身的副作用）
+  T.input.right = true; T.stepTicks(3); T.input.right = false; T.stepTicks(2);
+  const noSlideMoving = p.moving;
+  T.stepTicks(1);
+
+  return { multBefore, multDuring, xHeld, xAfterSlide, slideDirHeld, slideTicksHeld,
+    movingSamples, stoppedMoving, sameTank, noSlideMoving };
+});
+ok('G3 ICE 是滑行慣性：放開方向後仍沿最後方向滑行、滑完會停、且不改速度係數',
+  ice.multDuring === ice.multBefore && ice.sameTank === true && ice.slideTicksHeld > 0
+  && ice.xAfterSlide >= ice.xHeld && ice.movingSamples === 8 && ice.stoppedMoving === true
+  && ice.noSlideMoving === false,
+  JSON.stringify(ice));
+
+// G4：EMP 不只要砍半場上既有的子彈，事件期間「新生成的」子彈也必須受影響
+const emp = await page.evaluate(async () => {
+  const T = window.__T;
+  const bp = T.bulletsPool;
+  bp.clear();
+  const b = bp.acquire();
+  b.x = 100; b.y = 100; b.isPlayer = true; b.alive = true; b.speed = 4; b.vx = 0; b.vy = 0;
+  T.deactivateMapEvent();
+  T.activateMapEvent(T.MAP_EVENTS.find((e) => e.id === 'EMP'));
+  const during = b.speed;
+  const active = T.mapEventState.type;
+
+  // 事件期間生成的新子彈（標準生成點 spawnBullet）
+  T.spawnBullet(120, 120, T.RIGHT, true, false, 1);
+  const fresh = bp.active[bp.active.length - 1].speed;
+  const full = T.CONFIG.BULLET.SPEED_PLAYER;
+
+  T.deactivateMapEvent();
+  bp.clear();
+  T.spawnBullet(120, 120, T.RIGHT, true, false, 1);
+  const afterEvent = bp.active[bp.active.length - 1].speed;
+  bp.clear();
+  return { during, active, fresh, full, afterEvent };
+});
+ok('G4 EMP 事件會讓子彈速度減半（場上既有的＋事件期間新生成的都算，事件結束後恢復）',
+  emp.during === 2 && emp.active === 'EMP' && emp.fresh === emp.full * 0.5 && emp.afterEvent === emp.full,
+  JSON.stringify(emp));
+
+// G5：VOLCANIC 會真的產生火山落點（舊版 updateMapEvent 沒有任何呼叫端）
+const volcanic = await page.evaluate(async () => {
+  const T = window.__T;
+  T.deactivateMapEvent();
+  T.activateMapEvent(T.MAP_EVENTS.find((e) => e.id === 'VOLCANIC'));
+  const cleared = T.mapEventState.volcanoTargets.length;
+  for (let i = 0; i < 91; i++) T.updateMapEvent();
+  const spawned = T.mapEventState.volcanoTargets.length;
+  T.deactivateMapEvent();
+  return { cleared, spawned };
+});
+ok('G5 VOLCANIC 事件會產生火山落點（updateMapEvent 的時間軸真的有在跑）',
+  volcanic.cleared === 0 && volcanic.spawned > 0, JSON.stringify(volcanic));
+
+// G6：六種事件都能被啟動並在到期時關閉（不會有事件卡住不還原）
+const allEvents = await page.evaluate(async () => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  G.enemies.length = 0;
+  G.playerStats.hp = 99; G.player.hp = 99;
+  const mult0 = G.playerStats.speedMult;
+  const out = [];
+  for (const ev of T.MAP_EVENTS) {
+    T.deactivateMapEvent();
+    T.activateMapEvent(ev);
+    const activated = T.mapEventState.active && T.mapEventState.type === ev.id;
+    T.mapEventState.timer = 1;
+    for (let i = 0; i < 2; i++) T.updateMapEvent();
+    out.push({ id: ev.id, activated, closed: T.mapEventState.active === false });
+  }
+  T.deactivateMapEvent(); T.applyPlayerSpeed();
+  return { out, multRestored: Math.abs(G.playerStats.speedMult - mult0) < 1e-9 };
+});
+ok('G6 六種地圖事件都能啟動、到期都會關閉，且速度係數完全還原',
+  allEvents.out.length === 6 && allEvents.out.every((e) => e.activated && e.closed) && allEvents.multRestored,
+  JSON.stringify(allEvents));
+
+// G7：TOXIC 每秒真的扣血（事件效果不是只有橫幅）
+const toxic = await page.evaluate(async () => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  G.playerStats.hp = 5; G.playerStats.maxHp = 5;
+  T.deactivateMapEvent();
+  T.activateMapEvent(T.MAP_EVENTS.find((e) => e.id === 'TOXIC'));
+  G.frameCount = 60;                 // 讓 frameCount % 60 === 0 成立
+  const before = G.playerStats.hp;
+  T.updateMapEvent();
+  const drained = G.playerStats.hp;
+  G.frameCount = 61;                 // 同一秒內不會重複扣
+  T.updateMapEvent();
+  const same = G.playerStats.hp;
+  T.deactivateMapEvent();
+  return { before, drained, same };
+});
+ok('G7 TOXIC 事件每秒會扣玩家血量（且同一秒內只扣一次）',
+  toxic.drained < toxic.before && toxic.same === toxic.drained, JSON.stringify(toxic));
+
 console.log('\n=== B. 手機與輸入 ===');
 // B1：手機橫向可以開始遊戲
 // 真實手機情境：iPhone UA + isMobile + hasTouch + DPR3（否則 pointer:coarse 與 UA 都不成立，

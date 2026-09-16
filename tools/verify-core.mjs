@@ -62,11 +62,21 @@ import { bindLifecycle } from '../src/platform/lifecycle.js';
 import { makeTouchInput } from '../src/platform/touch-ui.js';
 import { makeTileRenderer, EAGLE_ALIVE_SPRITE, EAGLE_DEAD_SPRITE } from '../src/render/tiles.js';
 import { makeGlowCanvas, hexToRgba } from '../src/render/sprites.js';
+import { makeEffectRenderer } from '../src/render/effects.js';
+import { makeHud } from '../src/ui/hud.js';
+import { makeScreens } from '../src/ui/screens.js';
 import { readdirSync, statSync as statSyncNode } from 'node:fs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const gameSource = readFileSync(join(ROOT, 'index.html'), 'utf8');
 const maskComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:'"\\])\/\/[^\n]*/g, '$1 ');
+const maskStrings = (text) => text
+  .replace(/`(?:[^`\\]|\\.)*`/g, '``')
+  .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+  .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+  // 只遮「看起來是 regex」的字面值（以 ^ 開頭或含轉義），避免吃掉除法運算式
+  .replace(/\/\^(?:[^\/\\\n]|\\.)*\/[gimsuy]*/g, 'RE')
+  .replace(/\/[^\/\s]*\\[^\/\n]*\/[gimsuy]*/g, 'RE');
 const gameCode = maskComments(gameSource);
 
 let passed = 0, failed = 0;
@@ -217,10 +227,13 @@ console.log('\n=== I. 輸入意圖（src/platform/input.js）===');
   ok('I6 releaseAll 清空所有 intent', !ed.up && !ed.right && !ed.down && !ed.left && !ed.fire && !ed.skill);
 
   const touch = makeTouchState();
-  touch.dir = 3; touch.fire = true; touch.joyActive = true; touch.joyDx = 12;
+  touch.dir = 3; touch.fire = true;
   releaseTouch(touch);
-  ok('I7 releaseTouch 把搖桿與 FIRE 歸零',
-    touch.dir === -1 && touch.fire === false && touch.joyActive === false && touch.joyDx === 0);
+  // 搖桿是四方向離散：dir = -1 代表「回中央」。過去還有 joyActive／joyDx／joyDy
+  // 三個欄位（寫了沒人讀），已由 Y 組掃描揪出移除，這裡一併斷言它們不再復活。
+  ok('I7 releaseTouch 把方向與 FIRE 歸零（不再有多餘的搖桿欄位）',
+    touch.dir === -1 && touch.fire === false
+    && !('joyActive' in touch) && !('joyDx' in touch) && !('joyDy' in touch));
 
   ok('I8 對應表同時支援 WASD 與方向鍵（含 Space/KeyJ 射擊）',
     KEY_BINDINGS.KeyW === 'up' && KEY_BINDINGS.ArrowUp === 'up' && KEY_BINDINGS.Space === 'fire' && KEY_BINDINGS.KeyJ === 'fire');
@@ -350,10 +363,10 @@ console.log('\n=== T2. 觸控 UI（src/platform/touch-ui.js）===');
   els.fireButton.fire('touchstart');
   ok('T2-2 按下 FIRE 會設定 fire=true 與 pressed 樣式', touch.fire === true && els.fireButton.classList.contains('pressed'));
 
-  touch.dir = 1; touch.joyDx = 30; touch.joyActive = true;
+  touch.dir = 1;
   mobile.reset();
   ok('T2-3 reset() 會強制放開搖桿與射擊鍵、並把搖桿移回中央',
-    touch.dir === -1 && touch.fire === false && touch.joyActive === false && touch.joyDx === 0
+    touch.dir === -1 && touch.fire === false
     && els.joystickStick.style.left === '50%' && !els.fireButton.classList.contains('pressed'),
     JSON.stringify({ dir: touch.dir, fire: touch.fire, stick: els.joystickStick.style.left }));
 
@@ -452,6 +465,203 @@ console.log('\n=== T4. 渲染：光暈精靈（src/render/sprites.js）===');
     hexToRgba('#ffd700', 0.5));
 }
 
+console.log('\n=== T5. 渲染：粒子／子彈／分數彈出（src/render/effects.js）===');
+{
+  const makeCtx = () => {
+    const calls = { fillRect: 0, fillText: 0, save: 0, restore: 0, fillStyle: 0, stroke: 0 };
+    const ctx = { _calls: calls, save() { calls.save++; }, restore() { calls.restore++; },
+      fillText() { calls.fillText++; }, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {},
+      stroke() { calls.stroke++; }, globalAlpha: 1, fillRect() { calls.fillRect++; } };
+    Object.defineProperty(ctx, 'fillStyle', { set() { calls.fillStyle++; }, get() { return ''; } });
+    return ctx;
+  };
+  const mkPool = (items) => ({ active: items });
+  const spark = { alive: true, type: 'spark', x: 10, y: 10, size: 3, life: 5, maxLife: 10, color: '#fff' };
+  const smoke = { alive: true, type: 'smoke', x: 20, y: 20, size: 6, life: 8, maxLife: 10 };
+  const ctx = makeCtx();
+  const fx = makeEffectRenderer({ ctx, particlesPool: mkPool([spark, smoke]), bulletsPool: mkPool([]), getGame: () => ({ scorePopups: [] }), smokeColor: '#505050', dirs: { UP: 0, DOWN: 2, LEFT: 3 } });
+  fx.drawParticles();
+  ok('T5-1 粒子繪製：火花與煙霧各畫一次、且 save/restore 成對',
+    ctx._calls.fillRect === 2 && ctx._calls.save === 1 && ctx._calls.restore === 1,
+    JSON.stringify(ctx._calls));
+  ok('T5-2 煙霧結束後 globalAlpha 還原成 1（不會污染後續繪製）', ctx.globalAlpha === 1, String(ctx.globalAlpha));
+
+  const bullet = { alive: true, x: 30, y: 30, size: 4, dir: 0 };
+  const bctx = makeCtx();
+  const bfx = makeEffectRenderer({ ctx: bctx, particlesPool: mkPool([]), bulletsPool: mkPool([bullet]), getGame: () => ({ scorePopups: [] }), dirs: { UP: 0, DOWN: 2, LEFT: 3 } });
+  bfx.renderBullets();
+  ok('T5-3 子彈繪製：黑底 + 白心 + 方向缺口（3 次 fillRect）',
+    bctx._calls.fillRect === 3 && bctx._calls.save === 1, JSON.stringify(bctx._calls));
+
+  const emptyCtx = makeCtx();
+  const efx = makeEffectRenderer({ ctx: emptyCtx, particlesPool: mkPool([]), bulletsPool: mkPool([]), getGame: () => ({ scorePopups: [] }), dirs: { UP: 0, DOWN: 2, LEFT: 3 } });
+  efx.renderBullets();
+  ok('T5-4 沒有子彈時直接返回（不做 save/restore）', emptyCtx._calls.save === 0);
+
+  const pctx = makeCtx();
+  const pfx = makeEffectRenderer({ ctx: pctx, particlesPool: mkPool([]), bulletsPool: mkPool([]), getGame: () => ({ scorePopups: [{ text: '+10', x: 1, y: 2, life: 20 }] }), dirs: { UP: 0, DOWN: 2, LEFT: 3 } });
+  pfx.drawScorePopups();
+  ok('T5-5 分數彈出會依剩餘壽命設定透明度並畫出文字', pctx._calls.fillText === 1 && pctx.globalAlpha === 0.5, `alpha=${pctx.globalAlpha}`);
+}
+
+console.log('\n=== T6. UI：HUD（src/ui/hud.js）===');
+{
+  const el = () => ({ textContent: '', className: '', innerHTML: '' });
+  const els = { score: el(), lives: el(), enemies: el(), level: el(), power: el() };
+  const baseGame = {
+    score: 123, level: 3, continues: 2, isVSMode: false, maxEnemies: 20, enemiesSpawned: 5, aliveEnemies: 3,
+    playerStats: { hp: 3, weapon: 'NORMAL', pierce: false, speedMult: 1, shopFireRateBonus: 0, passives: [], activeSkill: null },
+    scorePopups: [],
+  };
+  const fxStub = { left: () => 0, has: () => false };
+  const tables = { weapons: { GATLING: { color: '#ff4400' } }, activeSkills: [{ id: 'BOOST', key: 'KeyQ' }] };
+  const config = { GAMEPLAY: { BOSS_LEVEL_INTERVAL: 5 } };
+  let game = baseGame;
+  const hud = makeHud({ els, getGame: () => game, fx: fxStub, tables, config });
+
+  hud.update();
+  ok('T6-1 分數／生命／敵人數寫進 HUD（敵人數 = 未生成 + 存活）',
+    els.score.textContent === 123 && els.lives.textContent === '♥♥♥' && els.enemies.textContent === 18,
+    `${els.score.textContent}/${els.lives.textContent}/${els.enemies.textContent}`);
+  ok('T6-2 一般關卡顯示關卡編號、VS 模式顯示 SURVIVAL',
+    els.level.textContent === '3', els.level.textContent);
+
+  game = { ...baseGame, isVSMode: true };
+  hud.update();
+  ok('T6-3 VS 模式顯示 SURVIVAL 並加上警示樣式',
+    els.level.textContent === 'SURVIVAL' && els.level.className.includes('vs-alert'), els.level.textContent);
+
+  game = { ...baseGame, level: 5 };
+  hud.update();
+  ok('T6-4 BOSS 關卡加上 (BOSS) 標記', els.level.textContent === '5(BOSS)', els.level.textContent);
+
+  game = { ...baseGame, playerStats: { ...baseGame.playerStats, weapon: 'GATLING', pierce: true, speedMult: 1.2, shopFireRateBonus: 0.2, passives: ['BARRIER'], activeSkill: 'BOOST' } };
+  const fx2 = { left: (id) => (id === 'skill' ? 15 : 120), has: (id) => id === 'boost' || id === 'wall' || id === 'freeze' };
+  makeHud({ els, getGame: () => game, fx: fx2, tables, config }).update();
+  const chips = els.power.innerHTML;
+  ok('T6-5 狀態晶片：武器／穿甲／加速／射速／被動／主動技（含按鍵與 CD）／超頻／堡壘／凍結／接關',
+    ['GATLING', 'PIERCE', 'SPEED+', 'RAPID+', 'P1', '[Q]BOOST(50)', 'OVERCLOCK', '🧱2s', '⏱️2s', '❤️2']
+      .every((token) => chips.includes(token)),
+    chips.slice(0, 120));
+  ok('T6-6 主動技的按鍵標籤取自資料（KeyQ → Q）', chips.includes('[Q]BOOST'), '取自 tables.activeSkills[].key');
+}
+
+console.log('\n=== T7. UI：畫面流程（src/ui/screens.js）===');
+{
+  const makeDoc = () => {
+    const nodes = new Map();
+    const mk = (id) => {
+      const el = {
+        id, innerHTML: '', style: {}, dataset: {}, textContent: '', children: [], firstChild: null, onclick: null,
+        classList: { _s: new Set(), add(c) { this._s.add(c); }, remove(c) { this._s.delete(c); }, contains(c) { return this._s.has(c); } },
+        focus() { el.focused = true; },
+        appendChild(child) { el.children.push(child); if (!el.firstChild) el.firstChild = child; return child; },
+        setAttribute(k, v) { el[k] = v; },
+      };
+      return el;
+    };
+    return {
+      _nodes: nodes,
+      getElementById(id) { if (!nodes.has(id)) nodes.set(id, mk(id)); return nodes.get(id); },
+      querySelectorAll() { return []; },
+      createElement() { return mk('created'); },
+      _mk: mk,
+    };
+  };
+
+  const STATES = { MENU: 'menu', PLAYING: 'playing', PAUSED: 'paused', SHOP: 'shop', GAMEOVER: 'gameover', UPGRADE: 'upgrade' };
+  const game = { state: STATES.PLAYING, score: 500, continues: 2, level: 4, isVSMode: false, playerStats: { pierce: false } };
+  const calls = { buy: [], restart: 0, continue: 0, sound: 0, music: [], jingle: 0, mobile: 0 };
+  const doc = makeDoc();
+  const screens = makeScreens({
+    doc, getGame: () => game, states: STATES,
+    tables: { shopItems: [{ id: 'health', name: '生命', icon: '❤', color: '#f00', desc: 'd', price: 100, type: 'health' }, { id: 'pierce', name: '穿甲', icon: '➤', color: '#ff0', desc: 'd', price: 200, type: 'pierce' }] },
+    hooks: {
+      getShopPrice: (p) => p, buyItem: (id) => calls.buy.push(id), restartGame: () => calls.restart++,
+      continueGame: () => calls.continue++, updateMobileControls: () => calls.mobile++,
+      playSound: () => calls.sound++, playMusic: (n) => calls.music.push(n), jingleGameOver: () => calls.jingle++,
+      jingleLevelClear: () => calls.jingleLevelClear = (calls.jingleLevelClear || 0) + 1,
+      stopMusic: () => calls.stopMusic = (calls.stopMusic || 0) + 1,
+      isMobile: () => false,
+      isMusicEnabled: () => true,
+    },
+  });
+
+  screens.togglePause();
+  ok('T7-1 暫停：狀態轉 PAUSED、overlay 顯示並有繼續／商店按鈕、有音效',
+    game.state === STATES.PAUSED && doc.getElementById('overlay').innerHTML.includes('PAUSED')
+    && doc.getElementById('overlay').innerHTML.includes('resumeBtn') && calls.sound === 1,
+    `state=${game.state}`);
+  ok('T7-2 暫停時焦點在「繼續」按鈕上（鍵盤可直接操作）', doc.getElementById('resumeBtn').focused === true);
+
+  screens.togglePause();
+  ok('T7-3 再按一次恢復 PLAYING 並隱藏 overlay',
+    game.state === STATES.PLAYING && doc.getElementById('overlay').classList.contains('hidden') && calls.sound === 2);
+
+  screens.openShop();
+  const shopHTML = doc.getElementById('overlay').innerHTML;
+  ok('T7-4 商店：狀態轉 SHOP、列出所有品項與價格',
+    game.state === STATES.SHOP && shopHTML.includes('分數: 500') && shopHTML.includes('生命') && shopHTML.includes('💰 100'),
+    `state=${game.state}`);
+  ok('T7-5 分數足夠時沒有品項被 disabled', !shopHTML.includes('pointer-events:none'), shopHTML.match(/disabled/g)?.length + ' 個 disabled');
+
+  game.score = 50; game.playerStats.pierce = true;      // 買不起 + 已擁有穿甲
+  screens.closeShop(); screens.openShop();
+  const poorHTML = doc.getElementById('overlay').innerHTML;
+  ok('T7-5b 買不起與已擁有的品項會被 disabled',
+    (poorHTML.match(/pointer-events:none/g) || []).length === 2, `${(poorHTML.match(/pointer-events:none/g) || []).length} 個 disabled`);
+  game.score = 500; game.playerStats.pierce = false;
+  screens.closeShop();
+
+  screens.closeShop();
+  ok('T7-6 關閉商店回到 PLAYING 並隱藏 overlay',
+    game.state === STATES.PLAYING && doc.getElementById('overlay').classList.contains('hidden'));
+
+  game.continues = 2;
+  screens.showGameOver();
+  ok('T7-7 遊戲結束：轉 GAMEOVER、播放結束音效與曲目、還有接關次數時問 CONTINUE',
+    game.state === STATES.GAMEOVER && calls.jingle === 1 && calls.music.includes('GAMEOVER')
+    && doc.getElementById('overlay').innerHTML.includes('CONTINUE?'), `state=${game.state}`);
+
+  game.continues = 0;
+  screens.showGameOver();
+  ok('T7-8 沒有接關次數時直接顯示 SYSTEM FAILURE',
+    doc.getElementById('overlay').innerHTML.includes('SYSTEM FAILURE'));
+
+  // 升級畫面：只負責畫卡片與回報選擇
+  let picked = null;
+  screens.renderUpgrade(
+    [{ id: 'GATLING', title: '格林機槍', desc: 'd', icon: '🔥', color: '#f40' }],
+    (opt) => { picked = opt.id; },
+  );
+  const cards = doc.getElementById('cards');
+  ok('T7-10 升級畫面：狀態轉 UPGRADE、卡片內容正確、點擊會回報選擇',
+    game.state === 'upgrade' && cards.children.length === 1
+    && cards.children[0].innerHTML.includes('格林機槍') && cards.children[0].className === 'upgrade-card',
+    `state=${game.state} cards=${cards.children.length}`);
+  cards.children[0].onclick();
+  ok('T7-11 點卡片會把選項交回遊戲層（onPick）', picked === 'GATLING', String(picked));
+
+  // 標題畫面與音樂圖示
+  screens.renderMenu();
+  const menuHTML = doc.getElementById('overlay').innerHTML;
+  ok('T7-12 標題畫面：桌機顯示鍵盤提示、行動裝置顯示觸控提示',
+    menuHTML.includes('TANK WARS v2') && menuHTML.includes('WASD') && !menuHTML.includes('左搖桿'),
+    menuHTML.slice(0, 60).replace(/\n/g, ' '));
+
+  doc.getElementById('musicToggle').textContent = '';
+  screens.updateMusicIcon();
+  const musicBtn = doc.getElementById('musicToggle');
+  ok('T7-13 音樂圖示依啟用狀態更新（開啟時 🎵、tooltip 說明）',
+    musicBtn.textContent === '🎵' && String(musicBtn.style.opacity) === '1' && musicBtn.title.includes('N'),
+    `${musicBtn.textContent}｜${musicBtn.title}`);
+
+  // REBOOT 按鈕（showFinalGameOver 內註冊）
+  doc.getElementById('restartBtn').onclick();
+  ok('T7-9 REBOOT 會播 MENU 曲目並呼叫重開流程',
+    calls.restart === 1 && calls.music.includes('MENU'), JSON.stringify(calls));
+}
+
 console.log('\n=== X. 靜態掃描：呼叫了但沒有定義的裸函式 ===');
 {
   // 這一條是為了抓「寫了一個不存在的 helper」——M2 實作帶道具敵人發光時呼叫了 glowCanvas，
@@ -474,13 +684,6 @@ console.log('\n=== X. 靜態掃描：呼叫了但沒有定義的裸函式 ===');
     ...collectSources(join(ROOT, 'src')),
   ];
   // 這個掃描要再把字串遮掉：'rgba(0,0,0,0.5)' 之類的文字內容不是函式呼叫
-  const maskStrings = (text) => text
-    .replace(/`(?:[^`\\]|\\.)*`/g, '``')
-    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
-    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
-    // 只遮「看起來是 regex」的字面值（以 ^ 開頭或含轉義），避免吃掉除法運算式
-    .replace(/\/\^(?:[^\/\\\n]|\\.)*\/[gimsuy]*/g, 'RE')
-    .replace(/\/[^\/\s]*\\[^\/\n]*\/[gimsuy]*/g, 'RE');
   const stripped = sources.map(({ path, code }) => ({ path, code: maskStrings(maskComments(code)) }));
 
   const DECLARED = new Set();
@@ -568,6 +771,83 @@ console.log('\n=== C. 架構契約 ===');
 
   ok('C4 restart 會清空所有時效（fx.clearAll 在 restartGame 內）',
     /function restartGame\(\)[\s\S]{0,1500}?fx\.clearAll\(\)/.test(gameCode));
+}
+
+console.log('\n=== Y. 靜態掃描：寫了卻沒有讀取的欄位 ===');
+{
+  // 這一類 bug 修過三次以上：barrierTimer（只寫不減 → 永久無敵）、glowTimer（只寫不讀 →
+  // 帶道具敵人不會發光）、laserLife（只寫不讀 → 每次射擊遺留 29 顆永生子彈）。
+  // 資料層的死欄位由 verify-data 的 D 組守；這裡守的是程式碼層。
+  const sources = [
+    { path: 'index.html', code: (gameSource.match(/<script type="module">([\s\S]*?)<\/script>/) || [, gameSource])[1] },
+    ...(() => {
+      const out = [];
+      const walk = (dir) => {
+        for (const entry of readdirSync(dir)) {
+          const full = join(dir, entry);
+          if (statSyncNode(full).isDirectory()) walk(full);
+          else if (/\.js$/.test(entry)) out.push({ path: full.replace(ROOT, ''), code: readFileSync(full, 'utf8') });
+        }
+      };
+      walk(join(ROOT, 'src'));
+      return out;
+    })(),
+  ].map(({ path, code }) => ({ path, code: maskStrings(maskComments(code)) }));
+
+  // 依「接收者」過濾宿主物件：canvas 繪圖狀態、DOM、WebAudio 的屬性都是「我們寫、宿主讀」，
+  // 不是遊戲資料流。欄位掃描只關心遊戲自己的狀態物件。
+  const HOST_RECEIVERS = new Set(['style', 'classList', 'dataset', 'frequency', 'gain', 'Q', 'port', 'body',
+    'document', 'doc', 'window', 'ctx', 'c', 'c2', 'cx2d', 'staticCtx', 'forestCtx', 'canvas', 'src', 'filt', 'gn',
+    'osc', 'self', 'location', 'navigator', 'performance', 'Module', 'ov', 'div', 'btn', 'container']);
+  // 宿主物件（canvas 繪圖狀態、DOM 元素）的屬性由瀏覽器讀取，不屬遊戲資料流。
+  // 只靠接收者名字擋不住（某人把 context 取名 c2 就漏了），因此再依欄位名擋一層。
+  const HOST_FIELDS = new Set(['fillStyle', 'strokeStyle', 'lineWidth', 'font', 'textAlign', 'textBaseline',
+    'globalAlpha', 'globalCompositeOperation', 'shadowBlur', 'shadowColor', 'lineCap', 'lineJoin',
+    'innerHTML', 'textContent', 'innerText', 'tabIndex', 'title', 'src', 'async', 'defer', 'href', 'disabled',
+    'className', 'id', 'type', 'value', 'placeholder', 'checked']);
+  // 刻意的對外介面（測試／工具會讀，但不在掃描範圍內）
+  const PUBLIC_API = new Map([
+    ['__T', '掛給驗證工具與 replay 的除錯介面'],
+    ['int', 'rng 產生器的公開方法（工具與測試使用）'],
+    ['range', '同上'],
+    ['state', 'rng 產生器的公開方法（replay 從中斷點續跑）'],
+    ['setState', '同上'],
+  ]);
+
+  const writes = new Map();   // field → Set(來源)
+  const reads = new Map();
+  for (const { path, code } of sources) {
+    for (const m of code.matchAll(/([\w$.]+)\.([A-Za-z_$][\w$]*)\s*=[^=]/g)) {
+      const receiver = m[1].split('.').pop();
+      const field = m[2];
+      if (HOST_RECEIVERS.has(receiver)) continue;
+      if (HOST_FIELDS.has(field)) continue;
+      if (/^on[a-z]/.test(field)) continue;                 // 事件處理器（瀏覽器讀）
+      if (!writes.has(field)) writes.set(field, new Set());
+      writes.get(field).add(path);
+    }
+    for (const m of code.matchAll(/\.([A-Za-z_$][\w$]*)(?!\s*=[^=])/g)) {
+      if (!reads.has(m[1])) reads.set(m[1], new Set());
+      reads.get(m[1]).add(path);
+    }
+  }
+
+  // 允許清單：寫入是為了外部介面／快取鍵，逐項附理由
+  const ALLOWED = new Map([
+    ['_sprDir', 'sprite 快取鍵，與 _spr 一起做比對式讀取'],
+    ['_sprPhase', '同上'],
+    ['_sprSize', '同上'],
+    ...PUBLIC_API,
+  ]);
+
+  const orphans = [...writes.keys()]
+    .filter((field) => !reads.has(field))
+    .filter((field) => !ALLOWED.has(field))
+    .map((field) => `${field}（寫入於 ${[...writes.get(field)].join('、')}）`);
+
+  ok(`程式碼中沒有「寫了卻沒有讀取」的欄位（共掃描 ${writes.size} 個被寫入的欄位）`,
+    orphans.length === 0,
+    orphans.length ? orphans.slice(0, 8).join('；') : `0 個孤兒欄位（另有 ${ALLOWED.size} 項註明理由的例外）`);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

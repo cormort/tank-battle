@@ -71,14 +71,13 @@ export function releaseAll(state) {
 
 /** 觸控狀態（搖桿 + FIRE 鍵）的統一形狀。 */
 export function makeTouchState() {
-  return { dir: -1, fire: false, joyActive: false, joyDx: 0, joyDy: 0 };
+  // 只有 dir 與 fire 會被遊戲讀取；joyActive／joyDx／joyDy 曾經存在但沒有任何讀取端
+  // （搖桿是四方向離散移動），已由 verify-core 的 Y 組掃描揪出並移除。
+  return { dir: -1, fire: false };
 }
 
 export function releaseTouch(state) {
   state.dir = -1;
   state.fire = false;
-  state.joyActive = false;
-  state.joyDx = 0;
-  state.joyDy = 0;
   return state;
 }

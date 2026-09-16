@@ -340,7 +340,7 @@
 
 <script>
 /* 由 tools/build-single-file.mjs 產生 —— 請勿直接編輯；改 src/ 或 index.html 後重新打包。
- * 內含 18 個模組：src/data/config.js、src/data/enemies.js、src/data/events.js、src/data/pickups.js、src/data/shop.js、src/data/upgrades.js、src/data/weapons.js、src/data/index.js、src/core/rng.js、src/core/effects.js、src/platform/viewport.js、src/platform/input.js、src/core/state.js、src/platform/audio.js、src/platform/lifecycle.js、src/platform/touch-ui.js、src/render/tiles.js、src/render/sprites.js
+ * 內含 21 個模組：src/data/config.js、src/data/enemies.js、src/data/events.js、src/data/pickups.js、src/data/shop.js、src/data/upgrades.js、src/data/weapons.js、src/data/index.js、src/core/rng.js、src/core/effects.js、src/platform/viewport.js、src/platform/input.js、src/core/state.js、src/platform/audio.js、src/platform/lifecycle.js、src/platform/touch-ui.js、src/render/tiles.js、src/render/sprites.js、src/render/effects.js、src/ui/hud.js、src/ui/screens.js
  */
 // ── src/data/config.js ──
 // 遊戲常數（唯一來源）。要調數值只改這裡；index.html 以 ESM import 取用。
@@ -873,15 +873,14 @@ function releaseAll(state) {
 
 /** 觸控狀態（搖桿 + FIRE 鍵）的統一形狀。 */
 function makeTouchState() {
-  return { dir: -1, fire: false, joyActive: false, joyDx: 0, joyDy: 0 };
+  // 只有 dir 與 fire 會被遊戲讀取；joyActive／joyDx／joyDy 曾經存在但沒有任何讀取端
+  // （搖桿是四方向離散移動），已由 verify-core 的 Y 組掃描揪出並移除。
+  return { dir: -1, fire: false };
 }
 
 function releaseTouch(state) {
   state.dir = -1;
   state.fire = false;
-  state.joyActive = false;
-  state.joyDx = 0;
-  state.joyDy = 0;
   return state;
 }
 // ── src/core/state.js ──
@@ -1354,9 +1353,6 @@ function makeTouchInput({
       this.fireTouchId = null;
       touch.dir = -1;
       touch.fire = false;
-      touch.joyActive = false;
-      touch.joyDx = 0;
-      touch.joyDy = 0;
       if (this.joyStick) { this.joyStick.style.left = '50%'; this.joyStick.style.top = '50%'; }
       if (this.fireBtn) this.fireBtn.classList.remove('pressed');
       if (this.joyBase) {
@@ -1418,9 +1414,6 @@ function makeTouchInput({
           e.preventDefault();
           this.joyTouchId = null;
           touch.dir = -1;
-          touch.joyActive = false;
-          touch.joyDx = 0;
-          touch.joyDy = 0;
           this.joyStick.style.left = '50%';
           this.joyStick.style.top = '50%';
           this.joyBase.style.left = '30px';
@@ -1448,13 +1441,7 @@ function makeTouchInput({
       const normDist = clampedDist / maxR;
       if (normDist < getConfig().JOYSTICK_DEADZONE) {
         touch.dir = -1;
-        touch.joyActive = false;
-        touch.joyDx = 0;
-        touch.joyDy = 0;
       } else {
-        touch.joyActive = true;
-        touch.joyDx = dx;
-        touch.joyDy = dy;
         touch.dir = Math.abs(dx) > Math.abs(dy)
           ? (dx > 0 ? DIR.RIGHT : DIR.LEFT)
           : (dy > 0 ? DIR.DOWN : DIR.UP);
@@ -1686,6 +1673,359 @@ function makeGlowCanvas({ size = 64, doc = globalThis.document } = {}) {
     return canvas;
   };
 }
+// ── src/render/effects.js ──
+// 渲染層：粒子、生成特效、分數彈出、子彈（M4）。
+//
+// 從 index.html 搬過來，依賴改成注入（ctx／pools／getGame／dirs），因此可以用假 context
+// 在 Node 驗證「畫了幾次、用了什麼顏色」—— 粒子批次化（固定色 + globalAlpha，不再每顆配
+// rgba 字串）就是靠這樣量出來的。
+
+/**
+ * @param {{ctx:object, particlesPool:object, bulletsPool:object, getGame:Function,
+ *          smokeColor?:string, dirs?:{UP:number,DOWN:number,LEFT:number}}} deps
+ */
+function makeEffectRenderer({ ctx, particlesPool, bulletsPool, getGame, smokeColor = '#505050', dirs = { UP: 0, DOWN: 2, LEFT: 3 } }) {
+  function drawParticles() {
+    const arr = particlesPool.active;
+    ctx.save();
+    for (let i = 0; i < arr.length; i++) {
+      const p = arr[i];
+      if (!p.alive || p.type !== 'spark') continue;
+      const t = p.life / p.maxLife;
+      if (p.color === '#5cd8ff') {
+        ctx.fillStyle = t > 0.5 ? '#ffffff' : '#74c0fc';
+      } else {
+        ctx.fillStyle = t > 0.7 ? '#ffeb50' : t > 0.4 ? '#ff9020' : '#c03030';
+      }
+      const sz = (p.size + 0.5) | 0;
+      ctx.fillRect(p.x | 0, p.y | 0, sz, sz);
+    }
+    for (let i = 0; i < arr.length; i++) {
+      const p = arr[i];
+      if (!p.alive || p.type !== 'smoke') continue;
+      const a = Math.max(0, p.life / p.maxLife);
+      ctx.fillStyle = smokeColor;      // 固定色 + globalAlpha（純數值）：不再為每顆煙霧配 rgba 字串
+      ctx.globalAlpha = a * 0.5;
+      ctx.fillRect(p.x | 0, p.y | 0, p.size | 0, p.size | 0);
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
+  function drawNESSpawnEffect(x, y, size, life, maxLife) {
+    ctx.save();
+    const frame = (((maxLife - life) >> 2) % 4);
+    const cx = x + size / 2;
+    const cy = y + size / 2;
+    const r = size / 2;
+    ctx.fillStyle = '#ffffff';
+    if (frame === 0) {
+      ctx.fillRect((cx - 1) | 0, y, 2, size);
+      ctx.fillRect(x, (cy - 1) | 0, size, 2);
+    } else if (frame === 1) {
+      ctx.fillRect((cx - 1) | 0, y, 2, size);
+      ctx.fillRect(x, (cy - 1) | 0, size, 2);
+      for (let i = -r + 2; i <= r - 2; i += 2) {
+        ctx.fillRect((cx + i) | 0, (cy + i) | 0, 2, 2);
+        ctx.fillRect((cx + i) | 0, (cy - i) | 0, 2, 2);
+      }
+    } else if (frame === 2) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, y);    ctx.lineTo(x + size, cy);
+      ctx.lineTo(cx, y + size);  ctx.lineTo(x, cy);
+      ctx.closePath();
+      ctx.stroke();
+    } else {
+      ctx.fillRect((cx - 3) | 0, (cy - 3) | 0, 6, 6);
+    }
+    ctx.restore();
+  }
+
+  function drawScorePopups() {
+    ctx.save();
+    ctx.font = '10px "Press Start 2P"';
+    ctx.fillStyle = '#ffe680';
+    for (let i = 0; i < getGame().scorePopups.length; i++) {
+      const p = getGame().scorePopups[i];
+      ctx.globalAlpha = p.life / 40;
+      ctx.fillText(p.text, p.x, p.y);
+    }
+    ctx.restore();
+  }
+
+  function renderBullets() {
+    const bullets = bulletsPool.active;
+    if (bullets.length === 0) return;
+
+    ctx.save();
+    for (let i = 0; i < bullets.length; i++) {
+      const b = bullets[i];
+      if (!b.alive) continue;
+      const cx = (b.x + b.size / 2) | 0;
+      const cy = (b.y + b.size / 2) | 0;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(cx - 3, cy - 3, 6, 6);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(cx - 2, cy - 2, 4, 4);
+      if (b.dir === dirs.UP)         ctx.fillRect(cx - 1, cy - 4, 2, 2);
+      else if (b.dir === dirs.DOWN)  ctx.fillRect(cx - 1, cy + 2, 2, 2);
+      else if (b.dir === dirs.LEFT)  ctx.fillRect(cx - 4, cy - 1, 2, 2);
+      else                       ctx.fillRect(cx + 2, cy - 1, 2, 2);
+    }
+    ctx.restore();
+  }
+
+  return { drawParticles, drawNESSpawnEffect, drawScorePopups, renderBullets };
+}
+// ── src/ui/hud.js ──
+// UI 層：HUD（M4）。
+//
+// 從 index.html 搬過來，依賴改成注入（元素集合／狀態取值器／時效系統／資料表），
+// 因此可以在 Node 用假 DOM 驗證「分數、生命、狀態晶片字串」的組法。
+
+/**
+ * @param {{els:object, getGame:Function, fx:object, tables:{weapons:object, activeSkills:Array}, config:object}} deps
+ */
+function makeHud({ els, getGame, fx, tables, config }) {
+  function update() {
+    els.score.textContent = getGame().score;
+    els.lives.textContent = '♥'.repeat(Math.max(0, Math.ceil(getGame().playerStats.hp)));
+    els.enemies.textContent = getGame().maxEnemies - getGame().enemiesSpawned + getGame().aliveEnemies;
+
+    if (getGame().isVSMode) {
+      els.level.textContent = 'SURVIVAL';
+      els.level.className = 'value level vs-alert';
+    } else {
+      els.level.textContent = getGame().level + (getGame().level % config.GAMEPLAY.BOSS_LEVEL_INTERVAL === 0 ? '(BOSS)' : '');
+      els.level.className = 'value level';
+    }
+
+    const chips = [];
+    const weapon = getGame().playerStats.weapon || 'NORMAL';
+    if (weapon !== 'NORMAL') {
+      const wp = tables.weapons[weapon];
+      chips.push(`<span class="power-chip" style="border-color:${wp ? wp.color : '#5cd8ff'}">${weapon}</span>`);
+    }
+    if (getGame().playerStats.pierce) chips.push(`<span class="power-chip">PIERCE</span>`);
+    if (getGame().playerStats.speedMult > 1) chips.push(`<span class="power-chip">SPEED+</span>`);
+    if (getGame().playerStats.shopFireRateBonus > 0) chips.push(`<span class="power-chip">RAPID+</span>`);
+    if (getGame().playerStats.passives.length > 0) {
+      chips.push(`<span class="power-chip" style="background:#330033;border-color:#ff00ff">P${getGame().playerStats.passives.length}</span>`);
+    }
+    if (getGame().playerStats.activeSkill) {
+      const cdPct = Math.floor((fx.left('skill') / 30) * 100);
+      const skillDef = tables.activeSkills.find((s) => s.id === getGame().playerStats.activeSkill);
+      const keyLabel = skillDef && skillDef.key ? skillDef.key.replace('Key', '') : 'Q';
+      chips.push(`<span class="power-chip" style="background:#003300;border-color:#00ff00">[${keyLabel}]${getGame().playerStats.activeSkill}${cdPct > 0 ? '(' + cdPct + ')' : ''}</span>`);
+    }
+    if (fx.has('boost')) {
+      chips.push(`<span class="power-chip" style="background:#ff0000;border-color:#ff6600">OVERCLOCK</span>`);
+    }
+    if (fx.has('wall')) {
+      const sec = Math.ceil(fx.left('wall') / 60);
+      chips.push(`<span class="power-chip" style="background:#444;border-color:#888">🧱${sec}s</span>`);
+    }
+    if (fx.has('freeze')) {
+      const sec = Math.ceil(fx.left('freeze') / 60);
+      chips.push(`<span class="power-chip" style="background:#004;border-color:#00ffff">⏱️${sec}s</span>`);
+    }
+    chips.push(`<span class="power-chip" style="background:#300;border-color:#f88">❤️${getGame().continues}</span>`);
+    els.power.innerHTML = chips.join('');
+  }
+
+  return { update };
+}
+// ── src/ui/screens.js ──
+// UI 層：畫面流程（M4）—— 暫停／商店／接關／結束。
+//
+// 這些函式是「畫面流程」：操作 DOM，也會改動遊戲狀態（`G.state`）或呼叫玩法函式
+// （買東西、重開、接關）。所以依賴全部用注入：`doc`／`getGame()`／`states`／`tables`／`hooks`，
+// 讓 UI 層不必直接認識遊戲內部，也讓「按了某個按鈕會發生什麼」在呼叫端一眼看得出來。
+
+/**
+ * @param {{
+ *   doc: object, getGame: Function, states: object,
+ *   tables: { shopItems: Array },
+ *   hooks: {
+ *     getShopPrice: Function, buyItem: Function, restartGame: Function, continueGame: Function,
+ *     updateMobileControls: Function, playSound: Function, playMusic: Function, jingleGameOver: Function,
+ *   },
+ * }} deps
+ */
+function makeScreens({ doc, getGame, states, tables, hooks }) {
+  function togglePause() {
+    const game = getGame();
+    const ov = doc.getElementById('overlay');
+    if (game.state === states.PLAYING) {
+      game.state = states.PAUSED;
+      ov.classList.add('translucent');
+      ov.classList.remove('hidden');
+      ov.innerHTML = `<h2>PAUSED</h2><p>按 <b>P</b> 繼續</p>
+        <button class="start-btn" id="resumeBtn" style="margin-top:15px;">繼續</button>
+        <button class="start-btn" id="shopBtn" style="margin-top:10px;background:linear-gradient(180deg,rgba(255,215,0,0.08),rgba(255,170,0,0.02));border-color:#ffd700;color:#ffd700;">商店 (B)</button>`;
+      doc.getElementById('resumeBtn').onclick = togglePause;
+      doc.getElementById('shopBtn').onclick = () => { togglePause(); openShop(); };
+      doc.getElementById('resumeBtn').focus();
+      hooks.playSound(440, 0.05, 0.2, 'square');
+    } else if (game.state === states.PAUSED) {
+      game.state = states.PLAYING;
+      ov.classList.remove('translucent');
+      ov.classList.add('hidden');
+      hooks.playSound(440, 0.05, 0.2, 'square');
+    }
+  }
+
+  function openShop() {
+    const game = getGame();
+    if (game.state !== states.PLAYING) return;
+    game.state = states.SHOP;
+  
+    const ov = doc.getElementById('overlay');
+    ov.classList.remove('hidden');
+    ov.classList.remove('translucent');
+  
+    let shopHTML = `<h1>🏪 商店</h1>
+      <p style="color:#ffd700;margin-bottom:15px;">分數: ${game.score}</p>
+      <div class="shop-grid">`;
+  
+    for (const item of tables.shopItems) {
+      const price = hooks.getShopPrice(item.price);
+      const canAfford = game.score >= price;
+      const disabled = !canAfford || (item.type === 'pierce' && game.playerStats.pierce);
+      const btnClass = disabled ? 'shop-item disabled' : 'shop-item';
+      shopHTML += `
+        <div class="${btnClass}" data-id="${item.id}" ${disabled ? 'style="opacity:0.4;pointer-events:none;"' : ''}>
+          <div style="font-size:24px;">${item.icon}</div>
+          <div class="card-title" style="color:${item.color}">${item.name}</div>
+          <div class="card-desc">${item.desc}</div>
+          <div style="color:#ffd700;font-size:9px;margin-top:5px;">💰 ${price}</div>
+        </div>
+      `;
+    }
+  
+    shopHTML += `</div>
+      <button class="start-btn" id="closeShopBtn" style="margin-top:15px;background:#333;border-color:#666;color:#aaa;">❌ 退出商店</button>
+      <p style="margin-top:10px;color:#888;font-size:8px;">按 <b>B</b> 或 <b>ESC</b> 關閉商店</p>`;
+  
+    ov.innerHTML = shopHTML;
+  
+    doc.querySelectorAll('.shop-item').forEach(el => {
+      el.onclick = () => hooks.buyItem(el.dataset.id);
+    });
+  
+    const closeBtn = doc.getElementById('closeShopBtn');
+    if (closeBtn) closeBtn.onclick = closeShop;
+  }
+
+  function closeShop() {
+    const game = getGame();
+    game.state = states.PLAYING;
+    doc.getElementById('overlay').classList.add('hidden');
+  }
+
+  function showGameOver() {
+    const game = getGame();
+    game.state = states.GAMEOVER;
+    hooks.jingleGameOver();
+    hooks.playMusic('GAMEOVER');
+    if (game.continues > 0) showContinuePrompt();
+    else showFinalGameOver();
+  }
+
+  function showContinuePrompt() {
+    const game = getGame();
+    const ov = doc.getElementById('overlay');
+    ov.classList.remove('hidden');
+    ov.innerHTML = `<h2>CONTINUE?</h2>
+      <p>剩 <span style="color:#ffd700;">${game.continues}</span> 次接關</p>
+      <p style="color:#888; font-size:8px; margin-top:6px;">分數 + 升級保留 · 從本關重啟</p>
+      <div style="display:flex; gap:14px; margin-top:22px; flex-wrap:wrap; justify-content:center;">
+        <button class="start-btn" id="continueBtn">CONTINUE</button>
+        <button class="start-btn" id="quitBtn" style="border-color:#ff5050; color:#ff5050; text-shadow:0 0 8px rgba(255,80,80,0.5);">QUIT</button>
+      </div>`;
+    const cb = doc.getElementById('continueBtn');
+    cb.onclick = hooks.continueGame;
+    doc.getElementById('quitBtn').onclick = showFinalGameOver;
+    setTimeout(() => cb.focus(), 0);
+    hooks.updateMobileControls();
+  }
+
+  function showFinalGameOver() {
+    const game = getGame();
+    const ov = doc.getElementById('overlay');
+    ov.classList.remove('hidden');
+    ov.innerHTML = `<h2>SYSTEM FAILURE</h2>
+      <p>SCORE: <span style="color:#ffd700;">${game.score}</span></p>
+      <p>LEVEL: <span style="color:#6cc3ff;">${game.level}</span></p>
+      <button class="start-btn" id="restartBtn">REBOOT</button>`;
+    const rb = doc.getElementById('restartBtn');
+    rb.onclick = () => { hooks.playMusic('MENU'); hooks.restartGame(); };
+    setTimeout(() => rb.focus(), 0);      // 讓 Enter/Space 可以直接重開（配合 preventDefault 收斂）
+    hooks.updateMobileControls();
+  }
+
+  /**
+   * 升級三選一：只負責畫卡片與回報選擇（選卡後的規則在遊戲層的 applyUpgrade）。
+   * @param {Array} options generateUpgradeOptions() 的結果
+   * @param {Function} onPick 被選中的選項
+   */
+  function renderUpgrade(options, onPick) {
+    const game = getGame();
+    game.state = states.UPGRADE;
+    hooks.jingleLevelClear();
+    hooks.stopMusic();
+    const ui = doc.getElementById('upgradeUI');
+    const container = doc.getElementById('cards');
+    ui.classList.remove('hidden');
+    container.innerHTML = '';
+    options.forEach((opt) => {
+      const div = doc.createElement('div');
+      div.className = 'upgrade-card';
+      div.style.borderColor = opt.color;
+      div.style.boxShadow = `0 0 15px ${opt.color}33`;
+      div.tabIndex = 0;
+      div.setAttribute('role', 'button');
+      div.innerHTML = `
+        <div style="font-size:24px;margin-bottom:8px;">${opt.icon || '⬆️'}</div>
+        <div class="card-title" style="color:${opt.color}">${opt.title}</div>
+        <div class="card-desc">${opt.desc}</div>
+      `;
+      div.onclick = () => onPick(opt);
+      div.onkeydown = (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(opt); }
+      };
+      container.appendChild(div);
+    });
+    setTimeout(() => container.firstChild && container.firstChild.focus(), 0);
+  }
+
+  /** 標題畫面（restartGame 會呼叫）：只負責 overlay 內容，遊戲狀態重置留在遊戲層。 */
+  function renderMenu() {
+    doc.getElementById('overlay').innerHTML = `
+      <h1>TANK WARS v2</h1>
+      <p>四條武器流派 · 被動技能 · 菁英詞綴 · 主動技能</p>
+      <p>選擇你的流派，每局玩法都不同!</p>
+      ${hooks.isMobile()
+        ? '<p style="margin-top:12px; color:#ffd700;">左搖桿 <b>移動</b></p><p style="color:#ffd700;">右按鈕 <b>射擊</b></p>'
+        : '<p style="margin-top:12px; color:#ffd700;">WASD / 方向鍵 <b>移動</b></p><p style="color:#ffd700;">空白鍵 <b>射擊</b> · Q <b>主動技能</b></p>'
+      }
+    `;
+  }
+
+  /** 音樂開關的圖示與 tooltip（按鈕與 N 鍵共用）。 */
+  function updateMusicIcon() {
+    const btn = doc.getElementById('musicToggle');
+    if (!btn) return;
+    const on = hooks.isMusicEnabled();
+    btn.textContent = on ? '🎵' : '🔇';
+    btn.style.opacity = on ? '1' : '0.45';
+    btn.title = on ? '切換音樂 (N)：開' : '切換音樂 (N)：關';
+  }
+
+  return { togglePause, openShop, closeShop, showGameOver, showContinuePrompt, showFinalGameOver, renderUpgrade, renderMenu, updateMusicIcon };
+}
 // 資料層（src/data/）是唯一來源：常數與內容表都在那裡，這裡只 import 取用。
 // 改成 type="module" 之後，頂層宣告不再是全域變數 —— 驗證工具需要的內部符號
 // 由檔案尾端的 ?bot 區塊統一掛到 window.__T（見「除錯鉤子」）。
@@ -1694,6 +2034,9 @@ function makeGlowCanvas({ size = 64, doc = globalThis.document } = {}) {
 
 const detectMobileDevice = detectMobile;
 const releaseAllKeys = releaseAll;
+
+
+
 
 
 
@@ -1940,7 +2283,7 @@ const WeaponManager = {
       b.pierce = false;
       b.x = cx - 3 + DX[tank.aimDir] * (hs + 2);
       b.y = cy - 3 + DY[tank.aimDir] * (hs + 2);
-      b.speed = tank.type === 'BOSS' ? CONFIG.BULLET.SPEED_BOSS : CONFIG.BULLET.SPEED_ENEMY;
+      b.speed = bulletSpeed(tank.type === 'BOSS' ? CONFIG.BULLET.SPEED_BOSS : CONFIG.BULLET.SPEED_ENEMY);
       b.vx = DX[tank.aimDir]; b.vy = DY[tank.aimDir];
       b.power = tank.weapon === 'SPREAD' ? 2 : 1;
       b.hitTanks.length = 0;
@@ -2001,7 +2344,7 @@ const WeaponManager = {
     b.isPlayer = tank.isPlayer;
     b.freezing = !tank.isPlayer && tank.elitePrefix === 'FREEZING';   // FREEZING 精英的子彈會凍緩玩家
     b.vx = vx; b.vy = vy;
-    b.speed = tank.isPlayer ? CONFIG.BULLET.SPEED_PLAYER : CONFIG.BULLET.SPEED_ENEMY;
+    b.speed = bulletSpeed(tank.isPlayer ? CONFIG.BULLET.SPEED_PLAYER : CONFIG.BULLET.SPEED_ENEMY);
     b.power = power;
     b.pierce = (effect === 'PIERCE' || effect === 'LASER_BEAM' || tank.pierce);
     b.hitTanks.length = 0;
@@ -2097,7 +2440,6 @@ const G = {
     combo: 0, shopFireRateBonus: 0, weaponDamageBonus: 0
   },
   summonEntities: [],
-  mapEvent: null,
   directorEvents: [],
   touch: makeTouchState(),
   permanentStats: { scr: 0, upgradePoints: 0 },
@@ -2216,34 +2558,8 @@ function generateUpgradeOptions() {
 }
 
 function showUpgradeScreen() {
-  G.state = STATE.UPGRADE;
-  Sound.jingleLevelClear();
-  Music.stop();
-  const ui = document.getElementById('upgradeUI');
-  const container = document.getElementById('cards');
-  ui.classList.remove('hidden');
-  container.innerHTML = '';
-
-  const options = generateUpgradeOptions();
-  options.forEach((opt, idx) => {
-    const div = document.createElement('div');
-    div.className = 'upgrade-card';
-    div.style.borderColor = opt.color;
-    div.style.boxShadow = `0 0 15px ${opt.color}33`;
-    div.tabIndex = 0;
-    div.setAttribute('role', 'button');
-    div.innerHTML = `
-      <div style="font-size:24px;margin-bottom:8px;">${opt.icon || '⬆️'}</div>
-      <div class="card-title" style="color:${opt.color}">${opt.title}</div>
-      <div class="card-desc">${opt.desc}</div>
-    `;
-    div.onclick = () => applyUpgrade(opt);
-    div.onkeydown = (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); applyUpgrade(opt); }
-    };
-    container.appendChild(div);
-  });
-  setTimeout(() => container.firstChild && container.firstChild.focus(), 0);
+  // 畫面在 src/ui/screens.js；選卡後的規則留在遊戲層（applyUpgrade）
+  screens.renderUpgrade(generateUpgradeOptions(), (opt) => applyUpgrade(opt));
 }
 
 function applyUpgrade(opt) {
@@ -2295,7 +2611,9 @@ function applyUpgrade(opt) {
 // ==================== 被動技能效果系統 ====================
 function applyPassiveEffects(target, source, effectType) {
   const ps = G.playerStats;
-  let result = { damageMult: 1, triggered: false };
+  // 回傳值從來沒有被任何呼叫端使用（兩個呼叫點都丟棄），各 case 的效果直接作用在狀態上。
+  // 保留 triggered 會變成「寫了卻沒有讀取」的死欄位（見 verify-core 的 Y 組掃描）。
+  const effect = { damageMult: 1 };
 
   for (const passiveId of ps.passives) {
     const passive = PASSIVE_SKILLS.find(p => p.id === passiveId);
@@ -2305,36 +2623,31 @@ function applyPassiveEffects(target, source, effectType) {
       case 'HEAT':
         if (effectType === 'shoot') {
           ps.heatStacks = Math.min(ps.heatStacks + 1, 20);
-          result.triggered = true;
         }
         break;
       case 'RAGE':
         if (effectType === 'damage_dealt' && source) {
-          result.damageMult *= source.hp < source.maxHp * 0.5 ? 2 : (source.hp < source.maxHp * 0.75 ? 1.5 : 1);
-          result.triggered = true;
+          effect.damageMult *= source.hp < source.maxHp * 0.5 ? 2 : (source.hp < source.maxHp * 0.75 ? 1.5 : 1);
         }
         break;
       case 'WEAKEN':
         if (effectType === 'boss_damage' && target && target.type === 'BOSS') {
-          result.damageMult *= 1.5;
-          result.triggered = true;
+          effect.damageMult *= 1.5;
         }
         break;
       case 'CHAIN':
         if (effectType === 'bullet_hit' && target) {
           spawnChainBullet(source.x, source.y, target);
-          result.triggered = true;
         }
         break;
       case 'OVERCHARGE':
         if (effectType === 'laser_kill' && target) {
           chainLightning(target.x, target.y, target);
-          result.triggered = true;
         }
         break;
     }
   }
-  return result;
+  return effect;
 }
 
 function getHeatStacksMultiplier() {
@@ -2589,7 +2902,7 @@ function spawnBullet(x, y, dir, isPlayer, pierce = false, power = 1) {
   b.power = finalPower;
   b.vx = DX[dir];
   b.vy = DY[dir];
-  b.speed = isPlayer ? CONFIG.BULLET.SPEED_PLAYER : CONFIG.BULLET.SPEED_ENEMY;
+  b.speed = bulletSpeed(isPlayer ? CONFIG.BULLET.SPEED_PLAYER : CONFIG.BULLET.SPEED_ENEMY);
   b.hitTanks.length = 0;
 }
 
@@ -2615,7 +2928,6 @@ function spawnChainBullet(x, y, target) {
     const basePower = WEAPON_TREE[G.playerStats.weapon]?.basePower || 1;
     const powerBonus = G.playerStats.weaponDamageBonus || 0;
     b.power = 0.5 * basePower + powerBonus;
-    b.chainCount = 1;
     b.hitTanks.length = 0;
   }
 }
@@ -2697,7 +3009,7 @@ const particlesPool = new Pool(
 );
 
 const bulletsPool = new Pool(
-  () => ({ x:0, y:0, dir:0, vx:0, vy:0, isPlayer:false, speed:0, size:CONFIG.BULLET.SIZE, alive:false, power:1, pierce:false, hitTanks:[], ignoreTiles:false, _isChild:false, laserLife:0, chainCount:0, freezing:false }),
+  () => ({ x:0, y:0, dir:0, vx:0, vy:0, isPlayer:false, speed:0, size:CONFIG.BULLET.SIZE, alive:false, power:1, pierce:false, hitTanks:[], ignoreTiles:false, _isChild:false, laserLife:0, freezing:false }),
   (b) => { 
     b.alive = true; 
     b.size = CONFIG.BULLET.SIZE; 
@@ -2706,7 +3018,6 @@ const bulletsPool = new Pool(
     b.ignoreTiles = false;
     b._isChild = false;
     b.laserLife = 0;
-    b.chainCount = 0;
     b.freezing = false;
   }, 
   CONFIG.POOL.BULLET_INITIAL,
@@ -3167,36 +3478,6 @@ function buildTankSprite(type, aimDir, phase, s) {
   return cv;
 }
 
-function drawNESSpawnEffect(x, y, size, life, maxLife) {
-  ctx.save();
-  const frame = (((maxLife - life) >> 2) % 4);
-  const cx = x + size / 2;
-  const cy = y + size / 2;
-  const r = size / 2;
-  ctx.fillStyle = '#ffffff';
-  if (frame === 0) {
-    ctx.fillRect((cx - 1) | 0, y, 2, size);
-    ctx.fillRect(x, (cy - 1) | 0, size, 2);
-  } else if (frame === 1) {
-    ctx.fillRect((cx - 1) | 0, y, 2, size);
-    ctx.fillRect(x, (cy - 1) | 0, size, 2);
-    for (let i = -r + 2; i <= r - 2; i += 2) {
-      ctx.fillRect((cx + i) | 0, (cy + i) | 0, 2, 2);
-      ctx.fillRect((cx + i) | 0, (cy - i) | 0, 2, 2);
-    }
-  } else if (frame === 2) {
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx, y);    ctx.lineTo(x + size, cy);
-    ctx.lineTo(cx, y + size);  ctx.lineTo(x, cy);
-    ctx.closePath();
-    ctx.stroke();
-  } else {
-    ctx.fillRect((cx - 3) | 0, (cy - 3) | 0, 6, 6);
-  }
-  ctx.restore();
-}
 
 function drawNESShield(x, y, size) {
   const phase = (G.frameCount >> 1) & 1;
@@ -3404,7 +3685,7 @@ function handleBulletHit(b, t) {
       c.isPlayer = true;
       c.vx = DX[dir] * cos - DY[dir] * sin;
       c.vy = DX[dir] * sin + DY[dir] * cos;
-      c.speed = CONFIG.BULLET.SPEED_PLAYER * 0.8;
+      c.speed = bulletSpeed(CONFIG.BULLET.SPEED_PLAYER * 0.8);
       c.power = childPower;
       c._isChild = true;
     }
@@ -3492,6 +3773,15 @@ const glowCanvas = makeGlowCanvas({ doc: document });
 const tileArt = makeTileRenderer({ TILE, renderScale: RENDER_SCALE, doc: document });
 const { drawBrickNES, drawSteelNES, drawForestNES, drawWaterDirect, drawEagleDirect, eagleSprite, eagleCache } = tileArt;
 
+// 粒子／生成特效／分數彈出／子彈的繪製：實作在 src/render/effects.js（依賴注入）
+const effectRenderer = makeEffectRenderer({
+  ctx, particlesPool, bulletsPool,
+  getGame: () => G,
+  smokeColor: SMOKE_COLOR,
+  dirs: { UP, DOWN, LEFT },
+});
+const { drawParticles, drawNESSpawnEffect, drawScorePopups, renderBullets } = effectRenderer;
+
 // ==================== 粒子系統 ====================
 function spawnExplosion(x, y, type) {
   let count;
@@ -3541,32 +3831,6 @@ function updateParticles() {
   particlesPool.sweep();
 }
 
-function drawParticles() {
-  const arr = particlesPool.active;
-  ctx.save();
-  for (let i = 0; i < arr.length; i++) {
-    const p = arr[i];
-    if (!p.alive || p.type !== 'spark') continue;
-    const t = p.life / p.maxLife;
-    if (p.color === '#5cd8ff') {
-      ctx.fillStyle = t > 0.5 ? '#ffffff' : '#74c0fc';
-    } else {
-      ctx.fillStyle = t > 0.7 ? '#ffeb50' : t > 0.4 ? '#ff9020' : '#c03030';
-    }
-    const sz = (p.size + 0.5) | 0;
-    ctx.fillRect(p.x | 0, p.y | 0, sz, sz);
-  }
-  for (let i = 0; i < arr.length; i++) {
-    const p = arr[i];
-    if (!p.alive || p.type !== 'smoke') continue;
-    const a = Math.max(0, p.life / p.maxLife);
-    ctx.fillStyle = SMOKE_COLOR;      // 固定色 + globalAlpha（純數值）：不再為每顆煙霧配 rgba 字串
-    ctx.globalAlpha = a * 0.5;
-    ctx.fillRect(p.x | 0, p.y | 0, p.size | 0, p.size | 0);
-    ctx.globalAlpha = 1;
-  }
-  ctx.restore();
-}
 
 function updateScorePopups() {
   for (let i = G.scorePopups.length - 1; i >= 0; i--) {
@@ -3576,40 +3840,8 @@ function updateScorePopups() {
   }
 }
 
-function drawScorePopups() {
-  ctx.save();
-  ctx.font = '10px "Press Start 2P"';
-  ctx.fillStyle = '#ffe680';
-  for (let i = 0; i < G.scorePopups.length; i++) {
-    const p = G.scorePopups[i];
-    ctx.globalAlpha = p.life / 40;
-    ctx.fillText(p.text, p.x, p.y);
-  }
-  ctx.restore();
-}
 
 // ==================== 子彈批處理渲染 (NES 風格) ====================
-function renderBullets() {
-  const bullets = bulletsPool.active;
-  if (bullets.length === 0) return;
-
-  ctx.save();
-  for (let i = 0; i < bullets.length; i++) {
-    const b = bullets[i];
-    if (!b.alive) continue;
-    const cx = (b.x + b.size / 2) | 0;
-    const cy = (b.y + b.size / 2) | 0;
-    ctx.fillStyle = '#000';
-    ctx.fillRect(cx - 3, cy - 3, 6, 6);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(cx - 2, cy - 2, 4, 4);
-    if (b.dir === UP)         ctx.fillRect(cx - 1, cy - 4, 2, 2);
-    else if (b.dir === DOWN)  ctx.fillRect(cx - 1, cy + 2, 2, 2);
-    else if (b.dir === LEFT)  ctx.fillRect(cx - 4, cy - 1, 2, 2);
-    else                       ctx.fillRect(cx + 2, cy - 1, 2, 2);
-  }
-  ctx.restore();
-}
 
 // ==================== Director System（局內事件） ====================
 
@@ -3680,9 +3912,18 @@ let mapEventState = {
   timer: 0,
   duration: 0,
   volcanoTimer: 0,
-  iceFriction: false,
-  volcanoTargets: []
+  volcanoTargets: [],
+  slideDir: -1,     // ICE：失去輸入後仍會沿著的最後方向
+  slideTicks: 0     // ICE：剩餘滑行 tick 數
 };
+
+const ICE_SLIDE_TICKS = 14;   // 冰面滑行：放開方向後仍滑行約 0.23 秒
+
+// EMP 地圖事件的效果必須對「事件期間生成的子彈」也生效，而不只是啟動瞬間場上那幾顆。
+// 標準子彈的生成點一律走這裡，速度公式只有一份（鏈電／雷射光束等特效段不在此列）。
+function bulletSpeed(base) {
+  return (mapEventState.active && mapEventState.type === 'EMP') ? base * 0.5 : base;
+}
 
 function rollMapEvent() {
   if (!G.isVSMode || G.level < 3) return null;
@@ -3700,9 +3941,9 @@ function activateMapEvent(ev) {
   mapEventState.duration = ev.duration;
   mapEventState.volcanoTimer = 0;
   mapEventState.volcanoTargets = [];
-  mapEventState.iceFriction = false;
 
-  if (ev.id === 'ICE') G.playerStats.speedMult *= 0.6; 
+  if (ev.id === 'DESERT') G.playerStats.speedMult *= 0.7;   // 沙漠：移速 -30%（原本完全沒有實作）
+  if (ev.id === 'ICE') { mapEventState.slideDir = -1; mapEventState.slideTicks = 0; }
   if (ev.id === 'EMP') {
     for (const b of bulletsPool.active) {
       if (b.isPlayer && b.alive) b.speed *= 0.5;
@@ -3720,10 +3961,7 @@ function updateMapEvent() {
       break;
 
     case 'ICE':
-      if (G.player && G.player.alive && G.player.moving) {
-        G.player.moving = true;
-      }
-      break;
+      break;   // 滑行在移動段處理（需要看輸入），這裡不必做事
 
     case 'VOLCANIC':
       mapEventState.volcanoTimer++;
@@ -3771,11 +4009,9 @@ function deactivateMapEvent() {
   mapEventState.active = false;
   mapEventState.type = null;
 
-  if (evType === 'ICE') {
-    G.playerStats.speedMult /= 0.6; 
-  }
-  if (evType === 'EMP') {
-  }
+  if (evType === 'DESERT') G.playerStats.speedMult /= 0.7;
+  mapEventState.slideDir = -1;
+  mapEventState.slideTicks = 0;
 }
 
 let _nightGradient = null, _nightGradientX = 0, _nightGradientY = 0;
@@ -4234,9 +4470,14 @@ function startLevel() {
   G.spawnEffects = [];
   deactivateMapEvent();
 
-  if (G.isVSMode && G.level >= 3 && rnd() < 0.25) {
-    const ev = MAP_EVENTS[(rnd() * MAP_EVENTS.length) | 0];
-    if (ev) activateMapEvent(ev);
+  // 地圖事件的唯一啟動點。舊版只把 rollMapEvent() 的結果塞進一個從來沒人讀的 G.mapEvent
+  // → activateMapEvent() 沒有任何呼叫端，整個子系統（updateMapEvent 與 6 種事件效果）是死碼。
+  // 注意順序：必須排在 deactivateMapEvent() 之後，否則剛啟動的 DESERT 減速會在同一次
+  // startLevel 內被立刻除回去（等於沒有效果）。
+  const mapEv = rollMapEvent();
+  if (mapEv) {
+    activateMapEvent(mapEv);
+    G.directorEvents.push({ name: `${mapEv.icon || ''} ${mapEv.name}`, desc: mapEv.effect, life: 240 });
   }
 
   G.map = generateMap(G.level);
@@ -4272,46 +4513,13 @@ function restartGame() {
   fx.clearAll();                 // 重新開始就該清空所有時效（契約由 verify-core 驗證）
   updateHUD();
   G.summonEntities = [];
-  G.mapEvent = null;
   G.directorEvents = [];
   G.permanentStats = { scr: 0, upgradePoints: 0 };
-  G.mapEvent = rollMapEvent();
-  document.getElementById('overlay').innerHTML = `
-    <h1>TANK WARS v2</h1>
-    <p>四條武器流派 · 被動技能 · 菁英詞綴 · 主動技能</p>
-    <p>選擇你的流派，每局玩法都不同!</p>
-    ${IS_MOBILE
-      ? '<p style="margin-top:12px; color:#ffd700;">左搖桿 <b>移動</b></p><p style="color:#ffd700;">右按鈕 <b>射擊</b></p>'
-      : '<p style="margin-top:12px; color:#ffd700;">WASD / 方向鍵 <b>移動</b></p><p style="color:#ffd700;">空白鍵 <b>射擊</b> · Q <b>主動技能</b></p>'
-    }
-  `;
+  screens.renderMenu();          // 標題畫面（實作在 src/ui/screens.js）
   startLevel();
 }
 
-function showGameOver() {
-  G.state = STATE.GAMEOVER;
-  Sound.jingleGameOver();
-  Music.play('GAMEOVER');
-  if (G.continues > 0) showContinuePrompt();
-  else showFinalGameOver();
-}
 
-function showContinuePrompt() {
-  const ov = document.getElementById('overlay');
-  ov.classList.remove('hidden');
-  ov.innerHTML = `<h2>CONTINUE?</h2>
-    <p>剩 <span style="color:#ffd700;">${G.continues}</span> 次接關</p>
-    <p style="color:#888; font-size:8px; margin-top:6px;">分數 + 升級保留 · 從本關重啟</p>
-    <div style="display:flex; gap:14px; margin-top:22px; flex-wrap:wrap; justify-content:center;">
-      <button class="start-btn" id="continueBtn">CONTINUE</button>
-      <button class="start-btn" id="quitBtn" style="border-color:#ff5050; color:#ff5050; text-shadow:0 0 8px rgba(255,80,80,0.5);">QUIT</button>
-    </div>`;
-  const cb = document.getElementById('continueBtn');
-  cb.onclick = continueGame;
-  document.getElementById('quitBtn').onclick = showFinalGameOver;
-  setTimeout(() => cb.focus(), 0);
-  updateMobileControlsForMode();
-}
 
 function continueGame() {
   G.continues--;
@@ -4320,18 +4528,6 @@ function continueGame() {
   startLevel();
 }
 
-function showFinalGameOver() {
-  const ov = document.getElementById('overlay');
-  ov.classList.remove('hidden');
-  ov.innerHTML = `<h2>SYSTEM FAILURE</h2>
-    <p>SCORE: <span style="color:#ffd700;">${G.score}</span></p>
-    <p>LEVEL: <span style="color:#6cc3ff;">${G.level}</span></p>
-    <button class="start-btn" id="restartBtn">REBOOT</button>`;
-  const rb = document.getElementById('restartBtn');
-  rb.onclick = () => { Music.play('MENU'); restartGame(); };
-  setTimeout(() => rb.focus(), 0);      // 讓 Enter/Space 可以直接重開（配合 preventDefault 收斂）
-  updateMobileControlsForMode();
-}
 
 const HUD = {
   score: document.getElementById('scoreDisplay'),
@@ -4340,52 +4536,17 @@ const HUD = {
   level: document.getElementById('levelDisplay'),
   power: document.getElementById('powerStatus'),
 };
+// HUD 更新：實作在 src/ui/hud.js（依賴注入元素集合／狀態取值器／時效系統／資料表）
+const hud = makeHud({
+  els: HUD,
+  getGame: () => G,
+  fx,
+  tables: { weapons: WEAPON_TREE, activeSkills: ACTIVE_SKILLS },
+  config: CONFIG,
+});
+function updateHUD() { hud.update(); }
 
-function updateHUD() {
-  HUD.score.textContent = G.score;
-  HUD.lives.textContent = '♥'.repeat(Math.max(0, Math.ceil(G.playerStats.hp)));
-  HUD.enemies.textContent = G.maxEnemies - G.enemiesSpawned + G.aliveEnemies;
 
-  if (G.isVSMode) {
-    HUD.level.textContent = 'SURVIVAL';
-    HUD.level.className = 'value level vs-alert';
-  } else {
-    HUD.level.textContent = G.level + (G.level % CONFIG.GAMEPLAY.BOSS_LEVEL_INTERVAL === 0 ? '(BOSS)' : '');
-    HUD.level.className = 'value level';
-  }
-
-  const chips = [];
-  const weapon = G.playerStats.weapon || 'NORMAL';
-  if (weapon !== 'NORMAL') {
-    const wp = WEAPON_TREE[weapon];
-    chips.push(`<span class="power-chip" style="border-color:${wp ? wp.color : '#5cd8ff'}">${weapon}</span>`);
-  }
-  if (G.playerStats.pierce) chips.push(`<span class="power-chip">PIERCE</span>`);
-  if (G.playerStats.speedMult > 1) chips.push(`<span class="power-chip">SPEED+</span>`);
-  if (G.playerStats.shopFireRateBonus > 0) chips.push(`<span class="power-chip">RAPID+</span>`);
-  if (G.playerStats.passives.length > 0) {
-    chips.push(`<span class="power-chip" style="background:#330033;border-color:#ff00ff">P${G.playerStats.passives.length}</span>`);
-  }
-  if (G.playerStats.activeSkill) {
-    const cdPct = Math.floor((fx.left('skill') / 30) * 100);
-    const skillDef = ACTIVE_SKILLS.find((s) => s.id === G.playerStats.activeSkill);
-    const keyLabel = skillDef && skillDef.key ? skillDef.key.replace('Key', '') : 'Q';
-    chips.push(`<span class="power-chip" style="background:#003300;border-color:#00ff00">[${keyLabel}]${G.playerStats.activeSkill}${cdPct > 0 ? '(' + cdPct + ')' : ''}</span>`);
-  }
-  if (fx.has('boost')) {
-    chips.push(`<span class="power-chip" style="background:#ff0000;border-color:#ff6600">OVERCLOCK</span>`);
-  }
-  if (fx.has('wall')) {
-    const sec = Math.ceil(fx.left('wall') / 60);
-    chips.push(`<span class="power-chip" style="background:#444;border-color:#888">🧱${sec}s</span>`);
-  }
-  if (fx.has('freeze')) {
-    const sec = Math.ceil(fx.left('freeze') / 60);
-    chips.push(`<span class="power-chip" style="background:#004;border-color:#00ffff">⏱️${sec}s</span>`);
-  }
-  chips.push(`<span class="power-chip" style="background:#300;border-color:#f88">❤️${G.continues}</span>`);
-  HUD.power.innerHTML = chips.join('');
-}
 
 // ==================== 鍵盤輸入 ====================
 document.addEventListener('keydown', e => {
@@ -4430,7 +4591,7 @@ function releaseAllInput() {
   if (typeof MobileInput !== 'undefined' && MobileInput.reset) MobileInput.reset();
 }
 function autoPauseIfPlaying() {
-  if (G.state === STATE.PLAYING) { G._autoPaused = true; togglePause(); }
+  if (G.state === STATE.PLAYING) togglePause();   // 自動暫停（不需要記狀態：玩家自己按 P 恢復）
 }
 function resumeAudioIfNeeded() {
   if (Sound.ctx && Sound.ctx.state === 'suspended') Sound.resume();
@@ -4450,13 +4611,6 @@ document.getElementById('soundToggle').addEventListener('click', e => {
   Sound.init(); Sound.resume();
   Sound.toggle();
 });
-function updateMusicIcon() {
-  const btn = document.getElementById('musicToggle');
-  if (!btn) return;
-  btn.textContent = Music.enabled ? '🎵' : '🔇';
-  btn.style.opacity = Music.enabled ? '1' : '0.45';
-  btn.title = Music.enabled ? '切換音樂 (N)：開' : '切換音樂 (N)：關';
-}
 document.getElementById('musicToggle').addEventListener('click', e => {
   e.stopPropagation();
   Sound.init(); Sound.resume();
@@ -4471,68 +4625,8 @@ document.getElementById('shopToggle').addEventListener('click', e => {
   if (G.state === STATE.PLAYING) openShop();
 });
 
-function togglePause() {
-  const ov = document.getElementById('overlay');
-  if (G.state === STATE.PLAYING) {
-    G.state = STATE.PAUSED;
-    ov.classList.add('translucent');
-    ov.classList.remove('hidden');
-    ov.innerHTML = `<h2>PAUSED</h2><p>按 <b>P</b> 繼續</p>
-      <button class="start-btn" id="resumeBtn" style="margin-top:15px;">繼續</button>
-      <button class="start-btn" id="shopBtn" style="margin-top:10px;background:linear-gradient(180deg,rgba(255,215,0,0.08),rgba(255,170,0,0.02));border-color:#ffd700;color:#ffd700;">商店 (B)</button>`;
-    document.getElementById('resumeBtn').onclick = togglePause;
-    document.getElementById('shopBtn').onclick = () => { togglePause(); openShop(); };
-    document.getElementById('resumeBtn').focus();
-    Sound.pulse(440, 0.05, 0.2, 'square');
-  } else if (G.state === STATE.PAUSED) {
-    G.state = STATE.PLAYING;
-    ov.classList.remove('translucent');
-    ov.classList.add('hidden');
-    Sound.pulse(440, 0.05, 0.2, 'square');
-  }
-}
 
 // ==================== 商店系統 ====================
-function openShop() {
-  if (G.state !== STATE.PLAYING) return;
-  G.state = STATE.SHOP;
-  
-  const ov = document.getElementById('overlay');
-  ov.classList.remove('hidden');
-  ov.classList.remove('translucent');
-  
-  let shopHTML = `<h1>🏪 商店</h1>
-    <p style="color:#ffd700;margin-bottom:15px;">分數: ${G.score}</p>
-    <div class="shop-grid">`;
-  
-  for (const item of SHOP_ITEMS) {
-    const price = getShopPrice(item.price);
-    const canAfford = G.score >= price;
-    const disabled = !canAfford || (item.type === 'pierce' && G.playerStats.pierce);
-    const btnClass = disabled ? 'shop-item disabled' : 'shop-item';
-    shopHTML += `
-      <div class="${btnClass}" data-id="${item.id}" ${disabled ? 'style="opacity:0.4;pointer-events:none;"' : ''}>
-        <div style="font-size:24px;">${item.icon}</div>
-        <div class="card-title" style="color:${item.color}">${item.name}</div>
-        <div class="card-desc">${item.desc}</div>
-        <div style="color:#ffd700;font-size:9px;margin-top:5px;">💰 ${price}</div>
-      </div>
-    `;
-  }
-  
-  shopHTML += `</div>
-    <button class="start-btn" id="closeShopBtn" style="margin-top:15px;background:#333;border-color:#666;color:#aaa;">❌ 退出商店</button>
-    <p style="margin-top:10px;color:#888;font-size:8px;">按 <b>B</b> 或 <b>ESC</b> 關閉商店</p>`;
-  
-  ov.innerHTML = shopHTML;
-  
-  document.querySelectorAll('.shop-item').forEach(el => {
-    el.onclick = () => buyItem(el.dataset.id);
-  });
-  
-  const closeBtn = document.getElementById('closeShopBtn');
-  if (closeBtn) closeBtn.onclick = closeShop;
-}
 
 function buyItem(itemId) {
   const item = SHOP_ITEMS.find(i => i.id === itemId);
@@ -4605,10 +4699,6 @@ function buyItem(itemId) {
   openShop();
 }
 
-function closeShop() {
-  G.state = STATE.PLAYING;
-  document.getElementById('overlay').classList.add('hidden');
-}
 
 // ==================== 手機觸控輸入 ====================
 
@@ -4631,6 +4721,31 @@ const MobileInput = makeTouchInput({
   doc: document, win: window,
 });
 MobileInput.init();
+
+// 畫面流程（暫停／商店／接關／結束）：實作在 src/ui/screens.js
+// 「按了按鈕會發生什麼」在這裡一眼看得出來（全部經由 hooks 注入）
+const screens = makeScreens({
+  doc: document,
+  getGame: () => G,
+  states: STATE,
+  tables: { shopItems: SHOP_ITEMS },
+  hooks: {
+    getShopPrice,
+    buyItem,
+    restartGame,
+    continueGame,
+    updateMobileControls: updateMobileControlsForMode,
+    playSound: (freq, dur, vol, type) => Sound.pulse(freq, dur, vol, type),
+    playMusic: (name) => Music.play(name),
+    jingleGameOver: () => Sound.jingleGameOver(),
+    jingleLevelClear: () => Sound.jingleLevelClear(),
+    stopMusic: () => Music.stop(),
+    isMobile: () => IS_MOBILE,
+    isMusicEnabled: () => Music.enabled,
+  },
+});
+const { togglePause, openShop, closeShop, showGameOver, showContinuePrompt, showFinalGameOver } = screens;
+const updateMusicIcon = screens.updateMusicIcon;   // 音樂圖示（按鈕與 N 鍵共用）
 
 // ==================== 主迴圈 (固定時間步長 60Hz 模擬, 任意刷新率渲染) ====================
 const TICK_HZ = 60;
@@ -4667,7 +4782,14 @@ function update() {
 
       // 移動方向由平台層的意圖決定（鍵盤優先，其次觸控搖桿）
       const moveDir = dirFromInput(input, G.touch.dir >= 0 ? G.touch.dir : -1);
-      if (moveDir >= 0) { G.player.move(moveDir); moved = true; }
+      if (moveDir >= 0) {
+        G.player.move(moveDir); moved = true;
+        mapEventState.slideDir = moveDir; mapEventState.slideTicks = ICE_SLIDE_TICKS;
+      } else if (mapEventState.active && mapEventState.type === 'ICE' &&
+                 mapEventState.slideTicks > 0 && mapEventState.slideDir >= 0) {
+        // 冰面：沒有輸入時仍沿最後方向滑行，直到滑行量用完（地圖事件 ICE = '坦克滑行慣性'）
+        G.player.move(mapEventState.slideDir); moved = true; mapEventState.slideTicks--;
+      }
 
       if (!moved) G.player.moving = false;
 
@@ -5082,6 +5204,7 @@ requestAnimationFrame(gameLoop);
     applyPlayerSpeed, input, gameState, STATES, releaseAllInput,
     rngState: () => rnd.state(), setRngState: (v) => rnd.setState(v),
     drawParticles, drawPowerUps, drawMapEvent, buildTankSprite, rollMapEvent,
+    activateMapEvent, deactivateMapEvent, updateMapEvent, spawnBullet,
     // 驗證工具會讀寫的模組層狀態（掛物件本身，屬性讀寫才有效）
     mapEventState, eagleCache, tankSpriteCache: _tankSpriteCache, smokeColor: SMOKE_COLOR,
     ctx, canvas,   // 主畫布與其 2D context（工具用來檢查繪圖狀態，例如 textAlign）

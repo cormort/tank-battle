@@ -24,6 +24,10 @@ src/core/           執行期核心
 src/render/         渲染層
   tiles.js            地形與基地圖磚（依賴注入 TILE／renderScale／doc；老鷹有離屏快取）
   sprites.js          光暈精靈 glowCanvas（顏色 → 離屏畫布，快取重用）
+  effects.js          粒子／生成特效／分數彈出／子彈（依賴注入 ctx／pools）
+src/ui/             UI 層
+  hud.js              HUD 更新（依賴注入元素集合／狀態取值器／fx／資料表）
+  screens.js          畫面流程：標題／暫停／商店／接關／結束／升級三選一（依賴注入 doc／hooks）
 src/platform/       平台層（純函式，Node 可測；不碰遊戲內部狀態）
   input.js            鍵盤／觸控 → intent；放開所有輸入只有一個實作
   viewport.js         DPR 倍率、觸控裝置判定、canvas backing store
@@ -69,12 +73,13 @@ detectMobile` 這種碰撞會讓別名指向自己造成無限遞迴 —— 實�
 五支工具，都不需要建置：
 
 ```bash
-node tools/verify-core.mjs    # 核心／平台層／渲染層單元測試（65 項，純 Node、秒級）
+node tools/verify-core.mjs    # 核心／平台層／渲染／UI 單元測試（91 項，純 Node、秒級）
 node tools/verify-data.mjs    # 資料層閘門（5 項，純 Node、秒級）
 node tools/verify-replay.mjs  # 確定性與 replay（12 項）
+#   PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-replay.mjs   # 對正式站驗
 node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay
 node tools/verify-bundle.mjs  # 打包版與模組版行為等價（7 項，Playwright）
-node tools/verify-game.mjs    # 遊戲行為與平台細節（37 項，Playwright）
+node tools/verify-game.mjs    # 遊戲行為與平台細節（44 項，Playwright）
 #   PW_MODULE=/path/to/playwright/index.js node tools/verify-game.mjs
 #   PROBE_URL=https://cormort.github.io/tank-battle/ node tools/verify-game.mjs   # 打遠端
 ```
@@ -135,6 +140,18 @@ fx.clearAll();                                      // restartGame() 內，重�
 未宣告的轉移**仍然允許**（遊戲不會因為漏寫白名單就卡死）但會登記警告 ——
 `verify-game` 的 F1 把真實流程走一遍並要求**警告數為 0**，`verify-core` 的 S8 用純函式驗同一件事。
 
+### 對正式站驗證
+
+兩支工具都支援 `PROBE_URL`，可以直接對生產環境跑：
+
+```bash
+PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-game.mjs    # 44 項行為與平台檢查
+PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-replay.mjs  # seed + 輸入 → checksum 等價
+```
+
+replay 那條是「行為等價」最強的證據：正式站跑同一份 replay 得到的 checksum 必須與
+`tools/replays/smoke.json` 相同（目前 `2087606046`）—— 也就是說，重寫前後的**遊戲行為逐位相同**。
+
 ### `verify-bundle.mjs`（打包驗證）
 
 打包最容易出的錯是「打出來的檔案能開、但行為不一樣」。所以核心檢查是：
@@ -157,6 +174,11 @@ fx.clearAll();                                      // restartGame() 內，重�
   每一隻帶道具的敵人（約 30%）都丟 `ReferenceError`（被主迴圈 try/catch 撐住，所以只是
   畫面後半段畫不出來 + 錯誤橫幅一直顯示，不容易發現）。X2 對已上線的版本跑會直接紅在
   `index.html: glowCanvas()`
+- Y **靜態掃描「寫了卻沒有讀取的欄位」** —— 抓的是「整個子系統沒接線」：
+  掃到的 `G.mapEvent` 沒有讀取端，追下去才發現整條地圖事件子系統是死碼（見下一節）；
+  同一支掃描也揪出 `barrierTimer`、`glowTimer`、`laserLife`、`chainCount`、`iceFriction`、
+  `result.triggered`、以及觸控搖桿的 `joyActive`／`joyDx`／`joyDy`。
+  宿主物件（canvas 繪圖狀態、DOM 元素屬性）以「接收者別名 + 欄位名」兩層排除，兩者都附理由。
 - T1 所有計時／壽命欄位都有遞減端或到期判定（收斂進 `fx` 之後，掃描對象從 19 個降到 13 個） —— 這一類修過兩次：
   `barrierTimer` 永不遞減（拿了 BARRIER 就整局無敵）、`laserLife` 只寫不讀（每次射擊遺留 29 顆永生子彈）。
   掃描接受 `--`、`-= 1`、`Math.max(0, x-1)`、`<= 0` 到期判定、以及 `+= 1`／`(x || 0) + 1` 計數型推進；
@@ -168,11 +190,35 @@ fx.clearAll();                                      // restartGame() 內，重�
 
 ### `verify-game.mjs`（行為與平台）
 
-31 項：A 主玩法（武器進化鏈、商店扣分時機、BARRIER 時效、BOOST 方向、子彈壽命回收、
+44 項：A 主玩法（武器進化鏈、商店扣分時機、BARRIER 時效、BOOST 方向、子彈壽命回收、
 關卡結算與 BOSS 出生閘門、菁英詞綴）、B 行動裝置與輸入（手機橫向可玩、DPR、觸控目標、
 失焦放開輸入與自動暫停、Space 對聚焦按鈕有效、例外不凍結遊戲）、
 C 效能（老鷹離屏快取、sprite 實例快取、粒子批次、NIGHT 漸層重用、音效發聲上限、F3 面板）、
-E 資料接線（SURGE deactivate、空投真的掉寶、FREEZING 凍緩、特殊敵人生成、bomb/mine 傷害）。
+E 資料接線（SURGE deactivate、空投真的掉寶、FREEZING 凍緩、特殊敵人生成、bomb/mine 傷害）、
+F 狀態機與輸入意圖、G 地圖事件（見下）。
+
+### 地圖事件：被「寫入端掃描」揪出的整條死子系統
+
+`MAP_EVENTS` 有 6 種事件、`updateMapEvent()` 有 6 個分支、`drawMapEvent()` 有 6 種畫面，
+但 `tools/verify-core.mjs` 的 Y 組（寫了卻沒有讀取的欄位）掃到 `G.mapEvent` 只有寫入端 ——
+順著追下去發現：`rollMapEvent()` 的結果只被塞進這個沒人讀的欄位，`activateMapEvent()`
+**沒有任何呼叫端**，整條子系統都是死碼（玩家永遠不會遇到任何地圖事件）。
+
+修好之後每一項都有斷言（`verify-game` 的 G 組，全部用 `stepTicks()` 同步推進，不靠 rAF 時序）：
+
+| 事件 | 實作 | 檢查 |
+| :--- | :--- | :--- |
+| DESERT | `speedMult *= 0.7`（到期還原） | G2：係數 0.7、玩家速度跟著變、到期完全還原 |
+| ICE | 放開方向後沿最後方向滑行 14 tick | G3：8 個 tick 都在滑、滑完會停、對照組不會滑 |
+| VOLCANIC | 每 90 tick 產生落點並傷害 | G5：落點真的產生 |
+| EMP | 場上既有的與事件期間新生成的子彈都減半 | G4：舊子彈 4→2、新子彈用 `bulletSpeed()` 減半、結束後恢復 |
+| NIGHT | 全螢幕漸層壓暗（漸層快取） | C4 |
+| TOXIC | 每秒扣 0.15 HP | G7：扣血且同一秒只扣一次 |
+
+兩個順手修掉的順序／重複問題（都是這次改動自己踩出來的）：`activateMapEvent()` 原本排在
+`deactivateMapEvent()` **之前**，效果會在同一个 `startLevel()` 內被立刻還原；以及同一處有兩份
+擲骰（`rollMapEvent()` 與一段複製的 `rnd() < 0.25`）。現在啟動點只有一個，位置在 `deactivate`
+之後。
 
 ### 遊戲內建除錯鉤子
 
