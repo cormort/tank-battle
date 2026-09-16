@@ -340,7 +340,7 @@
 
 <script>
 /* 由 tools/build-single-file.mjs 產生 —— 請勿直接編輯；改 src/ 或 index.html 後重新打包。
- * 內含 17 個模組：src/data/config.js、src/data/enemies.js、src/data/events.js、src/data/pickups.js、src/data/shop.js、src/data/upgrades.js、src/data/weapons.js、src/data/index.js、src/core/rng.js、src/core/effects.js、src/platform/viewport.js、src/platform/input.js、src/core/state.js、src/platform/audio.js、src/platform/lifecycle.js、src/platform/touch-ui.js、src/render/tiles.js
+ * 內含 18 個模組：src/data/config.js、src/data/enemies.js、src/data/events.js、src/data/pickups.js、src/data/shop.js、src/data/upgrades.js、src/data/weapons.js、src/data/index.js、src/core/rng.js、src/core/effects.js、src/platform/viewport.js、src/platform/input.js、src/core/state.js、src/platform/audio.js、src/platform/lifecycle.js、src/platform/touch-ui.js、src/render/tiles.js、src/render/sprites.js
  */
 // ── src/data/config.js ──
 // 遊戲常數（唯一來源）。要調數值只改這裡；index.html 以 ESM import 取用。
@@ -1642,6 +1642,50 @@ function makeTileRenderer({ TILE, renderScale = 1, doc = globalThis.document } =
   // eagleCache 也曝露出來：驗證工具用它確認「快取真的建起來了」（不是每幀重畫）
   return { drawBrickNES, drawSteelNES, drawForestNES, drawWaterDirect, buildEagleSprite, eagleSprite, drawEagleDirect, eagleCache: _eagleCache };
 }
+// ── src/render/sprites.js ──
+// 渲染層：精靈與光暈（M4）。
+//
+// `glowCanvas(color)` 是「把一個顏色做成離屏的徑向光暈，之後到處 drawImage 重複使用」的 helper。
+// 它原本**不存在**——M2 實作「帶道具的敵人發光」時直接呼叫了這個名字，於是每一幀、每一隻帶道具的
+// 敵人（約 30%）都丟 `glowCanvas is not defined`，錯誤被主迴圈的 try/catch 接住、遊戲繼續跑，
+// 但該幀 render 的後半段（子彈、粒子、分數彈出）全部被跳過，而且畫面會一直顯示錯誤提示。
+//
+// 教訓寫在 tools/verify-core.mjs：新增了一條「呼叫了但沒有定義的裸函式」靜態掃描，
+// 這種錯誤現在會在 CI 就被擋下來，而不是等到玩家看到錯誤橫幅。
+
+/** '#rrggbb' → 'rgba(r,g,b,a)'（光暈需要透明度漸層）。 */
+function hexToRgba(hex, alpha) {
+  const value = String(hex || '').replace('#', '');
+  const full = value.length === 3 ? value.split('').map((ch) => ch + ch).join('') : value;
+  const num = parseInt(full.slice(0, 6) || 'ffffff', 16);
+  const r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+/**
+ * 建立一個「顏色 → 光暈畫布」的快取產生器。
+ * @param {{size?:number, doc?:object}} deps
+ */
+function makeGlowCanvas({ size = 64, doc = globalThis.document } = {}) {
+  const cache = new Map();
+
+  return function glowCanvas(color) {
+    if (cache.has(color)) return cache.get(color);
+    const canvas = doc.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const c = canvas.getContext('2d');
+    const half = size / 2;
+    const gradient = c.createRadialGradient(half, half, 0, half, half, half);
+    gradient.addColorStop(0, hexToRgba(color, 0.95));
+    gradient.addColorStop(0.45, hexToRgba(color, 0.35));
+    gradient.addColorStop(1, hexToRgba(color, 0));
+    c.fillStyle = gradient;
+    c.fillRect(0, 0, size, size);
+    cache.set(color, canvas);
+    return canvas;
+  };
+}
 // 資料層（src/data/）是唯一來源：常數與內容表都在那裡，這裡只 import 取用。
 // 改成 type="module" 之後，頂層宣告不再是全域變數 —— 驗證工具需要的內部符號
 // 由檔案尾端的 ?bot 區塊統一掛到 window.__T（見「除錯鉤子」）。
@@ -1650,6 +1694,7 @@ function makeTileRenderer({ TILE, renderScale = 1, doc = globalThis.document } =
 
 const detectMobileDevice = detectMobile;
 const releaseAllKeys = releaseAll;
+
 
 
 
@@ -3439,6 +3484,9 @@ function handleBulletHit(b, t) {
 }
 
 const SMOKE_COLOR = '#505050';   // 煙霧固定色：舊版每顆每幀用樣板字串組 rgba() 再指派 fillStyle
+
+// 光暈精靈（顏色 → 離屏畫布，快取重複使用）：src/render/sprites.js
+const glowCanvas = makeGlowCanvas({ doc: document });
 
 // 地形與基地圖磚：實作在 src/render/tiles.js（依賴注入 TILE／renderScale／doc）
 const tileArt = makeTileRenderer({ TILE, renderScale: RENDER_SCALE, doc: document });

@@ -61,6 +61,8 @@ import { makeSound, makeMusic } from '../src/platform/audio.js';
 import { bindLifecycle } from '../src/platform/lifecycle.js';
 import { makeTouchInput } from '../src/platform/touch-ui.js';
 import { makeTileRenderer, EAGLE_ALIVE_SPRITE, EAGLE_DEAD_SPRITE } from '../src/render/tiles.js';
+import { makeGlowCanvas, hexToRgba } from '../src/render/sprites.js';
+import { readdirSync, statSync as statSyncNode } from 'node:fs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const gameSource = readFileSync(join(ROOT, 'index.html'), 'utf8');
@@ -424,6 +426,118 @@ console.log('\n=== T3. 渲染：地形與基地圖磚（src/render/tiles.js）==
     EAGLE_ALIVE_SPRITE.length === 13 && EAGLE_DEAD_SPRITE.length === 13
     && EAGLE_ALIVE_SPRITE.flat().filter((v) => v !== 0).length > 100,
     `alive 非零 ${EAGLE_ALIVE_SPRITE.flat().filter((v) => v !== 0).length} 個`);
+}
+
+console.log('\n=== T4. 渲染：光暈精靈（src/render/sprites.js）===');
+{
+  const makeDoc = () => {
+    let created = 0;
+    return {
+      get created() { return created; },
+      createElement: () => {
+        created++;
+        return { width: 0, height: 0, getContext: () => ({ createRadialGradient: () => ({ addColorStop() {} }), fillRect() {}, set fillStyle(v) {} }) };
+      },
+    };
+  };
+  const doc = makeDoc();
+  const glow = makeGlowCanvas({ size: 32, doc });
+  const a = glow('#ffd700');
+  const b = glow('#ffd700');
+  const c = glow('#00ff00');
+  ok('T4-1 同色重用同一張畫布、不同色各建一張（快取）',
+    a === b && a !== c && doc.created === 2, `建立 ${doc.created} 張`);
+  ok('T4-2 hexToRgba 支援 6 碼與 3 碼',
+    hexToRgba('#ffd700', 0.5) === 'rgba(255,215,0,0.5)' && hexToRgba('#f00', 1) === 'rgba(255,0,0,1)',
+    hexToRgba('#ffd700', 0.5));
+}
+
+console.log('\n=== X. 靜態掃描：呼叫了但沒有定義的裸函式 ===');
+{
+  // 這一條是為了抓「寫了一個不存在的 helper」——M2 實作帶道具敵人發光時呼叫了 glowCanvas，
+  // 但那個函式從來不存在：每一幀、每一隻帶道具的敵人（約 30%）都丟 ReferenceError，
+  // 被主迴圈 try/catch 接住所以遊戲繼續跑，只是該幀 render 的後半段全被跳過。
+  const collectSources = (dir, out = []) => {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSyncNode(full).isDirectory()) collectSources(full, out);
+      else if (/\.js$/.test(entry)) out.push({ path: full, code: readFileSync(full, 'utf8') });
+    }
+    return out;
+  };
+  const htmlScript = (() => {
+    const m = gameSource.match(/<script type="module">([\s\S]*?)<\/script>/);
+    return m ? m[1] : gameSource;      // 只掃 JS：CSS 的 min()／env()／rgba() 不是函式呼叫
+  })();
+  const sources = [
+    { path: 'index.html', code: htmlScript },
+    ...collectSources(join(ROOT, 'src')),
+  ];
+  // 這個掃描要再把字串遮掉：'rgba(0,0,0,0.5)' 之類的文字內容不是函式呼叫
+  const maskStrings = (text) => text
+    .replace(/`(?:[^`\\]|\\.)*`/g, '``')
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+    // 只遮「看起來是 regex」的字面值（以 ^ 開頭或含轉義），避免吃掉除法運算式
+    .replace(/\/\^(?:[^\/\\\n]|\\.)*\/[gimsuy]*/g, 'RE')
+    .replace(/\/[^\/\s]*\\[^\/\n]*\/[gimsuy]*/g, 'RE');
+  const stripped = sources.map(({ path, code }) => ({ path, code: maskStrings(maskComments(code)) }));
+
+  const DECLARED = new Set();
+  for (const { code } of stripped) {
+    for (const m of code.matchAll(/\b(?:function|class)\s+([A-Za-z_$][\w$]*)/g)) DECLARED.add(m[1]);
+    for (const m of code.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g)) DECLARED.add(m[1]);
+    for (const m of code.matchAll(/\bimport\s*{([\s\S]*?)}\s*from/g)) {
+      for (const part of m[1].split(',')) {
+        const name = part.trim().split(/\s+as\s+/).pop().trim();
+        if (name) DECLARED.add(name);
+      }
+    }
+    // 解構（const { a, b } = …）也算宣告
+    for (const m of code.matchAll(/\b(?:const|let|var)\s*{([^}]*)}/g)) {
+      for (const part of m[1].split(',')) {
+        const name = part.trim().split(':').pop().split('=')[0].trim();
+        if (/^[A-Za-z_$][\w$]*$/.test(name)) DECLARED.add(name);
+      }
+    }
+    // 物件方法與 getter 的「定義」不是呼叫（例如 `beginFrame() {`、`get H() { return H; }`）
+    for (const m of code.matchAll(/(?:^|[,{])\s*(?:get\s+|set\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{/gm)) DECLARED.add(m[1]);
+    // 函式參數（含解構）也算宣告：factory()、onChange()、onUnexpected() 都是參數
+    for (const m of code.matchAll(/\(((?:[^()]|\([^()]*\))*)\)\s*(?:=>|\{)/g)) {
+      for (const name of m[1].matchAll(/[A-Za-z_$][\w$]*/g)) DECLARED.add(name[0]);
+    }
+  }
+
+  const GLOBALS = new Set(['Math', 'JSON', 'Object', 'Array', 'Number', 'String', 'Boolean', 'Map', 'Set', 'WeakMap',
+    'Promise', 'Symbol', 'Date', 'RegExp', 'Error', 'TypeError', 'RangeError', 'parseInt', 'parseFloat', 'isNaN',
+    'isFinite', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'requestAnimationFrame',
+    'cancelAnimationFrame', 'performance', 'console', 'document', 'window', 'navigator', 'location', 'crypto',
+    'queueMicrotask', 'fetch', 'URL', 'Blob', 'Worker', 'AudioContext', 'KeyboardEvent', 'Event', 'Image',
+    'getComputedStyle', 'Float32Array', 'Float64Array', 'Uint8Array', 'Uint16Array', 'Uint32Array', 'Int16Array',
+    'Int32Array', 'Uint8ClampedArray', 'ArrayBuffer', 'AudioWorkletNode', 'URLSearchParams', 'TextEncoder',
+    'TextDecoder', 'AbortController', 'CustomEvent', 'PointerEvent', 'TouchEvent', 'AudioBuffer',
+    'if', 'for', 'while', 'switch', 'catch', 'return', 'typeof', 'new', 'function', 'await', 'async', 'do', 'else',
+    'delete', 'void', 'in', 'of', 'case', 'default', 'throw', 'try', 'finally', 'class', 'extends', 'super', 'this']);
+
+  const findUndefinedCalls = (text) => {
+    const found = new Set();
+    for (const m of text.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)\s*\(/g)) {
+      const name = m[1];
+      if (!DECLARED.has(name) && !GLOBALS.has(name)) found.add(name);
+    }
+    return [...found];
+  };
+
+  // 先驗掃描本身有效：用「當初那個 bug 的形態」——呼叫一個不存在於任何地方的 helper
+  // （glowCanvas 在修好之後已經被宣告了，所以這裡用等價的假名；X2 才是對真實原始碼的檢查）
+  const selfTest = findUndefinedCalls("ctx.drawImage(aHelperThatDoesNotExist('#ffd700'), 0, 0, 1, 1);\nctx.fillRect(1,2,3,4);\nMath.max(1,2);");
+  ok('X1 掃描本身有效（用當初的 glowCanvas 片段）：抓得到未定義的 helper、不誤判方法與內建',
+    selfTest.includes('aHelperThatDoesNotExist') && !selfTest.includes('fillRect') && !selfTest.includes('Math'),
+    selfTest.join('、'));
+
+  const offenders = stripped.flatMap(({ path, code }) => findUndefinedCalls(code).map((name) => `${path}: ${name}()`));
+  ok('X2 遊戲與模組程式碼沒有「呼叫了但沒有定義」的函式', offenders.length === 0,
+    offenders.length ? offenders.slice(0, 6).join('；') : `${DECLARED.size} 個已宣告名稱、0 個孤兒呼叫`);
 }
 
 console.log('\n=== C. 架構契約 ===');

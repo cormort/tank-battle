@@ -23,6 +23,7 @@ src/core/           執行期核心
   state.js            狀態機：7 個狀態 + 轉移白名單（未宣告的轉移會留下警告）
 src/render/         渲染層
   tiles.js            地形與基地圖磚（依賴注入 TILE／renderScale／doc；老鷹有離屏快取）
+  sprites.js          光暈精靈 glowCanvas（顏色 → 離屏畫布，快取重用）
 src/platform/       平台層（純函式，Node 可測；不碰遊戲內部狀態）
   input.js            鍵盤／觸控 → intent；放開所有輸入只有一個實作
   viewport.js         DPR 倍率、觸控裝置判定、canvas backing store
@@ -68,12 +69,12 @@ detectMobile` 這種碰撞會讓別名指向自己造成無限遞迴 —— 實�
 五支工具，都不需要建置：
 
 ```bash
-node tools/verify-core.mjs    # 核心／平台層／渲染層單元測試（61 項，純 Node、秒級）
+node tools/verify-core.mjs    # 核心／平台層／渲染層單元測試（65 項，純 Node、秒級）
 node tools/verify-data.mjs    # 資料層閘門（5 項，純 Node、秒級）
 node tools/verify-replay.mjs  # 確定性與 replay（12 項）
 node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay
 node tools/verify-bundle.mjs  # 打包版與模組版行為等價（7 項，Playwright）
-node tools/verify-game.mjs    # 遊戲行為與平台細節（36 項，Playwright）
+node tools/verify-game.mjs    # 遊戲行為與平台細節（37 項，Playwright）
 #   PW_MODULE=/path/to/playwright/index.js node tools/verify-game.mjs
 #   PROBE_URL=https://cormort.github.io/tank-battle/ node tools/verify-game.mjs   # 打遠端
 ```
@@ -151,6 +152,11 @@ fx.clearAll();                                      // restartGame() 內，重�
 - R2 重播結果與 `tools/replays/smoke.json` 記錄一致 → **玩法改動會讓這條紅**（相當於「玩一局」進 CI）
 - R3/R4 換 seed、換輸入都要得到不同結果（否則 replay 是假的）
 - S1–S4 原始碼層級：沒有 `Math.random()`、沒有與全域 `rnd` 同名的區域變數（會 TDZ）
+- X1／X2 **靜態掃描「呼叫了但沒有定義的裸函式」** —— 這是為了抓一個實際上線過的 bug：
+  M2 實作「帶道具敵人發光」時呼叫了 `glowCanvas`，但那個 helper 從來不存在 → 每一幀、
+  每一隻帶道具的敵人（約 30%）都丟 `ReferenceError`（被主迴圈 try/catch 撐住，所以只是
+  畫面後半段畫不出來 + 錯誤橫幅一直顯示，不容易發現）。X2 對已上線的版本跑會直接紅在
+  `index.html: glowCanvas()`
 - T1 所有計時／壽命欄位都有遞減端或到期判定（收斂進 `fx` 之後，掃描對象從 19 個降到 13 個） —— 這一類修過兩次：
   `barrierTimer` 永不遞減（拿了 BARRIER 就整局無敵）、`laserLife` 只寫不讀（每次射擊遺留 29 顆永生子彈）。
   掃描接受 `--`、`-= 1`、`Math.max(0, x-1)`、`<= 0` 到期判定、以及 `+= 1`／`(x || 0) + 1` 計數型推進；

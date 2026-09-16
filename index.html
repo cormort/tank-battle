@@ -356,6 +356,7 @@ import { makeSound, makeMusic } from './src/platform/audio.js';
 import { bindLifecycle } from './src/platform/lifecycle.js';
 import { makeTouchInput } from './src/platform/touch-ui.js';
 import { makeTileRenderer } from './src/render/tiles.js';
+import { makeGlowCanvas } from './src/render/sprites.js';
 
 // 可重現亂數：整局的隨機都走這一個產生器，?seed=N 可指定（replay 測試靠這個）。
 // 原本 59 處直接呼叫 rnd()，任何一處都會讓兩次執行分岔、無法回放。
@@ -2140,6 +2141,9 @@ function handleBulletHit(b, t) {
 }
 
 const SMOKE_COLOR = '#505050';   // 煙霧固定色：舊版每顆每幀用樣板字串組 rgba() 再指派 fillStyle
+
+// 光暈精靈（顏色 → 離屏畫布，快取重複使用）：src/render/sprites.js
+const glowCanvas = makeGlowCanvas({ doc: document });
 
 // 地形與基地圖磚：實作在 src/render/tiles.js（依賴注入 TILE／renderScale／doc）
 const tileArt = makeTileRenderer({ TILE, renderScale: RENDER_SCALE, doc: document });
