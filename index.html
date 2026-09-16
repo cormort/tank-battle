@@ -36,13 +36,14 @@
   }
   
   canvas { 
-    display: block; width: 520px; border: 3px solid #3a3a45;
+    /* 桌機窄視窗（<530px）時原本固定 520px 會超出並被 overflow:hidden 裁掉且無法捲動 */
+    display: block; width: min(520px, 100vw); border: 3px solid #3a3a45;
     border-top: none; background-color: #000; image-rendering: pixelated; box-sizing: border-box;
     border-radius: 0 0 6px 6px;
   }
   
   #hud {
-    display: flex; justify-content: space-between; align-items: center; width: 520px; gap: 8px;
+    display: flex; justify-content: space-between; align-items: center; width: min(520px, 100vw); gap: 8px;
     background: linear-gradient(180deg, #1e1e28 0%, #14141c 60%, #0e0e15 100%); color: #fff; font-size: 11px;
     border: 3px solid #3a3a45; border-bottom: none; border-radius: 6px 6px 0 0;
   }
@@ -80,7 +81,12 @@
     position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column;
     justify-content: center; align-items: center; background: rgba(0,0,0,0.85); color: #fff; z-index: 10; backdrop-filter: blur(4px);
     padding: 20px;
+    /* 小螢幕（尤其手機橫向）內容會超出容器；不能捲動的話「退出商店」按不到 → 玩家卡在商店 */
+    overflow-y: auto;
+    touch-action: pan-y;
+    overscroll-behavior: contain;
   }
+  body.mobile .shop-grid { grid-template-columns: repeat(2, 1fr); }
   #overlay.hidden, #upgradeUI.hidden { display: none !important; }
   #overlay.translucent { background: rgba(0,0,0,0.7); }
   #overlay h1, #upgradeUI h1 { font-size: 32px; color: #ffd700; text-shadow: 3px 3px 0 #8b0000; margin-bottom: 8px; animation: titlePulse 2.4s infinite; text-align: center; }
@@ -116,7 +122,8 @@
   #perfMonitor {
     position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.8); color: #6cff6c;
     padding: 8px 12px; font-size: 9px; border: 1px solid #2a2a35; border-radius: 4px;
-    z-index: 200; min-width: 130px; line-height: 1.6; display: none;
+    /* pointer-events:none：z-index 200 的浮層在窄視窗會蓋住 HUD 按鈕，讓它們點不到 */
+    z-index: 200; min-width: 130px; line-height: 1.6; display: none; pointer-events: none;
   }
   #perfMonitor.show { display: block; }
   #perfMonitor .row { display: flex; justify-content: space-between; }
@@ -227,12 +234,24 @@
     padding: 0 10px;
   }
   body.mobile canvas {
-    width: 100% !important;
+    /* 用 min(100vw, 可用高度) 而不是固定 100%：畫布是正方形，橫向手機（844×390）下
+       100% 會變成 844 高，把 START GAME 推到畫面外（elementFromPoint 為 null），
+       而 body 是 overflow:hidden + touch-action:none → 手機橫向連遊戲都開不起來。 */
+    width: min(100vw, calc(100dvh - 96px)) !important;
     height: auto !important;
     max-width: 100vw;
+    margin: 0 auto;
     border-left: none;
     border-right: none;
   }
+  body.mobile #hud {
+    width: min(100vw, calc(100dvh - 96px));
+    margin: 0 auto;
+  }
+  /* 觸控目標：原本 36×20 / 27×20 px，遠低於 44×44 的可點範圍，手機常誤觸中斷遊戲 */
+  body.mobile #hud button { min-width: 44px; min-height: 44px; font-size: 16px; padding: 0 6px; }
+  body.mobile #hud { gap: 6px; padding: 4px 8px; }
+  body.mobile #pauseToggle { margin-left: 6px; }
   body.mobile #controls { display: none; }
   /* 行動版升級卡縮小 */
   body.mobile #overlay h1,
@@ -297,6 +316,7 @@
     <div class="card-container" id="cards"></div>
   </div>
 </div>
+<div id="errorBanner" role="alert" style="display:none; position:fixed; left:50%; transform:translateX(-50%); bottom:12px; z-index:300; background:rgba(80,0,0,0.92); color:#ffd0d0; border:1px solid #ff5050; border-radius:4px; padding:8px 14px; font-size:10px; max-width:90vw; text-align:center;"></div>
 <div id="controls">WASD / ARROWS MOVE &nbsp; · &nbsp; SPACE FIRE &nbsp; · &nbsp; F3 PERF &nbsp; · &nbsp; N MUSIC</div>
 
 <div id="mobileControls">
@@ -315,6 +335,7 @@
   <div class="row"><span class="lbl">BULLETS</span><span id="perfBullets">0</span></div>
   <div class="row"><span class="lbl">PARTICLES</span><span id="perfParticles">0</span></div>
   <div class="row"><span class="lbl">COL.CHK</span><span id="perfCollisions">0</span></div>
+  <div class="row"><span class="lbl">POOL PK</span><span id="perfPeak">0</span></div>
 </div>
 
 <script>
@@ -379,30 +400,56 @@ const UP = 0, RIGHT = 1, DOWN = 2, LEFT = 3;
 const DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0];
 
 // ==================== 手機偵測 ====================
-const IS_MOBILE = (() => {
+// 觸控裝置判定：iPadOS 13+ 的 UA 是 "Macintosh" 且螢幕寬度 834/1024/1180 都 > 820，
+// 舊版的 `hasTouch && (isNarrow || isMobileUA)` 會讓 iPad 判成桌機 → 沒有搖桿與 FIRE 鍵、
+// 畫布固定 520px，iPad 完全無法遊玩。改用 pointer: coarse 當主要訊號。
+function detectMobile() {
   const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const coarse = window.matchMedia('(pointer: coarse)').matches;
   const isNarrow = window.matchMedia('(max-width: 820px)').matches;
   const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  return hasTouch && (isNarrow || isMobileUA);
-})();
-
-if (IS_MOBILE) {
-  document.body.classList.add('mobile');
-  document.querySelectorAll('.kbd-hint').forEach(el => el.hidden = true);
-  document.querySelectorAll('.touch-hint').forEach(el => el.hidden = false);
+  return hasTouch && (coarse || isNarrow || isMobileUA);
 }
+let IS_MOBILE = detectMobile();
+
+function applyMobileHints() {
+  document.body.classList.toggle('mobile', IS_MOBILE);
+  document.querySelectorAll('.kbd-hint').forEach(el => { el.hidden = IS_MOBILE; });
+  document.querySelectorAll('.touch-hint').forEach(el => { el.hidden = !IS_MOBILE; });
+}
+applyMobileHints();
+
+// 旋轉螢幕／改視窗大小時重新判定（桌機外接觸控螢幕、平板翻轉都受益）
+window.addEventListener('resize', () => {
+  const next = detectMobile();
+  if (next !== IS_MOBILE) { IS_MOBILE = next; applyMobileHints(); }
+});
 
 // ==================== Canvas 初始化 ====================
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d', { alpha: false });
 
+// 高解析度螢幕：backing store 固定 520×520 時，DPR 3 的手機每個繪圖像素會被放大成
+// 2.25 個裝置像素（等於只用掉 44% 的解析度，畫面明顯糊）。這裡把 backing store 放大到
+// min(dpr, 2) 倍並用 setTransform 對齊，繪圖座標仍然是 520×520 的邏輯座標。
+// 上限 2 是折衷：4K/DPR3 全螢幕填色的成本會翻 4~9 倍，而這個遊戲每幀都在做全螢幕填色。
+const RENDER_SCALE = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+canvas.width = W * RENDER_SCALE;
+canvas.height = H * RENDER_SCALE;
+ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
+ctx.imageSmoothingEnabled = false;      // 像素風格：放大用最近鄰
+
 const staticCanvas = document.createElement('canvas');
-staticCanvas.width = W; staticCanvas.height = H;
+staticCanvas.width = W * RENDER_SCALE; staticCanvas.height = H * RENDER_SCALE;
 const staticCtx = staticCanvas.getContext('2d');
+staticCtx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
+staticCtx.imageSmoothingEnabled = false;
 
 const forestCanvas = document.createElement('canvas');
-forestCanvas.width = W; forestCanvas.height = H;
+forestCanvas.width = W * RENDER_SCALE; forestCanvas.height = H * RENDER_SCALE;
 const forestCtx = forestCanvas.getContext('2d');
+forestCtx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
+forestCtx.imageSmoothingEnabled = false;
 
 // ==================== 音效系統 (Web Audio API NES 合成) ====================
 const Sound = {
@@ -442,10 +489,29 @@ const Sound = {
     if (btn) btn.textContent = this.enabled ? '🔊' : '🔇';
   },
 
+  // 同時發聲上限：轟炸/空襲會在極短時間內排 20~30 個爆炸音，全部疊上去會讓音訊執行緒
+  // 尖峰並削波（聽起來像破音）。超過 8 個同時發聲就丟掉新的（玩家感受不到差異）。
+  _activeVoices: 0,
+  _voiceSlot() {
+    if (this._activeVoices >= 8) return false;
+    this._activeVoices++;
+    return true;
+  },
+  // 節點回收：舊版 osc.stop() 之後從不 disconnect()，節點會一直掛在長命的 master 上，
+  // 高射速武器（每秒約 30 發 × 2 個節點）長期累積會讓音訊圖越來越肥。
+  _releaseOnEnd(node, extra) {
+    node.onended = () => {
+      try { node.disconnect(); } catch (e) { /* 已斷開 */ }
+      if (extra) { try { extra.disconnect(); } catch (e) { /* 已斷開 */ } }
+      this._activeVoices = Math.max(0, this._activeVoices - 1);
+    };
+  },
+
   // 脈波 (方波) — NES pulse channel
   pulse(freq, dur, vol = 0.4, type = 'square', sweep = 0) {
     if (!this.ready || !this.enabled) return;
     const t = this.ctx.currentTime;
+    if (!this._voiceSlot()) return;      // 同時發聲上限（避免轟炸流疊 20~30 個 voice 造成削波）
     const osc = this.ctx.createOscillator();
     const gn = this.ctx.createGain();
     osc.type = type;
@@ -454,6 +520,7 @@ const Sound = {
     gn.gain.setValueAtTime(vol, t);
     gn.gain.exponentialRampToValueAtTime(0.001, t + dur);
     osc.connect(gn).connect(this.master);
+    this._releaseOnEnd(osc, gn);
     osc.start(t);
     osc.stop(t + dur);
   },
@@ -461,6 +528,7 @@ const Sound = {
   // 噪音 — NES noise channel (爆炸/打擊)
   noise(dur, vol = 0.4, freq = 1200, q = 1) {
     if (!this.ready || !this.enabled) return;
+    if (!this._voiceSlot()) return;
     const t = this.ctx.currentTime;
     const src = this.ctx.createBufferSource();
     src.buffer = this.noiseBuf;
@@ -472,6 +540,7 @@ const Sound = {
     gn.gain.setValueAtTime(vol, t);
     gn.gain.exponentialRampToValueAtTime(0.001, t + dur);
     src.connect(filt).connect(gn).connect(this.master);
+    this._releaseOnEnd(src, gn);
     src.start(t);
     src.stop(t + dur);
   },
@@ -622,7 +691,14 @@ const Music = {
 
   toggle() {
     this.enabled = !this.enabled;
-    if (!this.enabled) this.stop();
+    if (!this.enabled) {
+      this.stop();
+    } else if (!this._track) {
+      // 舊版重新開啟時只把 enabled 設回 true，但不重新播放（切回來是一片安靜），
+      // 而且 N 鍵那條路徑也不會更新圖示 → 玩家按了沒有回饋。
+      this.play(G.state === STATE.PLAYING ? 'LEVEL' : 'MENU');
+    }
+    if (typeof updateMusicIcon === 'function') updateMusicIcon();
   }
 };
 
@@ -637,9 +713,17 @@ const Perf = {
   fps: 60,
   collisionChecks: 0,
 
-  begin() {
-    if (this.enabled) this.frameStart = performance.now();
+  // 量「整幀」（update + render）而不是只看 update：舊版把 begin/end 放在固定時間步長的
+  // while 迴圈內，一幀跑多次 update 時數字會互相覆蓋，而且完全沒有量到 render。
+  beginFrame() {
+    if (!this.enabled) return;
+    this.frameStart = performance.now();
     this.collisionChecks = 0;
+    this.updatesThisFrame = 0;
+  },
+
+  begin() {
+    this.updatesThisFrame = (this.updatesThisFrame || 0) + 1;
   },
 
   end() {
@@ -650,8 +734,20 @@ const Perf = {
     if (this.frameTimeCount < 60) this.frameTimeCount++;
   },
 
+  _els: null,
   updateUI() {
     if (!this.enabled || G.frameCount % 15 !== 0) return;
+    // 元素快取 + 只在值真的變了才寫 DOM：舊版每次 flush 都 5 次 getElementById 且無條件賦值
+    // （開著 F3 時這 4Hz 的成本剛好疊在被量測的對象上）。
+    if (!this._els) {
+      this._els = {
+        fps: document.getElementById('perfFPS'), frame: document.getElementById('perfFrame'),
+        enemies: document.getElementById('perfEnemies'), bullets: document.getElementById('perfBullets'),
+        particles: document.getElementById('perfParticles'), collisions: document.getElementById('perfCollisions'),
+        peak: document.getElementById('perfPeak'),
+      };
+    }
+    const set = (el, value) => { if (el && el.textContent !== String(value)) el.textContent = value; };
 
     let avgFrame = 0;
     if (this.frameTimeCount > 0) {
@@ -660,18 +756,24 @@ const Perf = {
     }
     const fps = avgFrame > 0 ? Math.min(60, Math.round(1000 / avgFrame)) : 60;
 
-    const fpsEl = document.getElementById('perfFPS');
-    fpsEl.textContent = fps;
-    fpsEl.className = fps < 30 ? 'bad' : fps < 50 ? 'warn' : '';
+    const fpsEl = this._els.fps, frameEl = this._els.frame;
+    set(fpsEl, fps);
+    // 不再用 Math.min(60, ...) 蓋掉真實掉幀：低於 60 就照實顯示
+    const fpsClass = fps < 30 ? 'bad' : fps < 50 ? 'warn' : '';
+    if (fpsEl && fpsEl.className !== fpsClass) fpsEl.className = fpsClass;
 
-    const frameEl = document.getElementById('perfFrame');
-    frameEl.textContent = avgFrame.toFixed(1) + ' ms';
-    frameEl.className = avgFrame > 20 ? 'bad' : avgFrame > 12 ? 'warn' : '';
+    set(frameEl, avgFrame.toFixed(1) + ' ms');
+    const frameClass = avgFrame > 20 ? 'bad' : avgFrame > 12 ? 'warn' : '';
+    if (frameEl && frameEl.className !== frameClass) frameEl.className = frameClass;
 
-    document.getElementById('perfEnemies').textContent = G.enemies.length;
-    document.getElementById('perfBullets').textContent = bulletsPool.active.length;
-    document.getElementById('perfParticles').textContent = particlesPool.active.length;
-    document.getElementById('perfCollisions').textContent = this.collisionChecks;
+    set(this._els.enemies, G.enemies.length);
+    set(this._els.bullets, bulletsPool.active.length);
+    set(this._els.particles, particlesPool.active.length);
+    set(this._els.collisions, this.collisionChecks);
+    // 池峰值：Pool 早就在記錄 _peakActive 卻從來沒顯示，調 BULLET_MAX / POOL_SIZE 只能靠猜
+    if (this._els.peak) {
+      set(this._els.peak, `${Math.max(bulletsPool._peakActive, particlesPool._peakActive)}`);
+    }
   },
 
   toggle() {
@@ -686,72 +788,88 @@ const Perf = {
 const WEAPON_TREE = {
   // A 路線：高射速流 - 超高DPS，單發低，剋重甲
   RAPID: {
+    id: 'RAPID',
     route: 'A', tier: 1, name: '快速射擊', desc: '雙連發模式，子彈貫穿',
     next: 'GATLING', color: '#ff6b00', icon: '⚡', basePower: 1.0
   },
   GATLING: {
+    id: 'GATLING',
     route: 'A', tier: 2, name: '格林機槍', desc: '雙管射擊，火力+10%',
     next: 'CHAINGUN', color: '#ff4400', icon: '🔥', basePower: 1.1
   },
   CHAINGUN: {
+    id: 'CHAINGUN',
     route: 'A', tier: 3, name: '連環炮', desc: '三管齊射，火力+20%',
     next: 'OVERDRIVE', color: '#cc2200', icon: '💥', basePower: 1.2
   },
   OVERDRIVE: {
+    id: 'OVERDRIVE',
     route: 'A', tier: 4, name: '過載出火', desc: '四管齊射，全螢幕橫掃',
     next: null, color: '#880000', icon: '💀', basePower: 1.4
   },
 
   // B 路線：範圍爆破流 - 清怪神，打王弱，有爆炸連鎖
   SPREAD: {
+    id: 'SPREAD',
     route: 'B', tier: 1, name: '散彈核心', desc: '扇形發射 3 發子彈',
     next: 'CLUSTER', color: '#ffdd00', icon: '💫', basePower: 1.0
   },
   CLUSTER: {
+    id: 'CLUSTER',
     route: 'B', tier: 2, name: '集束彈頭', desc: '命中分裂 5 發小彈',
     next: 'NAPALM', color: '#ffaa00', icon: '💛', basePower: 1.1
   },
   NAPALM: {
+    id: 'NAPALM',
     route: 'B', tier: 3, name: '凝固汽油彈', desc: '子彈留下燃燒地帶',
     next: 'APOCALYPSE', color: '#ff6600', icon: '🔥', basePower: 1.2
   },
   APOCALYPSE: {
+    id: 'APOCALYPSE',
     route: 'B', tier: 4, name: '末日轟炸', desc: '5 發散彈 + 每 3 秒全螢幕轟炸',
     next: null, color: '#ff0000', icon: '☠️', basePower: 1.5
   },
 
   // C 路線：雷射科技流 - 貫穿，超遠距，打王強，有過熱
   PLASMA: {
+    id: 'PLASMA',
     route: 'C', tier: 1, name: '電漿武器', desc: '高傷貫穿子彈',
     next: 'D_LASER', color: '#00ddff', icon: '⚡', basePower: 1.2
   },
   D_LASER: {
+    id: 'D_LASER',
     route: 'C', tier: 2, name: '雙光束炮', desc: '雙光束射擊',
     next: 'T_LASER', color: '#00aaff', icon: '🔷', basePower: 1.3
   },
   T_LASER: {
+    id: 'T_LASER',
     route: 'C', tier: 3, name: '三路光束', desc: '三道光束同時射擊',
     next: 'OMEGA', color: '#0077ff', icon: '🔶', basePower: 1.4
   },
   OMEGA: {
+    id: 'OMEGA',
     route: 'C', tier: 4, name: '歐米茄射線', desc: '光束掃射，穿透障礙',
     next: null, color: '#0044cc', icon: '👁️', basePower: 1.6
   },
 
   // D 路線：召喚塔防流 - 本體弱，召喚物強，越拖越強
   SUMMON: {
+    id: 'SUMMON',
     route: 'D', tier: 1, name: '工程師', desc: '部署 1 個自動砲塔',
     next: 'DRONE', color: '#44ff88', icon: '🛠️', basePower: 0.8
   },
   DRONE: {
+    id: 'DRONE',
     route: 'D', tier: 2, name: '維修無人機', desc: '砲塔生命與傷害提升',
     next: 'TURRET', color: '#22cc66', icon: '🤖', basePower: 0.9
   },
   TURRET: {
+    id: 'TURRET',
     route: 'D', tier: 3, name: '自動砲台', desc: '砲塔傷害大幅提升',
     next: 'FORTRESS', color: '#11aa44', icon: '🏰', basePower: 1.0
   },
   FORTRESS: {
+    id: 'FORTRESS',
     route: 'D', tier: 4, name: '要塞核心', desc: '終極塔防，四座砲台',
     next: null, color: '#008833', icon: '⚔️', basePower: 1.3
   }
@@ -878,7 +996,9 @@ const WeaponManager = {
     
     // 攻速計算
     let cooldownMult = getHeatStacksMultiplier();
-    if (G.playerStats.boostTimer > 0) cooldownMult *= 2;
+    // cooldownMult 是冷卻倍率（越小越快；HEAT 也是用 1/(1+stacks*0.03) 變快）。
+    // 舊版寫 *= 2 讓「超頻爆發」期間冷卻加倍＝射速砍半，按下去是懲罰而不是爆發。
+    if (G.playerStats.boostTimer > 0) cooldownMult *= 0.5;
     const fireRateBonus = G.playerStats.shopFireRateBonus || 0;
     const actualCD = Math.max(2, Math.floor(config.fireRate * cooldownMult * (1 - fireRateBonus)));
     tank.bulletTimer = actualCD;
@@ -1392,8 +1512,9 @@ function spawnDecoy() {
 }
 
 function boostMode() {
+  // 效果統一由 boostTimer 在 shoot() 的冷卻計算裡實現（見 index.html 的 cooldownMult）。
+  // 舊版另外寫了一個 rapidFire 旗標，但全檔沒有任何地方讀它（純死寫入）。
   G.playerStats.boostTimer = 180;
-  G.playerStats.rapidFire = true;
 }
 
 function activatePowerUp(type) {
@@ -1818,21 +1939,44 @@ function drawWaterDirect(cx2d, x, y, phase) {
   }
 }
 
-function drawEagleDirect(cx2d, x, y, dead) {
+// 離屏快取：基地老鷹是固定圖樣，舊版卻在 render() 每幀逐像素重畫
+// （實測 ALIVE 有 127 個非零像素 → 每幀 127 次 fillStyle + 127 次 fillRect = 254 次 canvas API，
+//   只為了畫一格 26×26 的圖磚；而且這條路徑在遊戲進行中是無條件執行的）。
+const _eagleCache = { alive: null, dead: null, scale: 0 };
+function buildEagleSprite(dead) {
+  const scale = typeof RENDER_SCALE === 'number' ? RENDER_SCALE : 1;
+  const cv = document.createElement('canvas');
+  cv.width = TILE * scale; cv.height = TILE * scale;
+  const c = cv.getContext('2d');
+  c.setTransform(scale, 0, 0, scale, 0, 0);
+  c.imageSmoothingEnabled = false;
   const sprite = dead ? EAGLE_DEAD_SPRITE : EAGLE_ALIVE_SPRITE;
-  cx2d.fillStyle = '#000';
-  cx2d.fillRect(x, y, TILE, TILE);
+  c.fillStyle = '#000';
+  c.fillRect(0, 0, TILE, TILE);
   const px = TILE / 13;
   const palette = dead ? { 1: '#404040', 2: '#202020', 3: '#a02020' } : { 1: '#d0d0d0', 2: '#ffffff', 3: '#404040' };
   for (let py = 0; py < 13; py++) {
     for (let pxi = 0; pxi < 13; pxi++) {
       const v = sprite[py][pxi];
       if (v !== 0) {
-        cx2d.fillStyle = palette[v];
-        cx2d.fillRect(x + pxi * px, y + py * px, px + 1, px + 1);
+        c.fillStyle = palette[v];
+        c.fillRect(pxi * px, py * px, px + 1, px + 1);
       }
     }
   }
+  return cv;
+}
+function eagleSprite(dead) {
+  const scale = typeof RENDER_SCALE === 'number' ? RENDER_SCALE : 1;
+  if (_eagleCache.scale !== scale || !_eagleCache.alive) {
+    _eagleCache.alive = buildEagleSprite(false);
+    _eagleCache.dead = buildEagleSprite(true);
+    _eagleCache.scale = scale;
+  }
+  return dead ? _eagleCache.dead : _eagleCache.alive;
+}
+function drawEagleDirect(cx2d, x, y, dead) {
+  cx2d.drawImage(eagleSprite(dead), x, y, TILE, TILE);
 }
 
 function cacheStaticMap() {
@@ -2052,13 +2196,19 @@ class Tank {
     // 履帶相位：移動中 0/1 交替；靜止固定用 seg 起點樣式（與原本 (trackOffset && moving) ? 0 : seg 一致）
     const phase = this.moving ? trackOffset : 0;
 
-    const key = (this.isPlayer ? 'P' : this.type) + '|' + this.aimDir + '|' + phase + '|' + s;
-    let spr = _tankSpriteCache.get(key);
-    if (!spr) {
-      spr = buildTankSprite(this.isPlayer ? 'PLAYER' : this.type, this.aimDir, phase, s);
-      _tankSpriteCache.set(key, spr);
+    // sprite 直接快取在坦克實例上：舊版每幀為每隻坦克組字串 key 再查 Map，
+    // 字串串接會產生 rope，而 Map 雜湊必須先把它攤平（每次呼叫都多一次配置）。
+    // 18 隻敵人 × 144Hz ≈ 每秒 2600 個短命字串，而組合只有 type × aimDir × phase 約 50 種。
+    if (!this._spr || this._sprDir !== this.aimDir || this._sprPhase !== phase || this._sprSize !== s) {
+      const key = (this.isPlayer ? 'P' : this.type) + '|' + this.aimDir + '|' + phase + '|' + s;
+      let spr = _tankSpriteCache.get(key);
+      if (!spr) {
+        spr = buildTankSprite(this.isPlayer ? 'PLAYER' : this.type, this.aimDir, phase, s);
+        _tankSpriteCache.set(key, spr);
+      }
+      this._spr = spr; this._sprDir = this.aimDir; this._sprPhase = phase; this._sprSize = s;
     }
-    ctx.drawImage(spr, x, y);
+    ctx.drawImage(this._spr, x, y);
 
     if (this.elitePrefix && this.eliteEffects) {
       const eff = this.eliteEffects;
@@ -2235,6 +2385,10 @@ function drawNESShield(x, y, size) {
 function updateBullet(b) {
   if (!b.alive) return;
 
+  // 有壽命的子彈（OMEGA 光束段）：laserLife 先前只被寫入、從不遞減，
+  // 於是每次射擊留下 29 顆 vx=vy=0、ignoreTiles=true 的永久子彈 → 池無界成長、FPS 崩落。
+  if (b.laserLife > 0 && --b.laserLife <= 0) { b.alive = false; return; }
+
   // 記錄移動前的位置，用於碰撞回溯
   const prevX = b.x, prevY = b.y;
 
@@ -2355,15 +2509,13 @@ function handleBulletHit(b, t) {
       spawnExplosion(b.x, b.y, 'shield');
       return;
     }
-    if (G.playerStats.passives.includes('BARRIER') && G.playerStats.barrierTimer <= 0) {
+    // BARRIER：被打到時吸收該次傷害，並開啟 2 秒（120 tick）護盾；護盾期間再被打也一律吸收。
+    // 舊版 barrierTimer 全檔沒有任何遞減（grep `barrierTimer--` = 0 次），所以第一次被打到
+    // 之後就永久無敵 —— 玩家不會掉血、不會死，整局的平衡與計分都失去意義。
+    if (G.playerStats.passives.includes('BARRIER') || G.playerStats.barrierTimer > 0) {
       b.alive = false;
       spawnExplosion(b.x, b.y, 'shield');
-      G.playerStats.barrierTimer = 120;
-      return;
-    }
-    if (G.playerStats.barrierTimer > 0) {
-      b.alive = false;
-      spawnExplosion(b.x, b.y, 'shield');
+      if (G.playerStats.barrierTimer <= 0) G.playerStats.barrierTimer = 120;
       return;
     }
     if (G.playerStats.invulTimer > 0) {
@@ -2488,6 +2640,8 @@ function handleBulletHit(b, t) {
   }
 }
 
+const SMOKE_COLOR = '#505050';   // 煙霧固定色：舊版每顆每幀用樣板字串組 rgba() 再指派 fillStyle
+
 // ==================== 粒子系統 ====================
 function spawnExplosion(x, y, type) {
   let count;
@@ -2556,8 +2710,10 @@ function drawParticles() {
     const p = arr[i];
     if (!p.alive || p.type !== 'smoke') continue;
     const a = Math.max(0, p.life / p.maxLife);
-    ctx.fillStyle = `rgba(80,80,80,${a * 0.5})`;
+    ctx.fillStyle = SMOKE_COLOR;      // 固定色 + globalAlpha（純數值）：不再為每顆煙霧配 rgba 字串
+    ctx.globalAlpha = a * 0.5;
     ctx.fillRect(p.x | 0, p.y | 0, p.size | 0, p.size | 0);
+    ctx.globalAlpha = 1;
   }
   ctx.restore();
 }
@@ -2624,6 +2780,7 @@ const DIRECTOR_EVENTS = {
       const e = new Tank(W/2, TILE, DOWN, 'BOSS', false);
       e.hp = e.maxHp = 8;
       G.enemies.push(e);
+      G.aliveEnemies++;      // 其他生兵路徑都有計數；少了這行會在牠死亡時讓 aliveEnemies 漂移成負值
     }
   },
   ORBITAL: {
@@ -2798,6 +2955,8 @@ function deactivateMapEvent() {
   }
 }
 
+let _nightGradient = null, _nightGradientX = 0, _nightGradientY = 0;
+
 function drawMapEvent() {
   if (!mapEventState.active) return;
 
@@ -2837,13 +2996,16 @@ function drawMapEvent() {
       ctx.fillStyle = 'rgba(0,0,20,0.55)';
       ctx.fillRect(0, 0, W, H);
       if (G.player && G.player.alive) {
-        const gradient = ctx.createRadialGradient(
-          G.player.x + TILE / 2, G.player.y + TILE / 2, 0,
-          G.player.x + TILE / 2, G.player.y + TILE / 2, TILE * 8
-        );
-        gradient.addColorStop(0, 'rgba(0,0,0,0)');
-        gradient.addColorStop(1, 'rgba(0,0,20,0.55)');
-        ctx.fillStyle = gradient;
+        // 漸層只在玩家移動超過 8px 時重建：舊版每幀都 createRadialGradient + 兩次 addColorStop
+        // （字串解析）＋ 520×520 全螢幕漸層填色，NIGHT 一觸發就是連續 10 秒的掉幀。
+        const npx = G.player.x + TILE / 2, npy = G.player.y + TILE / 2;
+        if (!_nightGradient || Math.abs(npx - _nightGradientX) > 8 || Math.abs(npy - _nightGradientY) > 8) {
+          _nightGradient = ctx.createRadialGradient(npx, npy, 0, npx, npy, TILE * 8);
+          _nightGradient.addColorStop(0, 'rgba(0,0,0,0)');
+          _nightGradient.addColorStop(1, 'rgba(0,0,20,0.55)');
+          _nightGradientX = npx; _nightGradientY = npy;
+        }
+        ctx.fillStyle = _nightGradient;
         ctx.fillRect(0, 0, W, H);
       }
       break;
@@ -3011,7 +3173,7 @@ Tank.prototype.applyRepulsion = function() {
   for (const other of _queryBuf) {
     if (other === this || !other.alive || other.isPlayer) continue;
     const dx = this.x - other.x, dy = this.y - other.y;
-    const dist = Math.hypot(dx, dy);
+    const dist = Math.sqrt(dx * dx + dy * dy);   // 熱路徑（每敵人每幀）不用 Math.hypot
     if (dist < this.size && dist > 0) {
       const push = 0.5;
       this.x += (dx / dist) * push;
@@ -3032,7 +3194,7 @@ function updateEnemyAI(e) {
   if (e.elitePrefix === 'REGEN' && G.frameCount % 60 === 0) {
     e.hp = Math.min(e.maxHp, e.hp + 0.1);
   }
-  if (e.elitePrefix === 'SUMMON') {
+  if (e.elitePrefix === 'SUMMONER') {   // 舊版寫成 'SUMMON'，與 ELITE_PREFIXES 的 key 不符 → 召喚詞綴永遠不發動
     e.summonTimer = (e.summonTimer || 0) + 1;
     if (e.summonTimer >= 180) { e.summonTimer = 0; spawnEnemy(); }
   }
@@ -3160,6 +3322,7 @@ function spawnEnemy() {
     else type = 'SUICIDE';
   } else if (isBoss) {
     type = 'BOSS';
+    G.bossSpawned = true;
   } else if (G.level > 1) {
     const fastChance = Math.min(0.3, 0.1 + G.level * 0.01);
     const heavyChance = Math.min(0.25, 0.05 + G.level * 0.012);
@@ -3178,6 +3341,9 @@ function spawnEnemy() {
 
   const e = new Tank(sx, sy, DOWN, type, false);
   e.elitePrefix = elitePrefix;
+  // 菁英的 1.5 倍血與 eliteEffects（光環/圖示）都在 applyTypeStats 裡，而建構子已經先呼叫過一次
+  // → 舊版在 new Tank 之後才指派 elitePrefix，等於這些效果永遠不會生效，菁英看起來跟小兵一樣。
+  if (elitePrefix) e.applyTypeStats();
   e.slowTimer = 0;
   e.shieldHits = elitePrefix === 'SHIELDED' ? 3 : 0;
   e.regenTimer = 0;
@@ -3194,6 +3360,9 @@ function spawnEnemy() {
 
 // ==================== 關卡與升級 ====================
 function checkLevelComplete() {
+  // BOSS 關：王是第 maxEnemies 隻才生，而結算條件是 enemiesSpawned >= maxEnemies-5
+  // → 玩家在倒數 5 隻內清光場面就會直接跳關，王從來沒出現過。這裡等王真的出生才允許結算。
+  if (!G.isVSMode && G.level % CONFIG.GAMEPLAY.BOSS_LEVEL_INTERVAL === 0 && !G.bossSpawned) return;
   if (G.aliveEnemies <= 0 && G.enemiesSpawned >= G.maxEnemies - 5 && G.player && G.player.alive) {
     G.state = STATE.LEVEL_COMPLETE;
     G.levelClearedCount++;
@@ -3214,6 +3383,8 @@ function updateVSModeDifficulty() {
 
 function startLevel() {
   G.isVSMode = (G.level % CONFIG.GAMEPLAY.VS_MODE_INTERVAL === 0);
+
+  G.bossSpawned = false;      // 每關重新等待 BOSS 出生（見 checkLevelComplete）
 
   if (G.level % CONFIG.GAMEPLAY.UPGRADE_INTERVAL !== 0) {
     G.levelWeaponStacks = {};
@@ -3334,7 +3505,9 @@ function showFinalGameOver() {
     <p>SCORE: <span style="color:#ffd700;">${G.score}</span></p>
     <p>LEVEL: <span style="color:#6cc3ff;">${G.level}</span></p>
     <button class="start-btn" id="restartBtn">REBOOT</button>`;
-  document.getElementById('restartBtn').onclick = () => { Music.play('MENU'); restartGame(); };
+  const rb = document.getElementById('restartBtn');
+  rb.onclick = () => { Music.play('MENU'); restartGame(); };
+  setTimeout(() => rb.focus(), 0);      // 讓 Enter/Space 可以直接重開（配合 preventDefault 收斂）
   updateMobileControlsForMode();
 }
 
@@ -3410,9 +3583,39 @@ document.addEventListener('keydown', e => {
       if (startBtn) startBtn.click();
     }
   }
-  if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+  // 只在「不是操作 UI 元件」時攔截：舊版無條件 preventDefault，導致已聚焦的按鈕
+  // （暫停畫面的「繼續」、遊戲結束的「REBOOT」、START GAME）按 Space 完全沒反應，
+  // 只能用 Enter —— 鍵盤與輔助技術的操作路徑因此斷掉。
+  const tag = (e.target && e.target.tagName) || '';
+  const onControl = tag === 'BUTTON' || tag === 'A' || tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+  if (!onControl && (e.code === 'Space' || e.code.startsWith('Arrow'))) e.preventDefault();
 });
 document.addEventListener('keyup', e => G.keys[e.code] = false);
+
+// ── 生命週期：切到背景或失去焦點 ──
+// 舊版完全沒有 blur/visibilitychange 監聽（全檔 0 筆）：
+//   1. 按著 D 再切到別的分頁／視窗，keyup 永遠收不到 → 回來時坦克一直往同方向跑。
+//   2. 分頁被遮住時 rAF 只會被節流、不會停 → 玩家站著挨打直到死亡。
+function releaseAllInput() {
+  G.keys = {};
+  G.touch.dir = -1;
+  G.touch.fire = false;
+  if (typeof MobileInput !== 'undefined' && MobileInput.reset) MobileInput.reset();
+}
+function autoPauseIfPlaying() {
+  if (G.state === STATE.PLAYING) { G._autoPaused = true; togglePause(); }
+}
+function resumeAudioIfNeeded() {
+  if (Sound.ctx && Sound.ctx.state === 'suspended') Sound.resume();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { releaseAllInput(); autoPauseIfPlaying(); }
+  else resumeAudioIfNeeded();
+});
+window.addEventListener('blur', () => { releaseAllInput(); autoPauseIfPlaying(); });
+window.addEventListener('focus', resumeAudioIfNeeded);
+// iOS 從背景回來後 AudioContext 需要新的使用者手勢才能恢復，補一個一次性的解鎖點
+window.addEventListener('pointerdown', resumeAudioIfNeeded);
 document.getElementById('startBtn').addEventListener('click', () => {
   Sound.init(); Sound.resume();
   Music.play('MENU');
@@ -3423,11 +3626,17 @@ document.getElementById('soundToggle').addEventListener('click', e => {
   Sound.init(); Sound.resume();
   Sound.toggle();
 });
+function updateMusicIcon() {
+  const btn = document.getElementById('musicToggle');
+  if (!btn) return;
+  btn.textContent = Music.enabled ? '🎵' : '🔇';
+  btn.style.opacity = Music.enabled ? '1' : '0.45';
+  btn.title = Music.enabled ? '切換音樂 (N)：開' : '切換音樂 (N)：關';
+}
 document.getElementById('musicToggle').addEventListener('click', e => {
   e.stopPropagation();
   Sound.init(); Sound.resume();
   Music.toggle();
-  if (Music.enabled && !Music._track) Music.play('MENU');
 });
 document.getElementById('pauseToggle').addEventListener('click', e => {
   e.stopPropagation();
@@ -3507,6 +3716,15 @@ function buyItem(itemId) {
   if (item.type === 'pierce' && G.playerStats.pierce) {
     addScorePopup(G.player.x, G.player.y - 30, '已擁有穿甲能力!', '#888');
     return;
+  }
+  // 武器已滿級時要在「扣分之前」擋掉：舊版先扣分、才在 switch 裡發現不能升級，
+  // 玩家花 1500 分只換到一句「已達最大等級!」。
+  if (item.type === 'weapon') {
+    const wp0 = WEAPON_TREE[G.playerStats.weapon];
+    if (!wp0 || !wp0.next) {
+      addScorePopup(G.player.x, G.player.y - 30, '已達最大等級!', '#ff4444');
+      return;
+    }
   }
   const price = getShopPrice(item.price);
   if (G.score < price) {
@@ -3600,6 +3818,27 @@ const MobileInput = {
     document.addEventListener('dblclick', e => e.preventDefault());
   },
   
+  // 強制放開所有觸控狀態（失去焦點、切到背景、或結算畫面時呼叫）。
+  // 舊版沒有這個介面，所以「按著 FIRE 切到別的分頁」回來後會持續射擊、搖桿也卡在偏移位置。
+  reset() {
+    this.joyTouchId = null;
+    this.fireTouchId = null;
+    G.touch.dir = -1;
+    G.touch.fire = false;
+    G.touch.joyActive = false;
+    G.touch.joyDx = 0;
+    G.touch.joyDy = 0;
+    if (this.joyStick) { this.joyStick.style.left = '50%'; this.joyStick.style.top = '50%'; }
+    if (this.fireBtn) this.fireBtn.classList.remove('pressed');
+    if (this.joyBase) {
+      // 回到 CSS 的預設位置（橫向 media query 會把它改成 left:20px/bottom:20px，
+      // 舊版寫死 left:30px/bottom:30px，橫向放開搖桿時位置會跳一下）
+      this.joyBase.style.left = '';
+      this.joyBase.style.bottom = '';
+    }
+    this._updateJoyCenter();
+  },
+
   _updateJoyCenter() {
     const rect = this.joyBase.getBoundingClientRect();
     this.joyCenterX = rect.left + rect.width / 2;
@@ -3751,6 +3990,7 @@ function update() {
     if (G.playerStats.activeCooldown > 0) G.playerStats.activeCooldown--;
     if (G.playerStats.boostTimer > 0) G.playerStats.boostTimer--;
     if (G.playerStats.invulTimer > 0) G.playerStats.invulTimer--;
+    if (G.playerStats.barrierTimer > 0) G.playerStats.barrierTimer--;
     applyPassiveTick();
     updateCombo();
 
@@ -3835,6 +4075,11 @@ function update() {
     }
 
     updateEconomy();
+
+    // 關卡結算：舊版只在 handleBulletHit（子彈命中）裡呼叫，用 BOMB／空襲／核融合／火山
+    // 等範圍技清掉最後一批敵人時就永遠不會結算 —— 場上沒敵人、關卡不結束的軟鎖。
+    // 這裡每個 tick 檢查一次（單一比較，成本可忽略），涵蓋所有擊殺路徑。
+    checkLevelComplete();
   }
 
   if (G.shakeTimer > 0) {
@@ -3951,7 +4196,8 @@ function drawPowerUps() {
     ctx.font = '10px "Press Start 2P"';
     ctx.textAlign = 'center';
     ctx.fillText(info.icon, pu.x, pu.y + 4);
-    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';    // 舊版只還原 globalAlpha；textAlign='center' 會洩漏給之後的
+    ctx.globalAlpha = 1;       // 菁英詞綴圖示與分數彈出（兩者都靠左對齊定位 → 位置會偏掉）
   }
 }
 
@@ -3991,7 +4237,9 @@ function render() {
   ctx.fillStyle = '#050508';
   ctx.fillRect(0, 0, W, H);
 
-  if (G.mapEvent && G.mapEvent.id === 'NIGHT') {
+  // 用 mapEventState（真正在跑的狀態機）：G.mapEvent 只在 restartGame 被賦值，而 rollMapEvent()
+  // 因為此時 G.level 已重置為 1（條件要求 level>=3）永遠回 null → 這層暗幕從來沒生效過。
+  if (mapEventState.active && mapEventState.type === 'NIGHT') {
     ctx.fillStyle = 'rgba(0,0,30,0.5)';
     ctx.fillRect(0, 0, W, H);
   }
@@ -4044,26 +4292,54 @@ function render() {
 }
 
 function gameLoop(now) {
+  // 舊版的 requestAnimationFrame(gameLoop) 是函式最後一行：update()/render() 只要丟一次例外，
+  // 下一幀就永遠不會被排程 —— 畫面整個凍結、只有 console 有訊息（實測塞一個 null 進 G.enemies
+  // 就能讓 frameCount 永久停住）。這裡保證「無論如何都會排下一幀」。
+  try {
   if (!_lastFrameTime) _lastFrameTime = now;
   let dt = now - _lastFrameTime;
   _lastFrameTime = now;
   if (dt > 250) dt = TICK_MS;
   _accumMs += dt * _speedMult;
 
+  Perf.beginFrame();
+
   let updates = 0;
   while (_accumMs >= TICK_MS && updates < _maxUpdatesPerFrame) {
     Perf.begin();
     if (G.state !== STATE.PAUSED) update();
-    Perf.end();
     _accumMs -= TICK_MS;
     updates++;
   }
   if (_accumMs > TICK_MS * _maxUpdatesPerFrame) _accumMs = 0;
 
   render();
+  Perf.end();
   Perf.updateUI();
+  } catch (err) {
+    reportRuntimeError(err);
+  }
   requestAnimationFrame(gameLoop);
 }
+
+// 執行期錯誤：顯示一次提示（不要每幀洗版），並讓遊戲繼續跑 —— 單一敵人或粒子的資料異常
+// 不該讓整場遊戲變成靜止畫面。
+let _lastReportedError = null;
+function reportRuntimeError(err) {
+  const msg = (err && err.message) || String(err);
+  if (msg === _lastReportedError) return;
+  _lastReportedError = msg;
+  console.error('[tank-battle] 執行期錯誤（遊戲會繼續）:', err);
+  const box = document.getElementById('errorBanner');
+  if (box) {
+    box.textContent = '⚠️ 執行期錯誤：' + msg + '（遊戲已繼續，可回報此訊息）';
+    box.style.display = 'block';
+    setTimeout(() => { box.style.display = 'none'; _lastReportedError = null; }, 8000);
+  }
+}
+
+window.addEventListener('error', (event) => reportRuntimeError(event.error || event.message));
+window.addEventListener('unhandledrejection', (event) => reportRuntimeError(event.reason));
 
 requestAnimationFrame(gameLoop);
 
