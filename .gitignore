@@ -1,0 +1,1 @@
+# dist/ 是產物，但刻意入版控：verify-bundle.mjs 會在 CI 檢查它與 src/ 是否同步

@@ -15,7 +15,20 @@
 ## 專案結構
 
 ```
-index.html          遊戲本體（單檔可開，<script type="module">）
+index.html          遊戲本體（<script type="module">，直接服務即可 —— Pages 不需要建置）
+dist/index.html     單檔打包（由 tools/build-single-file.mjs 產生；離線／file:// 用）
+src/core/           執行期核心
+  rng.js              可重現亂數（xorshift32；?seed=N）
+  effects.js          時效系統：所有有持續時間的效果集中在這裡，只有一個 tick 進入點
+  state.js            狀態機：7 個狀態 + 轉移白名單（未宣告的轉移會留下警告）
+src/render/         渲染層
+  tiles.js            地形與基地圖磚（依賴注入 TILE／renderScale／doc；老鷹有離屏快取）
+src/platform/       平台層（純函式，Node 可測；不碰遊戲內部狀態）
+  input.js            鍵盤／觸控 → intent；放開所有輸入只有一個實作
+  viewport.js         DPR 倍率、觸控裝置判定、canvas backing store
+  audio.js            音效與 BGM（Web Audio）；DOM 與遊戲狀態用 hook／rng 注入
+  lifecycle.js        失去焦點／切到背景／回到前景的事件 → 意圖對應（可 unbind）
+  touch-ui.js         螢幕搖桿與 FIRE 鍵（依賴注入：touch／getConfig／isMobile／doc／win）
 src/data/           資料層：唯一來源，這裡改數值就是改遊戲
   config.js           CONFIG（畫布、子彈、粒子、池、AI、玩法）
   weapons.js          四條流派樹、射擊參數、起始武器、掉落池
@@ -34,15 +47,33 @@ tools/              驗證工具（Node + Playwright）
 
 - 資料檔不得 import 遊戲內部。Director 事件需要執行期物件（`G`／`Tank`／`W`…）時，
   由呼叫端以 getter 注入（`makeDirectorEvents(ctx)`）—— 依賴因此是顯式的，也能用 stub ctx 在 Node 驗證。
-- `STATE` 是程式碼列舉（狀態機的值），留在 `index.html`；其餘常數與內容表都在 `src/data/`。
+- 狀態列舉的唯一來源是 `src/core/state.js` 的 `STATES`（`index.html` 只做 `const STATE = STATES;` 別名）。
+
+## 建置（選用）
+
+Pages 直接服務 `index.html` 的 ESM 模組即可，**不需要建置**。若需要單檔（離線、`file://`、
+只要一個請求），用零依賴的內聯器產生 `dist/index.html`：
+
+```bash
+node tools/build-single-file.mjs          # 產出 dist/index.html
+node tools/build-single-file.mjs --check  # 只檢查是否需要重建（CI 用，離開碼 1 = 需要重建）
+```
+
+內聯器只處理相對路徑的具名匯入（含別名與 `export … from` 的 re-export 鏈），並有兩道防線：
+打包後不得殘留模組語法、**頂層宣告不得同名**（內聯後共用一個作用域，`
+detectMobile` 這種碰撞會讓別名指向自己造成無限遞迴 —— 實際踩過）。
 
 ## 開發與驗證
 
-三支工具，都不需要建置：
+五支工具，都不需要建置：
 
 ```bash
+node tools/verify-core.mjs    # 核心／平台層／渲染層單元測試（61 項，純 Node、秒級）
 node tools/verify-data.mjs    # 資料層閘門（5 項，純 Node、秒級）
-node tools/verify-game.mjs    # 遊戲行為與平台細節（31 項，Playwright）
+node tools/verify-replay.mjs  # 確定性與 replay（12 項）
+node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay
+node tools/verify-bundle.mjs  # 打包版與模組版行為等價（7 項，Playwright）
+node tools/verify-game.mjs    # 遊戲行為與平台細節（36 項，Playwright）
 #   PW_MODULE=/path/to/playwright/index.js node tools/verify-game.mjs
 #   PROBE_URL=https://cormort.github.io/tank-battle/ node tools/verify-game.mjs   # 打遠端
 ```
@@ -60,6 +91,75 @@ node tools/verify-game.mjs    # 遊戲行為與平台細節（31 項，Playwrigh
 > （例如新增一個道具的 `duration` 會被 `MAP_EVENTS.duration` 的讀取掩蓋）。
 > 它抓的是「整個欄位名沒人用」，無法判斷「這一張表的這一個欄位沒人用」。
 
+### 時效系統（`src/core/effects.js`）
+
+所有有持續時間的效果（無敵／反應護盾／凍緩／超頻／堡壘／時間凍結／連擊視窗／主動技能冷卻）
+都在 `fx` 這個 `EffectSet` 裡，**只有 `update()` 會呼叫 `fx.tick()`**。會這樣收斂是因為原本的
+遞減散在 5 個地方，於是出現兩種 bug：`barrierTimer` 只寫不減（拿了 BARRIER 就整局無敵）、
+`wallTimer`／`timeFreezeTimer` 的遞減寫在 PLAYING 之外（暫停與商店期間堡壘時間照样流失）。
+
+```js
+fx.set('boost', 180);                              // 設定
+fx.set('slow', 120, { onExpire: applyPlayerSpeed }); // 到期行為用 callback 宣告
+fx.has('invul'); fx.left('wall');                  // 查詢
+const expired = fx.tick();                          // 唯一的遞減入口（update() 內）
+fx.clearAll();                                      // restartGame() 內，重新開始就清空
+```
+
+`tools/verify-core.mjs` 用純 Node 驗證它的語意（到期、`extend` 取較長、callback 時機、快照），
+並檢查兩條架構契約：**只有一個 `fx.tick()`**、**已遷移的舊欄位不得再出現**（避免兩份真相）。
+
+### 平台層（`src/platform/`）
+
+- **input.js**：按鍵 → intent 的對應是一張表；`releaseAll()` 是「放開所有輸入」的唯一實作
+  （鍵盤與觸控共用）。主動技能是**邊緣觸發**（`skillPressed`），不再每幀查表、也不會按住連發。
+  焦點在 UI 元件上時不攔截 Space／方向鍵的預設行為（否則按鈕無法用 Space 啟動）。
+- **viewport.js**：`computeRenderScale()`（上限 2 倍）、`detectMobile()`（以 `pointer: coarse` 為主，
+  iPadOS 的 Macintosh UA 因此判得出來）、`applyCanvasScale()`。
+- **audio.js**：`makeSound()`／`makeMusic()`；平台層不碰 DOM —— 圖示更新用 `onIconChange`、
+  「是否在遊戲中」用 `isPlaying()`、噪音 buffer 的隨機來源用 `rng` 注入。
+- **lifecycle.js**：`bindLifecycle({ onLeave, onReturn })` 把 `visibilitychange`／`blur`／`focus`／
+  `pointerdown` 對應到「放開輸入＋自動暫停」與「恢復音訊」，並回傳 `unbind()`。
+- **touch-ui.js**：`makeTouchInput({ touch, getConfig, isMobile, doc, win })` —— 搖桿與 FIRE 鍵。
+  `reset()` 是關鍵介面（失焦／切背景／結算時強制放開）；沒有 DOM 時也不會拋錯。
+
+> 抽 audio 時踩到一個**靜默失效**：噪音 buffer 產生用的 `rnd()` 是 index.html 的變數，
+> 搬進模組後不在作用域內，`init()` 拋錯被 `catch` 吞掉 → 整個遊戲沒聲音。
+> 修法是明確注入 `rng`，並讓 `catch` 留下 `Sound.error` 與 console 警告；
+> `verify-game` 的 F5 與 `verify-core` 的 A1 現在都守住這條。
+
+### 狀態機（`src/core/state.js`）
+
+`G.state` 是狀態機的存取器：既有的 `G.state = X` 不必改寫，但會經過轉移白名單檢查並記錄。
+未宣告的轉移**仍然允許**（遊戲不會因為漏寫白名單就卡死）但會登記警告 ——
+`verify-game` 的 F1 把真實流程走一遍並要求**警告數為 0**，`verify-core` 的 S8 用純函式驗同一件事。
+
+### `verify-bundle.mjs`（打包驗證）
+
+打包最容易出的錯是「打出來的檔案能開、但行為不一樣」。所以核心檢查是：
+**用同一份 replay 跑打包版，checksum 必須與模組版完全相同**（目前皆為 `2087606046`）。
+另外檢查打包檔自足（沒有模組語法、沒有相對匯入、載入時不請求任何本地 `.js`）、
+不含工具鏈程式碼、`?bot` 除錯介面齊全。
+
+### `verify-replay.mjs`（確定性與 replay）
+
+整局的隨機都走 `src/core/rng.js` 的 seeded 產生器，`?sim` 模式讓 update 只由 `__T.stepTicks()`
+推進（真實時間的 rAF 不會交錯），因此 **seed + 輸入序列** 就唯一決定結果，把結果壓成
+`__T.gameChecksum()` 後就能比對：
+
+- R1 同一份 replay 跑兩次 → checksum 相同（沒有隱藏的隨機或時間依賴）
+- R2 重播結果與 `tools/replays/smoke.json` 記錄一致 → **玩法改動會讓這條紅**（相當於「玩一局」進 CI）
+- R3/R4 換 seed、換輸入都要得到不同結果（否則 replay 是假的）
+- S1–S4 原始碼層級：沒有 `Math.random()`、沒有與全域 `rnd` 同名的區域變數（會 TDZ）
+- T1 所有計時／壽命欄位都有遞減端或到期判定（收斂進 `fx` 之後，掃描對象從 19 個降到 13 個） —— 這一類修過兩次：
+  `barrierTimer` 永不遞減（拿了 BARRIER 就整局無敵）、`laserLife` 只寫不讀（每次射擊遺留 29 顆永生子彈）。
+  掃描接受 `--`、`-= 1`、`Math.max(0, x-1)`、`<= 0` 到期判定、以及 `+= 1`／`(x || 0) + 1` 計數型推進；
+  `maxLife` 是分母不是計時器，明確排除。
+
+> 開發時實際踩到兩件事，現在都有斷言守著：`const rnd = Math.random()` 被全域取代成
+> `const rnd = rnd()`（自我引用 TDZ），以及真實時間的 rAF 與測試的逐步模擬交錯
+> （同樣 seed 卻得到 947 vs 940 幀）。
+
 ### `verify-game.mjs`（行為與平台）
 
 31 項：A 主玩法（武器進化鏈、商店扣分時機、BARRIER 時效、BOOST 方向、子彈壽命回收、
@@ -70,7 +170,10 @@ E 資料接線（SURGE deactivate、空投真的掉寶、FREEZING 凍緩、特�
 
 ### 遊戲內建除錯鉤子
 
-- `?bot`：把內部符號掛到 `window.__T`（`G`／`STATE`／`Pool`／`Tank`／資料表／供測試呼叫的函式）
+- `?bot`：把內部符號掛到 `window.__T`（`G`／`STATE`／`Pool`／`Tank`／資料表／供測試呼叫的函式／
+  `stepTicks`／`gameChecksum`／`seed`／`rngState`）
+- `?sim`：確定性模擬模式（update 只由 `stepTicks()` 推進，replay 測試用）
+- `?seed=N`：指定亂數種子（可重現同一局）
 - `?speed=N`：加速模擬（1–20 倍）
 - `?mute` / `?bot`：靜音
 

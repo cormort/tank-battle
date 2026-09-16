@@ -136,18 +136,19 @@ ok('A2 商店購買已滿級武器時分數不會被扣（舊版先扣 1500 再�
 // A3：barrierTimer 會遞減，且 BARRIER 護盾到期後不再無敵
 const barrier = await page.evaluate(async () => {
   const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
   G.playerStats.passives = ['BARRIER'];
-  G.playerStats.barrierTimer = 0;
+  T.fx.clear('barrier');
   G.playerStats.hp = 3; G.playerStats.maxHp = 3;
   // 模擬被子彈打到兩次：第一次啟動護盾，第二次應該被吸收
   const fakeBullet = { x: G.player.x, y: G.player.y, size: 4, power: 1, alive: true, hitTanks: [] };
   T.handleBulletHit(fakeBullet, G.player);
-  const armed = G.playerStats.barrierTimer;
+  const armed = T.fx.left('barrier');
   await new Promise((r) => setTimeout(r, 600));    // 約 36 tick
-  const afterTicks = G.playerStats.barrierTimer;
+  const afterTicks = T.fx.left('barrier');
   return { armed, afterTicks, decrements: armed > afterTicks };
 });
-ok('A3 barrierTimer 會隨時間遞減（舊版永不遞減 → 拿了 BARRIER 就整局無敵）',
+ok('A3 BARRIER 護盾會隨時間到期（舊版 barrierTimer 永不遞減 → 拿了 BARRIER 就整局無敵）',
   barrier.decrements && barrier.armed > 0, JSON.stringify(barrier));
 
 // A4：BOOST 讓冷卻變短（舊版乘 2 反而變長）
@@ -157,11 +158,11 @@ const boost = await page.evaluate(() => {
   G.playerStats.weapon = 'NORMAL'; G.playerStats.weaponTier = 0; G.playerStats.route = null;
   G.playerStats.shopFireRateBonus = 0; G.playerStats.heatStacks = 0;
   const shootOnce = () => { G.player.bulletTimer = 0; G.player.shoot(); return G.player.bulletTimer; };
-  G.playerStats.boostTimer = 0;
+  T.fx.clear('boost');
   const cdNormal = shootOnce();
-  G.playerStats.boostTimer = 180;
+  T.fx.set('boost', 180);
   const cdBoost = shootOnce();
-  G.playerStats.boostTimer = 0;
+  T.fx.clear('boost');
   return { cdNormal, cdBoost };
 });
 ok('A4 BOOST 期間的實際冷卻比平常短（舊版 cooldownMult *= 2 讓「超頻」變成射速砍半）',
@@ -264,16 +265,16 @@ ok('E2 空投事件會實際產生道具（舊版 activate 之後什麼都沒發
 const freezing = await page.evaluate(async () => {
   const T = window.__T, G = T.G;
   G.playerStats.passives = [];
-  G.playerStats.barrierTimer = 0; G.playerStats.invulTimer = 0;
-  G.playerStats.hp = 3; G.playerStats.maxHp = 3; G.playerStats.slowTimer = 0;
+  T.fx.clear('barrier'); T.fx.clear('invul'); T.fx.clear('slow');
+  G.playerStats.hp = 3; G.playerStats.maxHp = 3;
   G.state = T.STATE.PLAYING;
   T.handleBulletHit({ x: G.player.x, y: G.player.y, size: 4, power: 0, isPlayer: false,
     alive: true, hitTanks: [], freezing: true }, G.player);
-  const timer = G.playerStats.slowTimer;
+  const timer = T.fx.left('slow');
   await new Promise((r) => setTimeout(r, 150));
   const speed = G.player.speed;
   const half = 2.5 * G.playerStats.speedMult * 0.5;
-  G.playerStats.slowTimer = 0;
+  T.fx.clear('slow'); T.applyPlayerSpeed();
   await new Promise((r) => setTimeout(r, 150));
   const restored = G.player.speed;
   return { timer, speed: +speed.toFixed(2), half: +half.toFixed(2), restored: +restored.toFixed(2) };
@@ -305,7 +306,7 @@ ok('E4 特殊敵人（SNIPER/ENGINEER/INTERFERER/GUARD/MINELAYER）會被生成'
 const hazards = await page.evaluate(async () => {
   const T = window.__T, G = T.G;
   G.state = T.STATE.PLAYING;
-  G.playerStats.passives = []; G.playerStats.barrierTimer = 0; G.playerStats.invulTimer = 0;
+  G.playerStats.passives = []; T.fx.clear('barrier'); T.fx.clear('invul');
   G.playerStats.hp = 3; G.playerStats.maxHp = 3;
   G.player.hp = 3;                    // 一條命內的耐久（playerStats.hp 是剩餘命數，兩者語意不同）
   G.player.alive = true;
@@ -320,6 +321,73 @@ const hazards = await page.evaluate(async () => {
 });
 ok('E5 mine／bomb 召喚物會對玩家造成傷害（舊版沒有行為分支）',
   hazards.afterMine < hazards.before && hazards.cleared === 0, JSON.stringify(hazards));
+
+console.log('\n=== F. 狀態機與輸入意圖（M3 平台層） ===');
+// F1：真實流程走一遍，不能出現「未宣告的狀態轉移」——
+// 白名單漏寫時玩家會看到畫面卡住或計時器亂跑，這條是那個契約的整合檢查。
+const stateFlow = await page.evaluate(async () => {
+  const T = window.__T, G = T.G;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  T.gameState.reset();
+  T.restartGame();                       // → playing
+  T.togglePause();                       // → paused
+  T.togglePause();                       // → playing
+  T.openShop();                          // → shop
+  T.closeShop();                         // → playing
+  G.state = T.STATES.PLAYING;
+  G.isVSMode = false; G.level = 2; G.bossSpawned = true;
+  G.maxEnemies = 12; G.enemiesSpawned = 12; G.aliveEnemies = 0; G.enemies.length = 0;
+  await wait(120);                       // → levelComplete（由每 tick 的 checkLevelComplete）
+  const afterLevel = G.state;
+  T.showGameOver();                      // → gameover
+  const afterGameOver = G.state;
+  T.restartGame();                       // → playing（重開）
+  return {
+    afterLevel, afterGameOver, final: G.state,
+    warnings: T.gameState.warnings(),
+    history: T.gameState.history().map((h) => `${h.from}→${h.to}${h.ok ? '' : '(未宣告)'}`),
+  };
+});
+ok('F1 實際流程（遊玩→暫停→商店→關卡結算→遊戲結束→重開）沒有未宣告的狀態轉移',
+  stateFlow.warnings.length === 0,
+  stateFlow.warnings.length ? stateFlow.warnings.join('；') : stateFlow.history.join('、'));
+ok('F2 流程真的走過這些狀態（不是空跑）',
+  stateFlow.afterLevel === 'levelComplete' && stateFlow.afterGameOver === 'gameover' && stateFlow.final === 'playing',
+  JSON.stringify({ level: stateFlow.afterLevel, gameover: stateFlow.afterGameOver, final: stateFlow.final }));
+
+// F3：未知狀態值不會被套用（G.state 是狀態機的存取器）
+const unknownState = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  const before = G.state;
+  G.state = 'nonsense';
+  const after = G.state;
+  G.state = before;
+  return { before, after };
+});
+ok('F3 設定未知狀態不會生效（打錯字不會把狀態機弄壞）',
+  unknownState.after === unknownState.before, JSON.stringify(unknownState));
+
+// F4：失去焦點時平台層的意圖狀態也要清空（不只 G.keys）
+const intentRelease = await page.evaluate(() => {
+  const T = window.__T;
+  T.input.up = true; T.input.fire = true;
+  window.dispatchEvent(new Event('blur'));
+  return { up: T.input.up, fire: T.input.fire };
+});
+ok('F4 blur 會清空平台層的輸入意圖', intentRelease.up === false && intentRelease.fire === false,
+  JSON.stringify(intentRelease));
+
+// F5：音訊初始化必須成功 —— 平台層抽出時曾把噪音 buffer 用的 rnd() 留在模組外，
+// init() 拋錯被 catch 吞掉，整個遊戲靜默無聲（沒有任何測試會發現）。這條守住它。
+const audio = await page.evaluate(() => {
+  const T = window.__T;
+  return {
+    ready: T.Sound.ready, error: T.Sound.error ? String(T.Sound.error.message || T.Sound.error) : null,
+    hasMaster: !!T.Sound.master, hasNoise: !!T.Sound.noiseBuf, musicTrack: !!T.Music._track,
+  };
+});
+ok('F5 音訊引擎初始化成功（沒有靜默失敗：ready=true、error=null）',
+  audio.ready === true && audio.error === null && audio.hasMaster && audio.hasNoise, JSON.stringify(audio));
 
 console.log('\n=== B. 手機與輸入 ===');
 // B1：手機橫向可以開始遊戲
