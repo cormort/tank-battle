@@ -59,6 +59,7 @@ import { makeInputState, applyKey, dirFromInput, releaseAll, makeTouchState, rel
 import { computeRenderScale, detectMobile } from '../src/platform/viewport.js';
 import { makeSound, makeMusic } from '../src/platform/audio.js';
 import { bindLifecycle } from '../src/platform/lifecycle.js';
+import { makeTouchInput } from '../src/platform/touch-ui.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const gameSource = readFileSync(join(ROOT, 'index.html'), 'utf8');
@@ -318,6 +319,52 @@ console.log('\n=== L. 生命週期（src/platform/lifecycle.js）===');
   ok('L2 unbind 之後不再觸發（監聽器有正確移除）',
     leaves === 2 && win.count('blur') === 0 && doc.count('visibilitychange') === 0,
     `blur 監聽器=${win.count('blur')}、visibility=${doc.count('visibilitychange')}`);
+}
+
+console.log('\n=== T2. 觸控 UI（src/platform/touch-ui.js）===');
+{
+  const makeEl = () => {
+    const listeners = new Map();
+    return {
+      style: {}, classList: { _set: new Set(), add(c) { this._set.add(c); }, remove(c) { this._set.delete(c); }, contains(c) { return this._set.has(c); } },
+      addEventListener(t, fn) { (listeners.get(t) || listeners.set(t, []).get(t)).push(fn); },
+      removeEventListener() {},
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100 }),
+      fire(t) { (listeners.get(t) || []).forEach((fn) => fn({ preventDefault() {}, changedTouches: [{ identifier: 1, clientX: 40, clientY: 60 }] })); },
+      listenerCount(t) { return (listeners.get(t) || []).length; },
+    };
+  };
+  const els = { joystickArea: makeEl(), joystickBase: makeEl(), joystickStick: makeEl(), fireButton: makeEl() };
+  const doc = { getElementById: (id) => els[id] || null, addEventListener() {} };
+  const win = { innerHeight: 800, addEventListener() {} };
+  const touch = makeTouchState();
+
+  const mobile = makeTouchInput({ touch, getConfig: () => ({ JOYSTICK_MAX_RADIUS: 45, JOYSTICK_DEADZONE: 0.2 }), isMobile: () => true, doc, win });
+  mobile.init();
+  ok('T2-1 觸控裝置上 init 會綁定搖桿與 FIRE 鍵的監聽',
+    els.joystickArea.listenerCount('touchstart') === 1 && els.fireButton.listenerCount('touchstart') === 1);
+
+  els.fireButton.fire('touchstart');
+  ok('T2-2 按下 FIRE 會設定 fire=true 與 pressed 樣式', touch.fire === true && els.fireButton.classList.contains('pressed'));
+
+  touch.dir = 1; touch.joyDx = 30; touch.joyActive = true;
+  mobile.reset();
+  ok('T2-3 reset() 會強制放開搖桿與射擊鍵、並把搖桿移回中央',
+    touch.dir === -1 && touch.fire === false && touch.joyActive === false && touch.joyDx === 0
+    && els.joystickStick.style.left === '50%' && !els.fireButton.classList.contains('pressed'),
+    JSON.stringify({ dir: touch.dir, fire: touch.fire, stick: els.joystickStick.style.left }));
+
+  // 桌機用「另一組全新的元素」，這樣才能確定完全沒有綁定
+  const desktopEls = { joystickArea: makeEl(), joystickBase: makeEl(), joystickStick: makeEl(), fireButton: makeEl() };
+  const desktopDoc = { getElementById: (id) => desktopEls[id] || null, addEventListener() {} };
+  const desktop = makeTouchInput({ touch: makeTouchState(), getConfig: () => ({ JOYSTICK_MAX_RADIUS: 45, JOYSTICK_DEADZONE: 0.2 }), isMobile: () => false, doc: desktopDoc, win });
+  desktop.init();
+  ok('T2-4 非觸控裝置上 init 完全不綁定觸控監聽（桌機不會被搖桿影響）',
+    desktopEls.joystickArea.listenerCount('touchstart') === 0 && desktopEls.fireButton.listenerCount('touchstart') === 0);
+
+  const noDoc = makeTouchInput({ touch: makeTouchState(), getConfig: () => ({ JOYSTICK_MAX_RADIUS: 45, JOYSTICK_DEADZONE: 0.2 }), isMobile: () => true, doc: null, win: null });
+  ok('T2-5 沒有 DOM 時建構不會拋錯（元素為 null、reset 仍安全）',
+    noDoc.joyArea === null && (noDoc.reset(), true));
 }
 
 console.log('\n=== C. 架構契約 ===');

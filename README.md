@@ -25,6 +25,7 @@ src/platform/       平台層（純函式，Node 可測；不碰遊戲內部狀�
   viewport.js         DPR 倍率、觸控裝置判定、canvas backing store
   audio.js            音效與 BGM（Web Audio）；DOM 與遊戲狀態用 hook／rng 注入
   lifecycle.js        失去焦點／切到背景／回到前景的事件 → 意圖對應（可 unbind）
+  touch-ui.js         螢幕搖桿與 FIRE 鍵（依賴注入：touch／getConfig／isMobile／doc／win）
 src/data/           資料層：唯一來源，這裡改數值就是改遊戲
   config.js           CONFIG（畫布、子彈、粒子、池、AI、玩法）
   weapons.js          四條流派樹、射擊參數、起始武器、掉落池
@@ -43,14 +44,14 @@ tools/              驗證工具（Node + Playwright）
 
 - 資料檔不得 import 遊戲內部。Director 事件需要執行期物件（`G`／`Tank`／`W`…）時，
   由呼叫端以 getter 注入（`makeDirectorEvents(ctx)`）—— 依賴因此是顯式的，也能用 stub ctx 在 Node 驗證。
-- `STATE` 是程式碼列舉（狀態機的值），留在 `index.html`；其餘常數與內容表都在 `src/data/`。
+- 狀態列舉的唯一來源是 `src/core/state.js` 的 `STATES`（`index.html` 只做 `const STATE = STATES;` 別名）。
 
 ## 開發與驗證
 
 三支工具，都不需要建置：
 
 ```bash
-node tools/verify-core.mjs    # 核心與平台層單元測試（50 項，純 Node、秒級）
+node tools/verify-core.mjs    # 核心與平台層單元測試（55 項，純 Node、秒級）
 node tools/verify-data.mjs    # 資料層閘門（5 項，純 Node、秒級）
 node tools/verify-replay.mjs  # 確定性與 replay（12 項）
 node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay
@@ -101,6 +102,8 @@ fx.clearAll();                                      // restartGame() 內，重�
   「是否在遊戲中」用 `isPlaying()`、噪音 buffer 的隨機來源用 `rng` 注入。
 - **lifecycle.js**：`bindLifecycle({ onLeave, onReturn })` 把 `visibilitychange`／`blur`／`focus`／
   `pointerdown` 對應到「放開輸入＋自動暫停」與「恢復音訊」，並回傳 `unbind()`。
+- **touch-ui.js**：`makeTouchInput({ touch, getConfig, isMobile, doc, win })` —— 搖桿與 FIRE 鍵。
+  `reset()` 是關鍵介面（失焦／切背景／結算時強制放開）；沒有 DOM 時也不會拋錯。
 
 > 抽 audio 時踩到一個**靜默失效**：噪音 buffer 產生用的 `rnd()` 是 index.html 的變數，
 > 搬進模組後不在作用域內，`init()` 拋錯被 `catch` 吞掉 → 整個遊戲沒聲音。

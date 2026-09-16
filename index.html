@@ -354,6 +354,7 @@ import { makeInputState, applyKey, dirFromInput, releaseAll as releaseAllKeys, m
 import { makeStateMachine, STATES } from './src/core/state.js';
 import { makeSound, makeMusic } from './src/platform/audio.js';
 import { bindLifecycle } from './src/platform/lifecycle.js';
+import { makeTouchInput } from './src/platform/touch-ui.js';
 
 // 可重現亂數：整局的隨機都走這一個產生器，?seed=N 可指定（replay 測試靠這個）。
 // 原本 59 處直接呼叫 rnd()，任何一處都會讓兩次執行分岔、無法回放。
@@ -538,7 +539,8 @@ const Perf = {
 // 起始武器
 
 // 狀態常數
-const STATE = { MENU:'menu', PLAYING:'playing', PAUSED:'paused', UPGRADE:'upgrade', SHOP:'shop', GAMEOVER:'gameover', LEVEL_COMPLETE:'levelComplete' };
+// 狀態列舉的唯一來源是 src/core/state.js（這裡只做別名，避免兩份定義分岔）
+const STATE = STATES;
 
 // 特殊敵人類別查詢加速
 
@@ -3389,170 +3391,6 @@ function closeShop() {
 }
 
 // ==================== 手機觸控輸入 ====================
-const MobileInput = {
-  joyArea: document.getElementById('joystickArea'),
-  joyBase: document.getElementById('joystickBase'),
-  joyStick: document.getElementById('joystickStick'),
-  fireBtn: document.getElementById('fireButton'),
-  
-  joyTouchId: null,
-  fireTouchId: null,
-  joyCenterX: 0,
-  joyCenterY: 0,
-  
-  init() {
-    if (!IS_MOBILE) return;
-    
-    this._updateJoyCenter();
-    window.addEventListener('resize', () => this._updateJoyCenter());
-    window.addEventListener('orientationchange', () => setTimeout(() => this._updateJoyCenter(), 200));
-    
-    this.joyArea.addEventListener('touchstart', this._onJoyStart.bind(this), { passive: false });
-    this.joyArea.addEventListener('touchmove', this._onJoyMove.bind(this), { passive: false });
-    this.joyArea.addEventListener('touchend', this._onJoyEnd.bind(this), { passive: false });
-    this.joyArea.addEventListener('touchcancel', this._onJoyEnd.bind(this), { passive: false });
-    
-    this.fireBtn.addEventListener('touchstart', this._onFireStart.bind(this), { passive: false });
-    this.fireBtn.addEventListener('touchend', this._onFireEnd.bind(this), { passive: false });
-    this.fireBtn.addEventListener('touchcancel', this._onFireEnd.bind(this), { passive: false });
-    
-    document.addEventListener('gesturestart', e => e.preventDefault());
-    document.addEventListener('dblclick', e => e.preventDefault());
-  },
-  
-  // 強制放開所有觸控狀態（失去焦點、切到背景、或結算畫面時呼叫）。
-  // 舊版沒有這個介面，所以「按著 FIRE 切到別的分頁」回來後會持續射擊、搖桿也卡在偏移位置。
-  reset() {
-    this.joyTouchId = null;
-    this.fireTouchId = null;
-    G.touch.dir = -1;
-    G.touch.fire = false;
-    G.touch.joyActive = false;
-    G.touch.joyDx = 0;
-    G.touch.joyDy = 0;
-    if (this.joyStick) { this.joyStick.style.left = '50%'; this.joyStick.style.top = '50%'; }
-    if (this.fireBtn) this.fireBtn.classList.remove('pressed');
-    if (this.joyBase) {
-      // 回到 CSS 的預設位置（橫向 media query 會把它改成 left:20px/bottom:20px，
-      // 舊版寫死 left:30px/bottom:30px，橫向放開搖桿時位置會跳一下）
-      this.joyBase.style.left = '';
-      this.joyBase.style.bottom = '';
-    }
-    this._updateJoyCenter();
-  },
-
-  _updateJoyCenter() {
-    const rect = this.joyBase.getBoundingClientRect();
-    this.joyCenterX = rect.left + rect.width / 2;
-    this.joyCenterY = rect.top + rect.height / 2;
-  },
-  
-  _onJoyStart(e) {
-    e.preventDefault();
-    if (this.joyTouchId !== null) return;
-    
-    const touch = e.changedTouches[0];
-    this.joyTouchId = touch.identifier;
-    
-    const areaRect = this.joyArea.getBoundingClientRect();
-    let cx = touch.clientX;
-    let cy = touch.clientY;
-    
-    cx = Math.max(areaRect.left + 70, Math.min(areaRect.right - 70, cx));
-    cy = Math.max(areaRect.top + 70, Math.min(areaRect.bottom - 70, cy));
-    
-    this.joyBase.style.left = (cx - areaRect.left - 65) + 'px';
-    this.joyBase.style.bottom = (window.innerHeight - cy - 65) + 'px';
-    this.joyCenterX = cx;
-    this.joyCenterY = cy;
-    
-    this._processJoy(touch.clientX, touch.clientY);
-  },
-  
-  _onJoyMove(e) {
-    if (this.joyTouchId === null) return;
-    e.preventDefault();
-    
-    for (const t of e.changedTouches) {
-      if (t.identifier === this.joyTouchId) {
-        this._processJoy(t.clientX, t.clientY);
-        break;
-      }
-    }
-  },
-  
-  _onJoyEnd(e) {
-    if (this.joyTouchId === null) return;
-    
-    for (const t of e.changedTouches) {
-      if (t.identifier === this.joyTouchId) {
-        e.preventDefault();
-        this.joyTouchId = null;
-        G.touch.dir = -1;
-        G.touch.joyActive = false;
-        G.touch.joyDx = 0;
-        G.touch.joyDy = 0;
-        this.joyStick.style.left = '50%';
-        this.joyStick.style.top = '50%';
-        this.joyBase.style.left = '30px';
-        this.joyBase.style.bottom = '30px';
-        this._updateJoyCenter();
-        break;
-      }
-    }
-  },
-  
-  _processJoy(touchX, touchY) {
-    const dx = touchX - this.joyCenterX;
-    const dy = touchY - this.joyCenterY;
-    const dist = Math.hypot(dx, dy);
-    const maxR = CONFIG.MOBILE.JOYSTICK_MAX_RADIUS;
-    
-    const clampedDist = Math.min(dist, maxR);
-    const ratio = dist > 0 ? clampedDist / dist : 0;
-    const visualDx = dx * ratio;
-    const visualDy = dy * ratio;
-    
-    this.joyStick.style.left = `calc(50% + ${visualDx}px)`;
-    this.joyStick.style.top = `calc(50% + ${visualDy}px)`;
-    
-    const normDist = clampedDist / maxR;
-    if (normDist < CONFIG.MOBILE.JOYSTICK_DEADZONE) {
-      G.touch.dir = -1;
-      G.touch.joyActive = false;
-      G.touch.joyDx = 0;
-      G.touch.joyDy = 0;
-    } else {
-      G.touch.joyActive = true;
-      G.touch.joyDx = dx;
-      G.touch.joyDy = dy;
-      G.touch.dir = Math.abs(dx) > Math.abs(dy)
-        ? (dx > 0 ? RIGHT : LEFT)
-        : (dy > 0 ? DOWN : UP);
-    }
-  },
-  
-  _onFireStart(e) {
-    e.preventDefault();
-    if (this.fireTouchId !== null) return;
-    this.fireTouchId = e.changedTouches[0].identifier;
-    G.touch.fire = true;
-    this.fireBtn.classList.add('pressed');
-  },
-  
-  _onFireEnd(e) {
-    if (this.fireTouchId === null) return;
-    for (const t of e.changedTouches) {
-      if (t.identifier === this.fireTouchId) {
-        e.preventDefault();
-        this.fireTouchId = null;
-        G.touch.fire = false;
-        this.fireBtn.classList.remove('pressed');
-        break;
-      }
-    }
-  }
-};
 
 function updateMobileControlsForMode() {
   if (!IS_MOBILE) return;
@@ -3566,6 +3404,12 @@ function updateMobileControlsForMode() {
   }
 }
 
+const MobileInput = makeTouchInput({
+  touch: G.touch,                     // 平台層的觸控狀態（G.touch 就是它）
+  getConfig: () => CONFIG.MOBILE,
+  isMobile: () => IS_MOBILE,
+  doc: document, win: window,
+});
 MobileInput.init();
 
 // ==================== 主迴圈 (固定時間步長 60Hz 模擬, 任意刷新率渲染) ====================
