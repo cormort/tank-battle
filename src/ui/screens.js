@@ -161,5 +161,28 @@ export function makeScreens({ doc, getGame, states, tables, hooks }) {
     setTimeout(() => container.firstChild && container.firstChild.focus(), 0);
   }
 
-  return { togglePause, openShop, closeShop, showGameOver, showContinuePrompt, showFinalGameOver, renderUpgrade };
+  /** 標題畫面（restartGame 會呼叫）：只負責 overlay 內容，遊戲狀態重置留在遊戲層。 */
+  function renderMenu() {
+    doc.getElementById('overlay').innerHTML = `
+      <h1>TANK WARS v2</h1>
+      <p>四條武器流派 · 被動技能 · 菁英詞綴 · 主動技能</p>
+      <p>選擇你的流派，每局玩法都不同!</p>
+      ${hooks.isMobile()
+        ? '<p style="margin-top:12px; color:#ffd700;">左搖桿 <b>移動</b></p><p style="color:#ffd700;">右按鈕 <b>射擊</b></p>'
+        : '<p style="margin-top:12px; color:#ffd700;">WASD / 方向鍵 <b>移動</b></p><p style="color:#ffd700;">空白鍵 <b>射擊</b> · Q <b>主動技能</b></p>'
+      }
+    `;
+  }
+
+  /** 音樂開關的圖示與 tooltip（按鈕與 N 鍵共用）。 */
+  function updateMusicIcon() {
+    const btn = doc.getElementById('musicToggle');
+    if (!btn) return;
+    const on = hooks.isMusicEnabled();
+    btn.textContent = on ? '🎵' : '🔇';
+    btn.style.opacity = on ? '1' : '0.45';
+    btn.title = on ? '切換音樂 (N)：開' : '切換音樂 (N)：關';
+  }
+
+  return { togglePause, openShop, closeShop, showGameOver, showContinuePrompt, showFinalGameOver, renderUpgrade, renderMenu, updateMusicIcon };
 }

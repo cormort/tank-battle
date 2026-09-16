@@ -2831,15 +2831,7 @@ function restartGame() {
   G.directorEvents = [];
   G.permanentStats = { scr: 0, upgradePoints: 0 };
   G.mapEvent = rollMapEvent();
-  document.getElementById('overlay').innerHTML = `
-    <h1>TANK WARS v2</h1>
-    <p>四條武器流派 · 被動技能 · 菁英詞綴 · 主動技能</p>
-    <p>選擇你的流派，每局玩法都不同!</p>
-    ${IS_MOBILE
-      ? '<p style="margin-top:12px; color:#ffd700;">左搖桿 <b>移動</b></p><p style="color:#ffd700;">右按鈕 <b>射擊</b></p>'
-      : '<p style="margin-top:12px; color:#ffd700;">WASD / 方向鍵 <b>移動</b></p><p style="color:#ffd700;">空白鍵 <b>射擊</b> · Q <b>主動技能</b></p>'
-    }
-  `;
+  screens.renderMenu();          // 標題畫面（實作在 src/ui/screens.js）
   startLevel();
 }
 
@@ -2935,13 +2927,6 @@ document.getElementById('soundToggle').addEventListener('click', e => {
   Sound.init(); Sound.resume();
   Sound.toggle();
 });
-function updateMusicIcon() {
-  const btn = document.getElementById('musicToggle');
-  if (!btn) return;
-  btn.textContent = Music.enabled ? '🎵' : '🔇';
-  btn.style.opacity = Music.enabled ? '1' : '0.45';
-  btn.title = Music.enabled ? '切換音樂 (N)：開' : '切換音樂 (N)：關';
-}
 document.getElementById('musicToggle').addEventListener('click', e => {
   e.stopPropagation();
   Sound.init(); Sound.resume();
@@ -3071,9 +3056,12 @@ const screens = makeScreens({
     jingleGameOver: () => Sound.jingleGameOver(),
     jingleLevelClear: () => Sound.jingleLevelClear(),
     stopMusic: () => Music.stop(),
+    isMobile: () => IS_MOBILE,
+    isMusicEnabled: () => Music.enabled,
   },
 });
 const { togglePause, openShop, closeShop, showGameOver, showContinuePrompt, showFinalGameOver } = screens;
+const updateMusicIcon = screens.updateMusicIcon;   // 音樂圖示（按鈕與 N 鍵共用）
 
 // ==================== 主迴圈 (固定時間步長 60Hz 模擬, 任意刷新率渲染) ====================
 const TICK_HZ = 60;

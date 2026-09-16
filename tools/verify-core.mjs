@@ -572,6 +572,8 @@ console.log('\n=== T7. UI：畫面流程（src/ui/screens.js）===');
       playSound: () => calls.sound++, playMusic: (n) => calls.music.push(n), jingleGameOver: () => calls.jingle++,
       jingleLevelClear: () => calls.jingleLevelClear = (calls.jingleLevelClear || 0) + 1,
       stopMusic: () => calls.stopMusic = (calls.stopMusic || 0) + 1,
+      isMobile: () => false,
+      isMusicEnabled: () => true,
     },
   });
 
@@ -629,6 +631,20 @@ console.log('\n=== T7. UI：畫面流程（src/ui/screens.js）===');
     `state=${game.state} cards=${cards.children.length}`);
   cards.children[0].onclick();
   ok('T7-11 點卡片會把選項交回遊戲層（onPick）', picked === 'GATLING', String(picked));
+
+  // 標題畫面與音樂圖示
+  screens.renderMenu();
+  const menuHTML = doc.getElementById('overlay').innerHTML;
+  ok('T7-12 標題畫面：桌機顯示鍵盤提示、行動裝置顯示觸控提示',
+    menuHTML.includes('TANK WARS v2') && menuHTML.includes('WASD') && !menuHTML.includes('左搖桿'),
+    menuHTML.slice(0, 60).replace(/\n/g, ' '));
+
+  doc.getElementById('musicToggle').textContent = '';
+  screens.updateMusicIcon();
+  const musicBtn = doc.getElementById('musicToggle');
+  ok('T7-13 音樂圖示依啟用狀態更新（開啟時 🎵、tooltip 說明）',
+    musicBtn.textContent === '🎵' && String(musicBtn.style.opacity) === '1' && musicBtn.title.includes('N'),
+    `${musicBtn.textContent}｜${musicBtn.title}`);
 
   // REBOOT 按鈕（showFinalGameOver 內註冊）
   doc.getElementById('restartBtn').onclick();

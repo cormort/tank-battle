@@ -1,6 +1,7 @@
 // Replay 測試（M2 的閘門）：把「玩一局」變成 CI 能跑的事。
 //
 //   node tools/verify-replay.mjs              # 驗證（CI 用）
+//   PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-replay.mjs   # 對正式站驗
 //   node tools/verify-replay.mjs --record     # 重新錄製 tools/replays/*.json
 //
 // 原理：整局的隨機都走 `src/core/rng.js` 的 seeded 產生器，而 `?sim` 模式讓 update() 只由
@@ -42,14 +43,18 @@ export function scriptedInput(tick) {
   return { [dir]: true, ...(tick % 3 === 0 ? { Space: true } : {}) };
 }
 
-const server = createServer(async (req, res) => {
+// PROBE_URL：直接對遠端（例如正式站）跑同一份 replay —— 這是「正式站驗證」最強的一條，
+// 因為它比對的是 seed + 輸入序列產生的 checksum，而不只是「畫面能開」。
+const PROBE_URL = process.env.PROBE_URL || null;
+const server = PROBE_URL ? null : createServer(async (req, res) => {
   const rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   const file = join(ROOT, rel === '/' ? '/index.html' : rel);
   if (!file.startsWith(ROOT) || !existsSync(file)) { res.writeHead(404); res.end('nope'); return; }
   res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' });
   res.end(readFileSync(file));
 });
-await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
+if (server) await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
+const TARGET = PROBE_URL || `http://127.0.0.1:${PORT}/index.html`;
 
 let pw;
 try {
@@ -65,7 +70,7 @@ async function runReplay({ seed, ticks, events }) {
   const page = await (await browser.newContext()).newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message.split('\n')[0]));
-  await page.goto(`http://127.0.0.1:${PORT}/index.html?bot&sim&seed=${encodeURIComponent(seed)}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${TARGET}?bot&sim&seed=${encodeURIComponent(seed)}`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__T && window.__T.G, undefined, { timeout: 20000 });
   await page.getByRole('button', { name: 'START GAME' }).click();
   await page.waitForTimeout(300);
@@ -194,5 +199,5 @@ console.log('\n=== T. 時效欄位：宣告的計時器必須有遞減端 ===');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 await browser.close();
-server.close();
+if (server) server.close();
 process.exit(failed ? 1 : 0);

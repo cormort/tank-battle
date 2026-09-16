@@ -27,7 +27,7 @@ src/render/         渲染層
   effects.js          粒子／生成特效／分數彈出／子彈（依賴注入 ctx／pools）
 src/ui/             UI 層
   hud.js              HUD 更新（依賴注入元素集合／狀態取值器／fx／資料表）
-  screens.js          畫面流程：暫停／商店／接關／結束／升級三選一（依賴注入 doc／hooks）
+  screens.js          畫面流程：標題／暫停／商店／接關／結束／升級三選一（依賴注入 doc／hooks）
 src/platform/       平台層（純函式，Node 可測；不碰遊戲內部狀態）
   input.js            鍵盤／觸控 → intent；放開所有輸入只有一個實作
   viewport.js         DPR 倍率、觸控裝置判定、canvas backing store
@@ -76,6 +76,7 @@ detectMobile` 這種碰撞會讓別名指向自己造成無限遞迴 —— 實�
 node tools/verify-core.mjs    # 核心／平台層／渲染／UI 單元測試（88 項，純 Node、秒級）
 node tools/verify-data.mjs    # 資料層閘門（5 項，純 Node、秒級）
 node tools/verify-replay.mjs  # 確定性與 replay（12 項）
+#   PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-replay.mjs   # 對正式站驗
 node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay
 node tools/verify-bundle.mjs  # 打包版與模組版行為等價（7 項，Playwright）
 node tools/verify-game.mjs    # 遊戲行為與平台細節（37 項，Playwright）
@@ -138,6 +139,18 @@ fx.clearAll();                                      // restartGame() 內，重�
 `G.state` 是狀態機的存取器：既有的 `G.state = X` 不必改寫，但會經過轉移白名單檢查並記錄。
 未宣告的轉移**仍然允許**（遊戲不會因為漏寫白名單就卡死）但會登記警告 ——
 `verify-game` 的 F1 把真實流程走一遍並要求**警告數為 0**，`verify-core` 的 S8 用純函式驗同一件事。
+
+### 對正式站驗證
+
+兩支工具都支援 `PROBE_URL`，可以直接對生產環境跑：
+
+```bash
+PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-game.mjs    # 37 項行為與平台檢查
+PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-replay.mjs  # seed + 輸入 → checksum 等價
+```
+
+replay 那條是「行為等價」最強的證據：正式站跑同一份 replay 得到的 checksum 必須與
+`tools/replays/smoke.json` 相同（目前 `2087606046`）—— 也就是說，重寫前後的**遊戲行為逐位相同**。
 
 ### `verify-bundle.mjs`（打包驗證）
 
