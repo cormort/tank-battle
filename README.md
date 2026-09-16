@@ -15,7 +15,8 @@
 ## 專案結構
 
 ```
-index.html          遊戲本體（單檔可開，<script type="module">）
+index.html          遊戲本體（<script type="module">，直接服務即可 —— Pages 不需要建置）
+dist/index.html     單檔打包（由 tools/build-single-file.mjs 產生；離線／file:// 用）
 src/core/           執行期核心
   rng.js              可重現亂數（xorshift32；?seed=N）
   effects.js          時效系統：所有有持續時間的效果集中在這裡，只有一個 tick 進入點
@@ -46,15 +47,30 @@ tools/              驗證工具（Node + Playwright）
   由呼叫端以 getter 注入（`makeDirectorEvents(ctx)`）—— 依賴因此是顯式的，也能用 stub ctx 在 Node 驗證。
 - 狀態列舉的唯一來源是 `src/core/state.js` 的 `STATES`（`index.html` 只做 `const STATE = STATES;` 別名）。
 
+## 建置（選用）
+
+Pages 直接服務 `index.html` 的 ESM 模組即可，**不需要建置**。若需要單檔（離線、`file://`、
+只要一個請求），用零依賴的內聯器產生 `dist/index.html`：
+
+```bash
+node tools/build-single-file.mjs          # 產出 dist/index.html
+node tools/build-single-file.mjs --check  # 只檢查是否需要重建（CI 用，離開碼 1 = 需要重建）
+```
+
+內聯器只處理相對路徑的具名匯入（含別名與 `export … from` 的 re-export 鏈），並有兩道防線：
+打包後不得殘留模組語法、**頂層宣告不得同名**（內聯後共用一個作用域，`
+detectMobile` 這種碰撞會讓別名指向自己造成無限遞迴 —— 實際踩過）。
+
 ## 開發與驗證
 
-三支工具，都不需要建置：
+五支工具，都不需要建置：
 
 ```bash
 node tools/verify-core.mjs    # 核心與平台層單元測試（55 項，純 Node、秒級）
 node tools/verify-data.mjs    # 資料層閘門（5 項，純 Node、秒級）
 node tools/verify-replay.mjs  # 確定性與 replay（12 項）
 node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay
+node tools/verify-bundle.mjs  # 打包版與模組版行為等價（7 項，Playwright）
 node tools/verify-game.mjs    # 遊戲行為與平台細節（36 項，Playwright）
 #   PW_MODULE=/path/to/playwright/index.js node tools/verify-game.mjs
 #   PROBE_URL=https://cormort.github.io/tank-battle/ node tools/verify-game.mjs   # 打遠端
@@ -115,6 +131,13 @@ fx.clearAll();                                      // restartGame() 內，重�
 `G.state` 是狀態機的存取器：既有的 `G.state = X` 不必改寫，但會經過轉移白名單檢查並記錄。
 未宣告的轉移**仍然允許**（遊戲不會因為漏寫白名單就卡死）但會登記警告 ——
 `verify-game` 的 F1 把真實流程走一遍並要求**警告數為 0**，`verify-core` 的 S8 用純函式驗同一件事。
+
+### `verify-bundle.mjs`（打包驗證）
+
+打包最容易出的錯是「打出來的檔案能開、但行為不一樣」。所以核心檢查是：
+**用同一份 replay 跑打包版，checksum 必須與模組版完全相同**（目前皆為 `2087606046`）。
+另外檢查打包檔自足（沒有模組語法、沒有相對匯入、載入時不請求任何本地 `.js`）、
+不含工具鏈程式碼、`?bot` 除錯介面齊全。
 
 ### `verify-replay.mjs`（確定性與 replay）
 

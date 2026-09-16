@@ -338,23 +338,1164 @@
   <div class="row"><span class="lbl">POOL PK</span><span id="perfPeak">0</span></div>
 </div>
 
-<script type="module">
+<script>
+/* 由 tools/build-single-file.mjs 產生 —— 請勿直接編輯；改 src/ 或 index.html 後重新打包。
+ * 內含 16 個模組：src/data/config.js、src/data/enemies.js、src/data/events.js、src/data/pickups.js、src/data/shop.js、src/data/upgrades.js、src/data/weapons.js、src/data/index.js、src/core/rng.js、src/core/effects.js、src/platform/viewport.js、src/platform/input.js、src/core/state.js、src/platform/audio.js、src/platform/lifecycle.js、src/platform/touch-ui.js
+ */
+// ── src/data/config.js ──
+// 遊戲常數（唯一來源）。要調數值只改這裡；index.html 以 ESM import 取用。
+
+const CONFIG = {
+  CANVAS: { W: 520, H: 520, TILE: 26 },
+  BULLET: {
+    PLAYER_COOLDOWN: 14,
+    PLAYER_COOLDOWN_VS: 8,
+    ENEMY_NORMAL: 70,
+    ENEMY_FAST: 60,
+    ENEMY_HEAVY: 70,
+    BOSS: 45,
+    SPEED_PLAYER: 6,
+    SPEED_ENEMY: 3.5,
+    SPEED_BOSS: 4,
+    SIZE: 6,
+  },
+  PARTICLE: {
+    SPARK_COUNT: 6,
+    TANK_DEATH_COUNT: 15,
+    BIG_COUNT: 30,
+    POOL_SIZE: 400,
+  },
+  POOL: {
+    BULLET_INITIAL: 200,
+    BULLET_MAX: 500,
+  },
+  AI: {
+    VISION_RANGE: 26 * 12,
+    CHANGE_INTERVAL: 30,
+    VS_UPDATE_INTERVAL: 12,
+  },
+  GAMEPLAY: {
+    POSITION_PRECISION: 0.5,
+    SHAKE_DECAY: 0.88,
+    PLAYER_RESPAWN_INVUL: 90,
+    PLAYER_HIT_FLASH: 8,
+    MAX_ENEMIES_ON_SCREEN: 4,
+    MAX_ENEMIES_ON_SCREEN_VS: 18,
+    BOSS_LEVEL_INTERVAL: 5,
+    VS_MODE_INTERVAL: 10,
+    UPGRADE_INTERVAL: 3,
+    STARTING_CONTINUES: 3,
+  },
+  GRID: {
+    CELL_SIZE: 26 * 2,
+  },
+  MOBILE: {
+    JOYSTICK_DEADZONE: 0.25,   // 死區百分比
+    JOYSTICK_MAX_RADIUS: 50,   // 搖桿最大半徑(px)
+  }
+};
+// ── src/data/enemies.js ──
+// 敵人資料：菁英詞綴、特殊敵人類型。
+
+const ELITE_PREFIXES = {
+  BERSERKER: { name: '狂戰士', effect: '移速 x1.8', color: '#ff0000', icon: '🔴' },
+  SHIELDED: { name: '護盾', effect: '免疫前 3 發', color: '#8800ff', icon: '🟣' },
+  EXPLOSIVE: { name: '爆炸', effect: '死亡時爆炸', color: '#000000', icon: '⚫' },
+  FREEZING: { name: '冰凍', effect: '命中玩家減速', color: '#00ddff', icon: '🔵' },
+  REGEN: { name: '再生', effect: '每秒回血', color: '#00ff00', icon: '🟢' },
+  SUMMONER: { name: '召喚', effect: '持續召喚小兵', color: '#ffff00', icon: '🟡' }
+};
+
+const SPECIAL_ENEMY_TYPES = new Set(['SNIPER','ENGINEER','INTERFERER','GUARD','MINELAYER']);
+// ── src/data/events.js ──
+// 局內事件：Director 事件與地圖事件。
+
+// Director 事件除了資料（name/duration/desc）也帶行為（activate/deactivate）。
+// 行為需要的執行期物件由呼叫端注入，資料層不必 import 遊戲內部 —— 依賴關係因此是顯式的，
+// 也讓這張表可以在 Node 裡用 stub ctx 驗證（tools/verify-data.mjs）。
+function makeDirectorEvents(ctx) {
+  // 注意：不能在這裡解構 ctx —— 傳進來的 G／Tank 等在 index.html 是晚於 import 才宣告的，
+  // 解構會立刻求值（TDZ: Cannot access 'G' before initialization）。一律在行為被呼叫時才取。
+  return {
+  SURGE: {
+    name: '⚠️ ENEMY SURGE', duration: 600, desc: '敵軍生成加倍',
+    activate() { ctx.G.spawnInterval = Math.max(4, ctx.G.spawnInterval / 2); },
+    deactivate() { ctx.G.spawnInterval = Math.min(30, ctx.G.spawnInterval * 2); }
+  },
+  AIRDROP: {
+    name: '📦 空投來了', duration: 900, desc: '高級物資出現',
+    activate() {
+      ctx.G.directorEvents.push({ type: 'airdrop', x: ctx.W/2, y: ctx.H/2, life: 300, maxLife: 300 });
+    }
+  },
+  MINIBOSS: {
+    name: '💀 BOSS 突襲', duration: 1200, desc: 'Mini Boss 出現',
+    activate() {
+      const e = new ctx.Tank(ctx.W/2, ctx.TILE, ctx.DOWN, 'BOSS', false);
+      e.hp = e.maxHp = 8;
+      ctx.G.enemies.push(e);
+      ctx.G.aliveEnemies++;      // 其他生兵路徑都有計數；少了這行會在牠死亡時讓 aliveEnemies 漂移成負值
+    }
+  },
+  ORBITAL: {
+    name: '🚀 軌道轟炸', duration: 800, desc: '地面出現預警',
+    activate() {
+      ctx.G.directorEvents.push({ type: 'orbital', targets: [], stage: 0, timer: 0 });
+    }
+  },
+  TRAIN: {
+    name: '🚂 補給列車', duration: 600, desc: '高速物資列車',
+    activate() {
+      ctx.G.directorEvents.push({ type: 'train', x: 0, y: ctx.H/2, life: 360 });
+    }
+  }
+  };
+}
+
+const MAP_EVENTS = [
+  { id: 'DESERT', name: '🏜️ 沙漠', effect: '移速 -30%', color: '#cc8844', duration: 600 },
+  { id: 'ICE', name: '❄️ 冰原', effect: '坦克滑行慣性', color: '#88ccff', duration: 600 },
+  { id: 'VOLCANIC', name: '🌋 火山', effect: '定期噴岩漿', color: '#ff4422', duration: 480 },
+  { id: 'EMP', name: '⚡ EMP區域', effect: '子彈速度減半', color: '#aa44ff', duration: 600 },
+  { id: 'NIGHT', name: '🌙 夜戰', effect: '視野縮小', color: '#222244', duration: 600 },
+  { id: 'TOXIC', name: '☣️ 毒霧', effect: '持續扣血', color: '#44ff44', duration: 480 }
+];
+// ── src/data/pickups.js ──
+// 道具與掉落池。
+
+const POWER_UPS = {
+  BOMB: { name: '炸彈', desc: '秒殺全屏敵人', icon: '💣', color: '#ff4400', duration: 0 },
+  WALL: { name: '堡壘', desc: '鋼鐵城墙 15 秒', icon: '🧱', color: '#888888', duration: 15 },
+  STAR: { name: '火力', desc: '武器升一級', icon: '⭐', color: '#ffd700', duration: 0 },
+  TIME: { name: '時光', desc: '凍敵 10 秒', icon: '⏱️', color: '#00ffff', duration: 10 },
+  SHIELD: { name: '護盾', desc: '無敵 10 秒', icon: '🛡️', color: '#8800ff', duration: 10 },
+  ONEUP: { name: '+1', desc: '接關次數+1', icon: '❤️', color: '#ff69b4', duration: 0 },
+  RAPID_DROP: { name: '快速射擊', desc: '射速+20% (本關有效)', icon: '⚡', color: '#ff6b00', duration: 0, weaponType: 'RAPID' },
+  SPREAD_DROP: { name: '散彈', desc: '扇形射擊 (本關有效)', icon: '💫', color: '#ffdd00', duration: 0, weaponType: 'SPREAD' },
+  PLASMA_DROP: { name: '電漿炮', desc: '貫穿彈 (本關有效)', icon: '🔷', color: '#00ddff', duration: 0, weaponType: 'PLASMA' },
+  SUMMON_DROP: { name: '工程師', desc: '部署砲塔 (本關有效)', icon: '🛠️', color: '#44ff88', duration: 0, weaponType: 'SUMMON' },
+  GATLING_DROP: { name: '格林機槍', desc: '格林機槍 (本關有效)', icon: '🔥', color: '#ff4400', duration: 0, weaponType: 'GATLING', tier: 2 },
+  CLUSTER_DROP: { name: '集束彈', desc: '集束彈頭 (本關有效)', icon: '💛', color: '#ffaa00', duration: 0, weaponType: 'CLUSTER', tier: 2 },
+  D_LASER_DROP: { name: '雙光束炮', desc: '雙光束炮 (本關有效)', icon: '🔷', color: '#00aaff', duration: 0, weaponType: 'D_LASER', tier: 2 }
+};
+
+const COMMON_DROPS = ['BOMB', 'WALL', 'STAR', 'TIME', 'SHIELD', 'ONEUP'];
+// ── src/data/shop.js ──
+// 商店品項。
+
+const SHOP_ITEMS = [
+  { id: 'HEALTH_PLUS', name: '生命+1', desc: '最大生命值+1', icon: '❤️', color: '#ff69b4', price: 500, type: 'health' },
+  { id: 'SPEED_BOOST', name: '移動加速', desc: '移動速度+20%', icon: '⚡', color: '#44ff44', price: 800, type: 'speed' },
+  { id: 'PIERCE_AMMO', name: '穿甲彈', desc: '子彈可貫穿敵人', icon: '🎯', color: '#ffaa00', price: 1200, type: 'pierce' },
+  { id: 'RAPID_FIRE', name: '快速射擊', desc: '射速+20%', icon: '🔥', color: '#ff6b00', price: 1000, type: 'rapid' },
+  { id: 'EXTRA_LIFE', name: '額外生命', desc: '接關次數+1', icon: '💖', color: '#ff0000', price: 600, type: 'life' },
+  { id: 'PERM_WALL', name: '堡壘', desc: '鋼鐵城牆 15 秒', icon: '🏰', color: '#888888', price: 2000, type: 'wall' },
+  { id: 'WEAPON_UP', name: '武器升級', desc: '武器升一級', icon: '⭐', color: '#ffd700', price: 1500, type: 'weapon' }
+];
+// ── src/data/upgrades.js ──
+// 升級卡池：被動技能與主動技能。
+
+const PASSIVE_SKILLS = [
+  { id: 'HEAT', name: '熱能反應', desc: '連續射擊越久，攻速越快', icon: '🔥', color: '#ff6600' },
+  { id: 'OVERCHARGE', name: '超載電容', desc: '雷射擊殺敵人會連鎖電擊', icon: '⚡', color: '#00ddff' },
+  { id: 'RAGE', name: '狂暴核心', desc: '生命越低傷害越高', icon: '🩸', color: '#ff0066' },
+  { id: 'BARRIER', name: '反應護盾', desc: '受傷後 2 秒無敵', icon: '🛡️', color: '#8888ff' },
+  { id: 'NUCLEAR', name: '核融合引擎', desc: '移動時持續灼燒周圍', icon: '☢️', color: '#44ff44' },
+  { id: 'WEAKEN', name: '弱點分析', desc: '對 BOSS 額外 +50% 傷害', icon: '🎯', color: '#ffff00' },
+  { id: 'VAMPIRE', name: '吸血光束', desc: '擊殺回血', icon: '🦇', color: '#cc0000' },
+  { id: 'CHAIN', name: '連鎖反應', desc: '子彈會彈跳到附近敵人', icon: '🔗', color: '#aa44ff' }
+];
+
+const ACTIVE_SKILLS = [
+  { id: 'EMP', name: 'EMP脈衝', desc: '清除附近子彈', cooldown: 20, key: 'KeyQ', icon: '📡' },
+  { id: 'DASH', name: '緊急衝刺', desc: '高速位移', cooldown: 15, key: 'KeyQ', icon: '💨' },
+  { id: 'STRIKE', name: '空襲呼叫', desc: '指定區域轟炸', cooldown: 25, key: 'KeyQ', icon: '💥' },
+  { id: 'SLOW', name: '時間扭曲', desc: '局部緩速敵人', cooldown: 18, key: 'KeyQ', icon: '⏱️' },
+  { id: 'DECOY', name: '誘敵裝置', desc: '吸引敵軍攻擊', cooldown: 22, key: 'KeyQ', icon: '👻' },
+  { id: 'BOOST', name: '超頻爆發', desc: '短時攻速翻倍', cooldown: 30, key: 'KeyQ', icon: '🚀' }
+];
+// ── src/data/weapons.js ──
+// 武器資料：四條流派樹、射擊參數、起始武器、掉落池。
+
+const WEAPON_TREE = {
+  // A 路線：高射速流 - 超高DPS，單發低，剋重甲
+  RAPID: {
+    id: 'RAPID',
+    route: 'A', tier: 1, name: '快速射擊', desc: '雙連發模式，子彈貫穿',
+    next: 'GATLING', color: '#ff6b00', icon: '⚡', basePower: 1.0
+  },
+  GATLING: {
+    id: 'GATLING',
+    route: 'A', tier: 2, name: '格林機槍', desc: '雙管射擊，火力+10%',
+    next: 'CHAINGUN', color: '#ff4400', icon: '🔥', basePower: 1.1
+  },
+  CHAINGUN: {
+    id: 'CHAINGUN',
+    route: 'A', tier: 3, name: '連環炮', desc: '三管齊射，火力+20%',
+    next: 'OVERDRIVE', color: '#cc2200', icon: '💥', basePower: 1.2
+  },
+  OVERDRIVE: {
+    id: 'OVERDRIVE',
+    route: 'A', tier: 4, name: '過載出火', desc: '四管齊射，全螢幕橫掃',
+    next: null, color: '#880000', icon: '💀', basePower: 1.4
+  },
+
+  // B 路線：範圍爆破流 - 清怪神，打王弱，有爆炸連鎖
+  SPREAD: {
+    id: 'SPREAD',
+    route: 'B', tier: 1, name: '散彈核心', desc: '扇形發射 3 發子彈',
+    next: 'CLUSTER', color: '#ffdd00', icon: '💫', basePower: 1.0
+  },
+  CLUSTER: {
+    id: 'CLUSTER',
+    route: 'B', tier: 2, name: '集束彈頭', desc: '命中分裂 5 發小彈',
+    next: 'NAPALM', color: '#ffaa00', icon: '💛', basePower: 1.1
+  },
+  NAPALM: {
+    id: 'NAPALM',
+    route: 'B', tier: 3, name: '凝固汽油彈', desc: '子彈留下燃燒地帶',
+    next: 'APOCALYPSE', color: '#ff6600', icon: '🔥', basePower: 1.2
+  },
+  APOCALYPSE: {
+    id: 'APOCALYPSE',
+    route: 'B', tier: 4, name: '末日轟炸', desc: '5 發散彈 + 每 3 秒全螢幕轟炸',
+    next: null, color: '#ff0000', icon: '☠️', basePower: 1.5
+  },
+
+  // C 路線：雷射科技流 - 貫穿，超遠距，打王強，有過熱
+  PLASMA: {
+    id: 'PLASMA',
+    route: 'C', tier: 1, name: '電漿武器', desc: '高傷貫穿子彈',
+    next: 'D_LASER', color: '#00ddff', icon: '⚡', basePower: 1.2
+  },
+  D_LASER: {
+    id: 'D_LASER',
+    route: 'C', tier: 2, name: '雙光束炮', desc: '雙光束射擊',
+    next: 'T_LASER', color: '#00aaff', icon: '🔷', basePower: 1.3
+  },
+  T_LASER: {
+    id: 'T_LASER',
+    route: 'C', tier: 3, name: '三路光束', desc: '三道光束同時射擊',
+    next: 'OMEGA', color: '#0077ff', icon: '🔶', basePower: 1.4
+  },
+  OMEGA: {
+    id: 'OMEGA',
+    route: 'C', tier: 4, name: '歐米茄射線', desc: '光束掃射，穿透障礙',
+    next: null, color: '#0044cc', icon: '👁️', basePower: 1.6
+  },
+
+  // D 路線：召喚塔防流 - 本體弱，召喚物強，越拖越強
+  SUMMON: {
+    id: 'SUMMON',
+    route: 'D', tier: 1, name: '工程師', desc: '部署 1 個自動砲塔',
+    next: 'DRONE', color: '#44ff88', icon: '🛠️', basePower: 0.8
+  },
+  DRONE: {
+    id: 'DRONE',
+    route: 'D', tier: 2, name: '維修無人機', desc: '砲塔生命與傷害提升',
+    next: 'TURRET', color: '#22cc66', icon: '🤖', basePower: 0.9
+  },
+  TURRET: {
+    id: 'TURRET',
+    route: 'D', tier: 3, name: '自動砲台', desc: '砲塔傷害大幅提升',
+    next: 'FORTRESS', color: '#11aa44', icon: '🏰', basePower: 1.0
+  },
+  FORTRESS: {
+    id: 'FORTRESS',
+    route: 'D', tier: 4, name: '要塞核心', desc: '終極塔防，四座砲台',
+    next: null, color: '#008833', icon: '⚔️', basePower: 1.3
+  }
+};
+
+const STARTER_WEAPONS = ['NORMAL', 'RAPID', 'SPREAD', 'PLASMA', 'SUMMON'];
+
+const WEAPON_REGISTRY = {
+  // NORMAL: 普通发射
+  NORMAL:   { fireRate: 14, count: 1, spread: 0,   power: 1.0,  effect: null },
+  // RAPID: 快速射击链（貫穿）
+  RAPID:    { fireRate: 6,  count: 1, spread: 0,   power: 0.6,  effect: 'PIERCE' },
+  GATLING:  { fireRate: 5,  count: 2, spread: 0,   power: 0.55, effect: 'PIERCE' },
+  CHAINGUN: { fireRate: 4,  count: 3, spread: 0,   power: 0.5,  effect: 'PIERCE' },
+  OVERDRIVE:{ fireRate: 3,  count: 4, spread: 0,   power: 0.45, effect: 'PIERCE' },
+  // SPREAD: 散射
+  SPREAD:   { fireRate: 16, count: 3, spread: 0.25, power: 0.8,  effect: null },
+  CLUSTER:  { fireRate: 14, count: 3, spread: 0.25, power: 0.9,  effect: null },
+  NAPALM:   { fireRate: 12, count: 3, spread: 0.25, power: 0.7,  effect: 'BURN_ZONE' },
+  APOCALYPSE:{ fireRate: 10, count: 5, spread: 0.4, power: 0.8,  effect: 'BOMBARD' },
+  // PLASMA: 激光科技流
+  PLASMA:   { fireRate: 12, count: 1, spread: 0,   power: 1.2,  effect: 'PIERCE' },
+  D_LASER:  { fireRate: 10, count: 2, spread: 0,   power: 1.1,  effect: 'PIERCE' },
+  T_LASER:  { fireRate: 8,  count: 3, spread: 0,   power: 1.0,  effect: 'PIERCE' },
+  OMEGA:    { fireRate: 6,  count: 1, spread: 0,   power: 1.4,  effect: 'LASER_BEAM' },
+  // SUMMON: 召唤塔防流
+  SUMMON:   { fireRate: 20, count: 1, spread: 0,   power: 0.8,  effect: 'SPAWN_TURRET' },
+  DRONE:    { fireRate: 18, count: 1, spread: 0,   power: 0.9,  effect: 'SPAWN_TURRET' },
+  TURRET:   { fireRate: 16, count: 1, spread: 0,   power: 1.0,  effect: 'SPAWN_TURRET' },
+  FORTRESS: { fireRate: 14, count: 1, spread: 0,   power: 1.3,  effect: 'SPAWN_TURRET' }
+};
+
+const WEAPON_DROPS_T1 = ['RAPID_DROP', 'SPREAD_DROP', 'PLASMA_DROP', 'SUMMON_DROP'];
+
+const WEAPON_DROPS_T2 = ['GATLING_DROP', 'CLUSTER_DROP', 'D_LASER_DROP'];
+// ── src/data/index.js ──
+// 資料層入口：只做 re-export，讓 index.html 一行取用全部資料表。
+// ── src/core/rng.js ──
+// 可重現亂數（M2 的基礎）。
+//
+// 為什麼要這個：整局遊戲的隨機都走同一個產生器之後，「同一組 seed + 同一串輸入」就必然
+// 產生同一個結果 —— 這是 replay 測試的前提，也讓「玩一局」變成 CI 能跑的事。
+// 原本 59 處直接呼叫 Math.random()，任何一次呼叫都會讓兩次執行分岔，無法回放。
+//
+// 演算法選 xorshift32：狀態只有 32 bit、純整數運算、不需要種子表，對這個規模足夠，
+// 而且好處是「可序列化」—— 存下 state 就能從中斷點續跑。
+
+/** 字串 → 32 bit 整數 seed（讓 ?seed=abc 這種可讀的種子也能用）。 */
+function hashSeed(input) {
+  if (input === null || input === undefined) return 1;
+  const text = String(input).trim();
+  if (text === '') return 1;             // ?seed= 空字串視為「沒有指定」
+
+  if (/^\d+$/.test(text)) return (Number(text) >>> 0) || 1;
+  let h = 2166136261 >>> 0;              // FNV-1a
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h || 1;
+}
+
+/**
+ * 建立一個 xorshift32 產生器。
+ * 回傳的函式像 Math.random() 一樣回傳 [0,1)，另外附上 state 讀寫與整數/範圍輔助。
+ */
+function makeRng(seed = 1) {
+  let state = (seed >>> 0) || 1;
+
+  const next = () => {
+    state ^= state << 13; state >>>= 0;
+    state ^= state >>> 17;
+    state ^= state << 5;  state >>>= 0;
+    return state / 4294967296;
+  };
+
+  next.state = () => state;
+  next.setState = (value) => { state = (value >>> 0) || 1; };
+  next.int = (maxExclusive) => Math.floor(next() * maxExclusive);
+  next.range = (min, max) => min + next() * (max - min);
+  return next;
+}
+
+/** 預設種子：沒有指定 ?seed 時用時間（正常遊玩每次都不同），方便重現時可覆寫。 */
+function defaultSeed() {
+  return ((Date.now() ^ (performance.now() * 1000)) >>> 0) || 1;
+}
+// ── src/core/effects.js ──
+// 時效系統（M2）：把「有持續時間的效果」集中管理。
+//
+// 為什麼要這個：這些計時器原本散在 5 個地方各自 `--`（update 主區塊、updateCombo、
+// 以及 PLAYING 判斷之外的兩行），於是出現過兩種 bug：
+//   1. `barrierTimer` 只被寫入、沒有任何遞減端 → 拿了 BARRIER 就整局無敵。
+//   2. `wallTimer`／`timeFreezeTimer` 的遞減寫在 PLAYING 之外 → 暫停與商店期間也會持續倒數，
+//      玩家在商店待久一點，堡壘時間就白白流失。
+// 集中之後：**只有一個 tick 進入點**，到期行為用 callback 宣告（不再需要 `_slowed` 之類的旗標補救），
+// 而且 `clearAll()` 讓「重新開始就該清空」變成一個可測試的契約。
+//
+// 設計取捨：刻意不做通用 ECS，只是一個 id → 剩餘 tick 的 Map，外加到期 callback。
+
+function makeEffects() {
+  /** @type {Map<string, {left:number, onExpire?:Function, onTick?:Function}>} */
+  const timers = new Map();
+
+  const api = {
+    /** 設定時效（覆蓋現有的）。ticks <= 0 等於立即清除。 */
+    set(id, ticks, hooks = {}) {
+      if (!(ticks > 0)) { timers.delete(id); return 0; }
+      timers.set(id, { left: ticks, onExpire: hooks.onExpire, onTick: hooks.onTick });
+      return ticks;
+    },
+
+    /** 取較長者（例如連續吃到同一個道具時不該縮短）。 */
+    extend(id, ticks, hooks = {}) {
+      const current = timers.get(id);
+      if (current && current.left >= ticks) return current.left;
+      return api.set(id, ticks, hooks);
+    },
+
+    has(id) { return timers.has(id); },
+    left(id) { const t = timers.get(id); return t ? t.left : 0; },
+    ids() { return Array.from(timers.keys()); },
+    /** 供 UI／存檔用：{ id: 剩餘 tick } */
+    snapshot() { return Object.fromEntries(Array.from(timers, ([id, t]) => [id, t.left])); },
+
+    clear(id) { timers.delete(id); },
+    clearAll() { timers.clear(); },
+
+    /**
+     * 推進一個 tick。這是**唯一**該被呼叫的遞減入口。
+     * @returns {string[]} 這一個 tick 到期的效果 id
+     */
+    tick() {
+      const expired = [];
+      for (const [id, timer] of timers) {
+        if (timer.onTick) timer.onTick(timer.left);
+        timer.left -= 1;
+        if (timer.left <= 0) {
+          timers.delete(id);
+          expired.push(id);
+          if (timer.onExpire) timer.onExpire();
+        }
+      }
+      return expired;
+    },
+  };
+
+  return api;
+}
+// ── src/platform/viewport.js ──
+// 平台層：視窗／畫布尺寸與裝置判定（M3）。
+//
+// 為什麼要這個：DPR 與觸控判定原本直接寫在 index.html 的頂層，於是
+//   * DPR 完全沒處理（DPR 3 手機每個繪圖像素被放大 2.25 倍，只用掉 44% 解析度）
+//   * iPadOS 被判成桌機（UA 是 Macintosh、寬度 > 820 → 沒有搖桿與 FIRE 鍵，完全不能玩）
+// 抽成純函式之後可以在 Node 測，也不必為了驗證而開瀏覽器。
+
+/** 畫布解析度倍率：上限 2（DPR 3 全螢幕填色的成本會翻 4~9 倍，而這遊戲每幀都在全螢幕填色）。 */
+function computeRenderScale(devicePixelRatio) {
+  const dpr = Number(devicePixelRatio) || 1;
+  return Math.max(1, Math.min(dpr, 2));
+}
+
+/**
+ * 觸控裝置判定。iPadOS 13+ 的 UA 是 Macintosh 且螢幕寬度 834/1024/1180 都 > 820，
+ * 所以主要訊號是 `pointer: coarse`，UA 與窄畫面只是輔助。
+ * @param {{maxTouchPoints?:number, coarsePointer?:boolean, narrowViewport?:boolean, userAgent?:string}} env
+ */
+function detectMobile({ maxTouchPoints = 0, coarsePointer = false, narrowViewport = false, userAgent = '' } = {}) {
+  const hasTouch = maxTouchPoints > 0;
+  const mobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+  return hasTouch && (coarsePointer || narrowViewport || mobileUA);
+}
+
+/** 由瀏覽器環境取得判定所需的輸入（讓 detectMobile 保持可測試）。 */
+function readEnv(win = globalThis) {
+  return {
+    maxTouchPoints: win.navigator?.maxTouchPoints || 0,
+    coarsePointer: !!win.matchMedia?.('(pointer: coarse)').matches,
+    narrowViewport: !!win.matchMedia?.('(max-width: 820px)').matches,
+    userAgent: win.navigator?.userAgent || '',
+  };
+}
+
+/**
+ * 設定 canvas 的 backing store 與繪圖座標系（邏輯座標固定為 width×height）。
+ * @returns {{scale:number, width:number, height:number}}
+ */
+function applyCanvasScale(canvas, ctx, width, height, scale) {
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  if (ctx) {
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.imageSmoothingEnabled = false;      // 像素風格：放大用最近鄰
+  }
+  return { scale, width, height };
+}
+// ── src/platform/input.js ──
+// 平台層：輸入（M3）。
+//
+// 為什麼要這個：鍵盤與觸控原本各自直接讀寫 `G.keys` 與 `G.touch`，
+// 於是出現過「按著 D 切到別的分頁，keyup 永遠收不到 → 坦克一直往同方向跑」這種 bug，
+// 而修正只能靠在事件監聽裡手寫 `G.keys = {}`。抽出來之後：
+//   1. 按鍵 → intent 的對應是一張表（不再散在 update() 的 if 串裡）；
+//   2. 「放開所有輸入」只有一個實作（`releaseAll`），鍵盤與觸控共用；
+//   3. 全部是純函式，可在 Node 測（`tools/verify-core.mjs`）。
+
+/** 方向 intent 的列舉（與 index.html 的 UP/RIGHT/DOWN/LEFT 對齊）。 */
+const DIR = { UP: 0, RIGHT: 1, DOWN: 2, LEFT: 3 };
+
+/** 按鍵 → intent 的對應表。同一個 intent 可以有多個按鍵。 */
+const KEY_BINDINGS = {
+  ArrowUp: 'up', KeyW: 'up',
+  ArrowRight: 'right', KeyD: 'right',
+  ArrowDown: 'down', KeyS: 'down',
+  ArrowLeft: 'left', KeyA: 'left',
+  Space: 'fire', KeyJ: 'fire',
+};
+
+/** 遊戲中要攔截預設行為的按鍵（方向鍵與空白鍵會捲動頁面）。 */
+const PREVENT_DEFAULT = new Set(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+
+function makeInputState() {
+  return { up: false, right: false, down: false, left: false, fire: false, skill: false };
+}
+
+/**
+ * 套用一次按鍵事件。
+ * @param {object} state makeInputState() 的結果（會被就地修改）
+ * @param {string} code  KeyboardEvent.code
+ * @param {boolean} down true = keydown
+ * @param {{editable?: boolean, skillKey?: string}} options
+ *        editable：焦點在 UI 元件上時不攔截預設行為（否則按鈕無法用 Space 啟動）
+ * @returns {{intent: string|null, isSkill: boolean, skillPressed: boolean, preventDefault: boolean, changed: boolean}}
+ */
+function applyKey(state, code, down, { editable = false, skillKey = 'KeyQ' } = {}) {
+  const intent = KEY_BINDINGS[code] || null;
+  const isSkill = code === skillKey;
+  // 主動技能是邊緣觸發：只在 0 → 1 的那一次算「按下」，避免按住期間每幀重複施放
+  const skillPressed = isSkill && !!down && !state.skill;
+
+  if (intent) state[intent] = !!down;
+  if (isSkill) state.skill = !!down;
+
+  return {
+    intent,
+    isSkill,
+    skillPressed,
+    preventDefault: !editable && PREVENT_DEFAULT.has(code),
+    changed: !!intent || isSkill,
+  };
+}
+
+/** 依 intent 決定移動方向（沿用原本的優先序：上 → 右 → 下 → 左）。 */
+function dirFromInput(state, fallback = -1) {
+  if (state.up) return DIR.UP;
+  if (state.right) return DIR.RIGHT;
+  if (state.down) return DIR.DOWN;
+  if (state.left) return DIR.LEFT;
+  return fallback;
+}
+
+/** 放開所有輸入（失去焦點、切到背景、結算畫面時呼叫）。 */
+function releaseAll(state) {
+  state.up = state.right = state.down = state.left = state.fire = false;
+  state.skill = false;
+  return state;
+}
+
+/** 觸控狀態（搖桿 + FIRE 鍵）的統一形狀。 */
+function makeTouchState() {
+  return { dir: -1, fire: false, joyActive: false, joyDx: 0, joyDy: 0 };
+}
+
+function releaseTouch(state) {
+  state.dir = -1;
+  state.fire = false;
+  state.joyActive = false;
+  state.joyDx = 0;
+  state.joyDy = 0;
+  return state;
+}
+// ── src/core/state.js ──
+// 遊戲狀態機（M3）。
+//
+// 為什麼要這個：狀態原本是散在各處的 `G.state = STATE.X`（9 處）。沒有白名單時，
+// 「從 gameover 直接跳 playing」「商店中又開升級畫面」這類錯誤轉移不會有任何跡象，
+// 只會表現成畫面卡住或計時器亂跑（這一輪就修過一次：暫停期間堡壘仍持續倒數）。
+//
+// 設計取捨：**觀測優先於強制**。不在白名單內的轉移仍然允許（遊戲不會因為一個漏寫的
+// 白名單就卡死），但會登記一筆警告 —— 測試用「實際跑完所有流程後警告數為 0」當閘門，
+// 既不會誤殺玩家，又能抓到沒被宣告的轉移。
+
+const STATES = {
+  MENU: 'menu',
+  PLAYING: 'playing',
+  PAUSED: 'paused',
+  UPGRADE: 'upgrade',
+  SHOP: 'shop',
+  GAMEOVER: 'gameover',
+  LEVEL_COMPLETE: 'levelComplete',
+};
+
+// 允許的轉移（白名單）。來源為 index.html 內實際的 9 個賦值點與遊戲流程。
+const ALLOWED = {
+  [STATES.MENU]: [STATES.PLAYING],
+  [STATES.PLAYING]: [STATES.PAUSED, STATES.SHOP, STATES.UPGRADE, STATES.LEVEL_COMPLETE, STATES.GAMEOVER, STATES.MENU],
+  [STATES.PAUSED]: [STATES.PLAYING, STATES.SHOP, STATES.MENU, STATES.GAMEOVER],
+  [STATES.SHOP]: [STATES.PLAYING, STATES.MENU, STATES.GAMEOVER],
+  [STATES.UPGRADE]: [STATES.PLAYING, STATES.MENU],
+  [STATES.LEVEL_COMPLETE]: [STATES.PLAYING, STATES.UPGRADE, STATES.GAMEOVER, STATES.MENU],
+  [STATES.GAMEOVER]: [STATES.MENU, STATES.PLAYING, STATES.UPGRADE],
+};
+
+function isKnownState(state) {
+  return Object.values(STATES).includes(state);
+}
+
+/**
+ * @param {{initial?: string, onChange?: Function, onUnexpected?: Function}} options
+ */
+function makeStateMachine({ initial = STATES.MENU, onChange, onUnexpected } = {}) {
+  let current = initial;
+  const history = [];
+  const warnings = [];
+
+  const machine = {
+    get() { return current; },
+    is(state) { return current === state; },
+    can(next) { return (ALLOWED[current] || []).includes(next); },
+    history() { return history.slice(); },
+    warnings() { return warnings.slice(); },
+
+    /**
+     * 設定狀態。回傳 { ok, applied, reason }：
+     *   ok      = 這次轉移在白名單內
+     *   applied = 狀態是否真的被改變（未知狀態值不會被套用）
+     */
+    set(next) {
+      if (!isKnownState(next)) {
+        warnings.push(`未知狀態 ${JSON.stringify(next)}（忽略）`);
+        if (onUnexpected) onUnexpected({ from: current, to: next, reason: 'unknown-state' });
+        return { ok: false, applied: false, reason: 'unknown-state' };
+      }
+      if (next === current) return { ok: true, applied: false, reason: 'same-state' };
+
+      const ok = machine.can(next);
+      if (!ok) {
+        warnings.push(`未宣告的轉移 ${current} → ${next}`);
+        if (onUnexpected) onUnexpected({ from: current, to: next, reason: 'undeclared-transition' });
+      }
+      const previous = current;
+      current = next;
+      history.push({ from: previous, to: next, ok });
+      if (onChange) onChange({ from: previous, to: next, ok });
+      return { ok, applied: true, reason: ok ? 'ok' : 'undeclared-transition' };
+    },
+
+    /** 重新開始：回到初始狀態並清空觀測紀錄（契約有測試）。 */
+    reset() {
+      current = initial;
+      history.length = 0;
+      warnings.length = 0;
+    },
+  };
+
+  return machine;
+}
+// ── src/platform/audio.js ──
+// 平台層：音效（M3）。
+//
+// 從 index.html 原封搬過來，只做兩件事：
+//   1. 把 `document.getElementById('soundToggle')` 換成注入的 `onIconChange` hook
+//      —— 平台層不直接碰 DOM，UI 圖示由呼叫端決定。
+//   2. 包成工廠 `makeSound()`，讓「建立音訊引擎」與「使用它」分開（也方便測試替身）。
+//
+// 這裡保留了先前修過的兩個要點：同時發聲上限 8 個（避免轟炸流削波）、
+// 以及 `onended` 時 disconnect（舊版節點從不回收）。
+
+function makeSound({ onIconChange, rng = Math.random } = {}) {
+  const sound = {
+    ctx: null,
+    master: null,
+    noiseBuf: null,
+    enabled: true,
+    ready: false,
+
+    init() {
+      if (this.ready) return;
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        this.ctx = new AC();
+        this.master = this.ctx.createGain();
+        this.master.gain.value = 0.18;
+        this.master.connect(this.ctx.destination);
+        // 預生成 1 秒白噪音 buffer
+        const sr = this.ctx.sampleRate;
+        const buf = this.ctx.createBuffer(1, sr, sr);
+        const data = buf.getChannelData(0);
+        // 噪音 buffer 的隨機來源由呼叫端注入（原本這裡直接用遊戲的 rnd()，
+      // 搬進模組後那個變數不在作用域內 → init() 拋錯被 catch 吞掉 → 整個遊戲沒聲音）
+      for (let i = 0; i < sr; i++) data[i] = rng() * 2 - 1;
+        this.noiseBuf = buf;
+        this.ready = true;
+      } catch (e) {
+      // 不要靜默：音訊初始化失敗（例如沒有 AudioContext）要留下痕跡，
+      // 否則「沒有聲音」會被誤認為「使用者關了音效」而查不出原因。
+      this.error = e;
+      console.warn('[audio] 初始化失敗:', e && e.message ? e.message : e);
+    }
+    },
+
+    resume() {
+      if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    },
+
+    toggle() {
+      this.enabled = !this.enabled;
+      if (this.master) this.master.gain.value = this.enabled ? 0.18 : 0;
+      if (onIconChange) onIconChange(this.enabled);
+    },
+
+    // 同時發聲上限：轟炸/空襲會在極短時間內排 20~30 個爆炸音，全部疊上去會讓音訊執行緒
+    // 尖峰並削波（聽起來像破音）。超過 8 個同時發聲就丟掉新的（玩家感受不到差異）。
+    _activeVoices: 0,
+    _voiceSlot() {
+      if (this._activeVoices >= 8) return false;
+      this._activeVoices++;
+      return true;
+    },
+    // 節點回收：舊版 osc.stop() 之後從不 disconnect()，節點會一直掛在長命的 master 上，
+    // 高射速武器（每秒約 30 發 × 2 個節點）長期累積會讓音訊圖越來越肥。
+    _releaseOnEnd(node, extra) {
+      node.onended = () => {
+        try { node.disconnect(); } catch (e) { /* 已斷開 */ }
+        if (extra) { try { extra.disconnect(); } catch (e) { /* 已斷開 */ } }
+        this._activeVoices = Math.max(0, this._activeVoices - 1);
+      };
+    },
+
+    // 脈波 (方波) — NES pulse channel
+    pulse(freq, dur, vol = 0.4, type = 'square', sweep = 0) {
+      if (!this.ready || !this.enabled) return;
+      const t = this.ctx.currentTime;
+      if (!this._voiceSlot()) return;      // 同時發聲上限（避免轟炸流疊 20~30 個 voice 造成削波）
+      const osc = this.ctx.createOscillator();
+      const gn = this.ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, t);
+      if (sweep) osc.frequency.exponentialRampToValueAtTime(Math.max(20, freq + sweep), t + dur);
+      gn.gain.setValueAtTime(vol, t);
+      gn.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      osc.connect(gn).connect(this.master);
+      this._releaseOnEnd(osc, gn);
+      osc.start(t);
+      osc.stop(t + dur);
+    },
+
+    // 噪音 — NES noise channel (爆炸/打擊)
+    noise(dur, vol = 0.4, freq = 1200, q = 1) {
+      if (!this.ready || !this.enabled) return;
+      if (!this._voiceSlot()) return;
+      const t = this.ctx.currentTime;
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.noiseBuf;
+      const filt = this.ctx.createBiquadFilter();
+      filt.type = 'bandpass';
+      filt.frequency.value = freq;
+      filt.Q.value = q;
+      const gn = this.ctx.createGain();
+      gn.gain.setValueAtTime(vol, t);
+      gn.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      src.connect(filt).connect(gn).connect(this.master);
+      this._releaseOnEnd(src, gn);
+      src.start(t);
+      src.stop(t + dur);
+    },
+
+    // 序列播放 (簡易 jingle)
+    seq(notes) {
+      if (!this.ready || !this.enabled) return;
+      let offset = 0;
+      for (const [freq, dur, vol] of notes) {
+        setTimeout(() => this.pulse(freq, dur, vol ?? 0.35), offset * 1000);
+        offset += dur * 0.9;
+      }
+    },
+
+    // ===== 遊戲音效 =====
+    shoot()        { this.pulse(880, 0.05, 0.25, 'square', -700); },
+    hitBrick()     { this.noise(0.07, 0.35, 1800, 1.5); },
+    hitSteel()     { this.pulse(2200, 0.05, 0.3, 'square'); this.noise(0.05, 0.2, 4000, 2); },
+    explode()      { this.noise(0.25, 0.5, 600, 0.7); this.pulse(120, 0.18, 0.3, 'triangle', -80); },
+    bigExplode()   { this.noise(0.5, 0.6, 300, 0.5); this.pulse(80, 0.4, 0.4, 'triangle', -50); },
+    spawn()        { this.pulse(220, 0.04, 0.2); setTimeout(() => this.pulse(440, 0.04, 0.2), 60); setTimeout(() => this.pulse(660, 0.06, 0.2), 120); },
+    hitPlayer()    { this.pulse(180, 0.15, 0.45, 'square', -100); this.noise(0.15, 0.3, 800, 1); },
+    baseDestroyed(){ this.noise(0.6, 0.6, 200, 0.5); this.pulse(60, 0.5, 0.5, 'triangle', -30); },
+
+    // ===== Jingles =====
+    jingleLevelStart() {
+      this.seq([[523, 0.1], [659, 0.1], [784, 0.18]]);
+    },
+    jingleLevelClear() {
+      this.seq([[523, 0.12], [659, 0.12], [784, 0.12], [1047, 0.25]]);
+    },
+    jingleGameOver() {
+      this.seq([[440, 0.18], [392, 0.18], [349, 0.18], [262, 0.45]]);
+    },
+  };
+  return sound;
+}
+
+/**
+ * 背景音樂：程序化編曲（沿用原本的曲目表與排程器）。
+ * @param {object} sound makeSound() 的結果（用它的 pulse 發聲）
+ * @param {{onIconChange?:Function, isPlaying?:Function}} hooks
+ *        isPlaying：遊戲是否在進行中（決定重新開啟時播 LEVEL 還是 MENU 曲目）
+ */
+function makeMusic(sound, { onIconChange, isPlaying = () => false } = {}) {
+  const music = {
+    _timer: null, _track: null, _beat: 0,
+    enabled: true,
+
+    TRACKS: {
+      MENU: {
+        bpm: 100,
+        bass: [73.42, 73.42, 98.00, 110.00],
+        melody: [
+          293.66, 349.23, 440.00, 587.33,
+          523.25, 440.00, 349.23, 293.66,
+          392.00, 493.88, 587.33, 659.25,
+          587.33, 523.25, 440.00, 392.00,
+          293.66, 349.23, 440.00, 587.33,
+          523.25, 440.00, 349.23, 293.66,
+          392.00, 440.00, 493.88, 523.25,
+          587.33, 0, 523.25, 0,
+        ]
+      },
+      LEVEL: {
+        bpm: 130,
+        bass: [110.00, 110.00, 146.83, 164.81],
+        melody: [
+          440.00, 523.25, 659.25, 880.00,
+          783.99, 659.25, 523.25, 440.00,
+          523.25, 587.33, 783.99, 587.33,
+          659.25, 523.25, 440.00, 392.00,
+          440.00, 523.25, 659.25, 880.00,
+          783.99, 659.25, 523.25, 440.00,
+          587.33, 659.25, 783.99, 880.00,
+          783.99, 659.25, 523.25, 440.00,
+        ]
+      },
+      BOSS: {
+        bpm: 150,
+        bass: [82.41, 82.41, 110.00, 123.47],
+        melody: [
+          329.63, 369.99, 493.88, 329.63,
+          493.88, 554.37, 659.25, 493.88,
+          329.63, 369.99, 493.88, 329.63,
+          659.25, 554.37, 493.88, 369.99,
+          329.63, 369.99, 493.88, 329.63,
+          493.88, 554.37, 659.25, 493.88,
+          329.63, 369.99, 493.88, 329.63,
+          440.00, 493.88, 554.37, 659.25,
+        ]
+      },
+      VICTORY: {
+        bpm: 120,
+        bass: [130.81, 130.81, 164.81, 196.00],
+        melody: [
+          523.25, 0, 659.25, 0,
+          783.99, 0, 1046.50, 0,
+          783.99, 659.25, 783.99, 1046.50,
+          783.99, 659.25, 523.25, 0,
+          659.25, 0, 783.99, 0,
+          1046.50, 0, 1318.51, 0,
+          1174.66, 1046.50, 783.99, 659.25,
+          523.25, 659.25, 783.99, 1046.50,
+        ]
+      },
+      GAMEOVER: {
+        bpm: 65,
+        bass: [73.42, 65.41, 58.27, 65.41],
+        melody: [
+          293.66, 261.63, 220.00, 196.00,
+          220.00, 261.63, 293.66, 0,
+          261.63, 220.00, 196.00, 174.61,
+          196.00, 220.00, 261.63, 0,
+          196.00, 174.61, 164.81, 146.83,
+          164.81, 174.61, 196.00, 0,
+          220.00, 196.00, 174.61, 164.81,
+          146.83, 164.81, 174.61, 196.00,
+        ]
+      }
+    },
+
+    play(trackName) {
+      this.stop();
+      if (!this.enabled || !sound.ready) return;
+      this._track = this.TRACKS[trackName];
+      if (!this._track) return;
+      this._beat = 0;
+      this._tick();
+    },
+
+    _tick() {
+      if (!this._track || !this.enabled) return;
+      const t = this._track;
+      const msPerBeat = 60000 / t.bpm;
+
+      if (this._beat % 2 === 0) {
+        const bFreq = t.bass[(this._beat >> 1) % t.bass.length];
+        if (bFreq > 0) sound.pulse(bFreq, msPerBeat / 1000 * 0.9, 0.1, 'triangle');
+      }
+
+      const mFreq = t.melody[this._beat % t.melody.length];
+      if (mFreq > 0) {
+        const vol = this._beat % 4 === 0 ? 0.14 : 0.09;
+        sound.pulse(mFreq, msPerBeat / 1000 * 0.85, vol, 'square');
+      }
+
+      this._beat++;
+      this._timer = setTimeout(() => this._tick(), msPerBeat);
+    },
+
+    stop() {
+      if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+      this._track = null;
+    },
+
+    toggle() {
+      this.enabled = !this.enabled;
+      if (!this.enabled) {
+        this.stop();
+      } else if (!this._track) {
+        // 舊版重新開啟時只把 enabled 設回 true，但不重新播放（切回來是一片安靜），
+        // 而且 N 鍵那條路徑也不會更新圖示 → 玩家按了沒有回饋。
+        this.play(isPlaying() ? 'LEVEL' : 'MENU');
+      }
+      if (onIconChange) onIconChange();
+    }
+  };
+  return music;
+}
+// ── src/platform/lifecycle.js ──
+// 平台層：生命週期（M3）。
+//
+// 為什麼要這個：原本 `visibilitychange`／`blur`／`focus`／`pointerdown` 四個監聽散在
+// index.html 裡，各自做不同的事（放開輸入、自動暫停、恢復音訊），而且漏掉任何一個都會
+// 變成難查的 bug —— 例如「按著 D 切到別的分頁回來，坦克一直往同方向跑」（keyup 收不到）
+// 或「從背景回來後永久無聲」（iOS 需要新的使用者手勢才能 resume AudioContext）。
+//
+// 抽出來之後：事件與意圖的對應集中在一處，而且可用 stub 的 win/doc 在 Node 測。
+
+/**
+ * @param {{
+ *   onLeave?: Function,     // 失去焦點或切到背景：放開輸入 + 自動暫停
+ *   onReturn?: Function,    // 回到前景或取得焦點：恢復音訊等
+ *   win?: object, doc?: object,
+ * }} options
+ * @returns {Function} 解除綁定（測試與切換頁面時用）
+ */
+function bindLifecycle({ onLeave, onReturn, win = globalThis, doc = globalThis.document } = {}) {
+  const leave = () => { if (onLeave) onLeave(); };
+  const back = () => { if (onReturn) onReturn(); };
+
+  const onVisibility = () => { if (doc && doc.hidden) leave(); else back(); };
+
+  if (doc) doc.addEventListener('visibilitychange', onVisibility);
+  if (win) {
+    win.addEventListener('blur', leave);
+    win.addEventListener('focus', back);
+    // iOS 從背景回來後 AudioContext 需要新的使用者手勢才能恢復
+    win.addEventListener('pointerdown', back);
+  }
+
+  return function unbind() {
+    if (doc) doc.removeEventListener('visibilitychange', onVisibility);
+    if (win) {
+      win.removeEventListener('blur', leave);
+      win.removeEventListener('focus', back);
+      win.removeEventListener('pointerdown', back);
+    }
+  };
+}
+// ── src/platform/touch-ui.js ──
+// 平台層：觸控 UI（M3）。
+//
+// 螢幕搖桿與 FIRE 鍵原本寫在 index.html 裡，直接讀寫 `G.touch` 與 `CONFIG.MOBILE`、
+// 也直接綁 document/window。抽到平台層後依賴改成注入：
+//   touch（狀態物件）、getConfig()、isMobile()、dirs、doc/win。
+// 這樣「按著 FIRE 切到別的分頁」這類狀態殘留可以用 stub 在 Node 測（見 verify-core 的 L 組）。
+//
+// reset() 是關鍵介面：失去焦點／切到背景／結算畫面時必須強制放開搖桿與射擊鍵。
+
+const DEFAULT_DIR = DIR;
+
+/**
+ * @param {{
+ *   touch: object,                 // 平台層的觸控狀態（makeTouchState()）
+ *   getConfig: Function,           // () => ({ JOYSTICK_MAX_RADIUS, JOYSTICK_DEADZONE })
+ *   isMobile: Function,            // () => boolean
+ *   dirs?: object,                 // DIR 列舉（預設用 input.js 的）
+ *   doc?: object, win?: object,
+ * }} options
+ */
+function makeTouchInput({
+  touch, getConfig, isMobile,
+  dirs = DEFAULT_DIR,
+  doc = globalThis.document,
+  win = globalThis.window,
+} = {}) {
+  const DIR = dirs;
+  const touchInput = {
+    joyArea: doc ? doc.getElementById('joystickArea') : null,
+    joyBase: doc ? doc.getElementById('joystickBase') : null,
+    joyStick: doc ? doc.getElementById('joystickStick') : null,
+    fireBtn: doc ? doc.getElementById('fireButton') : null,
+  
+    joyTouchId: null,
+    fireTouchId: null,
+    joyCenterX: 0,
+    joyCenterY: 0,
+  
+    init() {
+      if (!isMobile()) return;
+    
+      this._updateJoyCenter();
+      win.addEventListener('resize', () => this._updateJoyCenter());
+      win.addEventListener('orientationchange', () => setTimeout(() => this._updateJoyCenter(), 200));
+    
+      this.joyArea.addEventListener('touchstart', this._onJoyStart.bind(this), { passive: false });
+      this.joyArea.addEventListener('touchmove', this._onJoyMove.bind(this), { passive: false });
+      this.joyArea.addEventListener('touchend', this._onJoyEnd.bind(this), { passive: false });
+      this.joyArea.addEventListener('touchcancel', this._onJoyEnd.bind(this), { passive: false });
+    
+      this.fireBtn.addEventListener('touchstart', this._onFireStart.bind(this), { passive: false });
+      this.fireBtn.addEventListener('touchend', this._onFireEnd.bind(this), { passive: false });
+      this.fireBtn.addEventListener('touchcancel', this._onFireEnd.bind(this), { passive: false });
+    
+      doc.addEventListener('gesturestart', e => e.preventDefault());
+      doc.addEventListener('dblclick', e => e.preventDefault());
+    },
+  
+    // 強制放開所有觸控狀態（失去焦點、切到背景、或結算畫面時呼叫）。
+    // 舊版沒有這個介面，所以「按著 FIRE 切到別的分頁」回來後會持續射擊、搖桿也卡在偏移位置。
+    reset() {
+      this.joyTouchId = null;
+      this.fireTouchId = null;
+      touch.dir = -1;
+      touch.fire = false;
+      touch.joyActive = false;
+      touch.joyDx = 0;
+      touch.joyDy = 0;
+      if (this.joyStick) { this.joyStick.style.left = '50%'; this.joyStick.style.top = '50%'; }
+      if (this.fireBtn) this.fireBtn.classList.remove('pressed');
+      if (this.joyBase) {
+        // 回到 CSS 的預設位置（橫向 media query 會把它改成 left:20px/bottom:20px，
+        // 舊版寫死 left:30px/bottom:30px，橫向放開搖桿時位置會跳一下）
+        this.joyBase.style.left = '';
+        this.joyBase.style.bottom = '';
+      }
+      this._updateJoyCenter();
+    },
+
+    _updateJoyCenter() {
+      // 平台層不假設 DOM 一定存在（元素可能還沒進 DOM、或測試環境沒有 DOM）
+      if (!this.joyBase || typeof this.joyBase.getBoundingClientRect !== 'function') return;
+      const rect = this.joyBase.getBoundingClientRect();
+      this.joyCenterX = rect.left + rect.width / 2;
+      this.joyCenterY = rect.top + rect.height / 2;
+    },
+  
+    _onJoyStart(e) {
+      e.preventDefault();
+      if (this.joyTouchId !== null) return;
+    
+      const touch = e.changedTouches[0];
+      this.joyTouchId = touch.identifier;
+    
+      const areaRect = this.joyArea.getBoundingClientRect();
+      let cx = touch.clientX;
+      let cy = touch.clientY;
+    
+      cx = Math.max(areaRect.left + 70, Math.min(areaRect.right - 70, cx));
+      cy = Math.max(areaRect.top + 70, Math.min(areaRect.bottom - 70, cy));
+    
+      this.joyBase.style.left = (cx - areaRect.left - 65) + 'px';
+      this.joyBase.style.bottom = (win.innerHeight - cy - 65) + 'px';
+      this.joyCenterX = cx;
+      this.joyCenterY = cy;
+    
+      this._processJoy(touch.clientX, touch.clientY);
+    },
+  
+    _onJoyMove(e) {
+      if (this.joyTouchId === null) return;
+      e.preventDefault();
+    
+      for (const t of e.changedTouches) {
+        if (t.identifier === this.joyTouchId) {
+          this._processJoy(t.clientX, t.clientY);
+          break;
+        }
+      }
+    },
+  
+    _onJoyEnd(e) {
+      if (this.joyTouchId === null) return;
+    
+      for (const t of e.changedTouches) {
+        if (t.identifier === this.joyTouchId) {
+          e.preventDefault();
+          this.joyTouchId = null;
+          touch.dir = -1;
+          touch.joyActive = false;
+          touch.joyDx = 0;
+          touch.joyDy = 0;
+          this.joyStick.style.left = '50%';
+          this.joyStick.style.top = '50%';
+          this.joyBase.style.left = '30px';
+          this.joyBase.style.bottom = '30px';
+          this._updateJoyCenter();
+          break;
+        }
+      }
+    },
+  
+    _processJoy(touchX, touchY) {
+      const dx = touchX - this.joyCenterX;
+      const dy = touchY - this.joyCenterY;
+      const dist = Math.hypot(dx, dy);
+      const maxR = getConfig().JOYSTICK_MAX_RADIUS;
+    
+      const clampedDist = Math.min(dist, maxR);
+      const ratio = dist > 0 ? clampedDist / dist : 0;
+      const visualDx = dx * ratio;
+      const visualDy = dy * ratio;
+    
+      this.joyStick.style.left = `calc(50% + ${visualDx}px)`;
+      this.joyStick.style.top = `calc(50% + ${visualDy}px)`;
+    
+      const normDist = clampedDist / maxR;
+      if (normDist < getConfig().JOYSTICK_DEADZONE) {
+        touch.dir = -1;
+        touch.joyActive = false;
+        touch.joyDx = 0;
+        touch.joyDy = 0;
+      } else {
+        touch.joyActive = true;
+        touch.joyDx = dx;
+        touch.joyDy = dy;
+        touch.dir = Math.abs(dx) > Math.abs(dy)
+          ? (dx > 0 ? DIR.RIGHT : DIR.LEFT)
+          : (dy > 0 ? DIR.DOWN : DIR.UP);
+      }
+    },
+  
+    _onFireStart(e) {
+      e.preventDefault();
+      if (this.fireTouchId !== null) return;
+      this.fireTouchId = e.changedTouches[0].identifier;
+      touch.fire = true;
+      this.fireBtn.classList.add('pressed');
+    },
+  
+    _onFireEnd(e) {
+      if (this.fireTouchId === null) return;
+      for (const t of e.changedTouches) {
+        if (t.identifier === this.fireTouchId) {
+          e.preventDefault();
+          this.fireTouchId = null;
+          touch.fire = false;
+          this.fireBtn.classList.remove('pressed');
+          break;
+        }
+      }
+    }
+  };
+  return touchInput;
+}
 // 資料層（src/data/）是唯一來源：常數與內容表都在那裡，這裡只 import 取用。
 // 改成 type="module" 之後，頂層宣告不再是全域變數 —— 驗證工具需要的內部符號
 // 由檔案尾端的 ?bot 區塊統一掛到 window.__T（見「除錯鉤子」）。
-import {
-  CONFIG, WEAPON_TREE, WEAPON_REGISTRY, STARTER_WEAPONS, WEAPON_DROPS_T1, WEAPON_DROPS_T2,
-  PASSIVE_SKILLS, ACTIVE_SKILLS, POWER_UPS, COMMON_DROPS,
-  ELITE_PREFIXES, SPECIAL_ENEMY_TYPES, SHOP_ITEMS, makeDirectorEvents, MAP_EVENTS,
-} from './src/data/index.js';
-import { makeRng, hashSeed, defaultSeed } from './src/core/rng.js';
-import { makeEffects } from './src/core/effects.js';
-import { computeRenderScale, detectMobile as detectMobileDevice, readEnv, applyCanvasScale } from './src/platform/viewport.js';
-import { makeInputState, applyKey, dirFromInput, releaseAll as releaseAllKeys, makeTouchState, releaseTouch, DIR } from './src/platform/input.js';
-import { makeStateMachine, STATES } from './src/core/state.js';
-import { makeSound, makeMusic } from './src/platform/audio.js';
-import { bindLifecycle } from './src/platform/lifecycle.js';
-import { makeTouchInput } from './src/platform/touch-ui.js';
+
+
+
+const detectMobileDevice = detectMobile;
+const releaseAllKeys = releaseAll;
+
+
+
+
 
 // 可重現亂數：整局的隨機都走這一個產生器，?seed=N 可指定（replay 測試靠這個）。
 // 原本 59 處直接呼叫 rnd()，任何一處都會讓兩次執行分岔、無法回放。
