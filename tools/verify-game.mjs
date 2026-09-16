@@ -389,6 +389,31 @@ const audio = await page.evaluate(() => {
 ok('F5 音訊引擎初始化成功（沒有靜默失敗：ready=true、error=null）',
   audio.ready === true && audio.error === null && audio.hasMaster && audio.hasNoise, JSON.stringify(audio));
 
+// F6：帶道具的敵人（glowTimer）在 render 路徑上必須畫得出來 ——
+// 這裡曾經是「呼叫了不存在的 helper（glowCanvas）」，導致每一幀、每一隻帶道具的敵人
+// 都丟 ReferenceError：遊戲被 try/catch 撐住繼續跑，但該幀 render 的後半段全被跳過，
+// 畫面還會一直顯示錯誤橫幅。這條同時守住「渲染路徑不能拋錯」。
+const glowEnemy = await page.evaluate(async () => {
+  const T = window.__T, G = T.G;
+  const banner = document.getElementById('errorBanner');
+  if (banner) { banner.style.display = 'none'; banner.textContent = ''; }
+  G.state = T.STATE.PLAYING;
+  G.enemies.length = 0;
+  const e = new T.Tank(T.TILE * 3, T.TILE * 3, T.DOWN, 'NORMAL', false);
+  e.hp = e.maxHp = 99; e.glowTimer = 30; e.hasPowerUp = true;
+  G.enemies.push(e);
+  await new Promise((r) => setTimeout(r, 600));
+  return {
+    glowTimer: e.glowTimer,
+    bannerShown: banner ? getComputedStyle(banner).display !== 'none' : false,
+    bannerText: banner ? banner.textContent.slice(0, 60) : '',
+    frames: G.frameCount,
+  };
+});
+ok('F6 帶道具敵人的發光渲染不會拋錯（glowCanvas 事件：呼叫了不存在的 helper）',
+  glowEnemy.bannerShown === false && glowEnemy.glowTimer < 30,
+  JSON.stringify(glowEnemy));
+
 console.log('\n=== B. 手機與輸入 ===');
 // B1：手機橫向可以開始遊戲
 // 真實手機情境：iPhone UA + isMobile + hasTouch + DPR3（否則 pointer:coarse 與 UA 都不成立，
