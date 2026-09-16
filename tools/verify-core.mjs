@@ -64,6 +64,7 @@ import { makeTileRenderer, EAGLE_ALIVE_SPRITE, EAGLE_DEAD_SPRITE } from '../src/
 import { makeGlowCanvas, hexToRgba } from '../src/render/sprites.js';
 import { makeEffectRenderer } from '../src/render/effects.js';
 import { makeHud } from '../src/ui/hud.js';
+import { makeScreens } from '../src/ui/screens.js';
 import { readdirSync, statSync as statSyncNode } from 'node:fs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -533,6 +534,106 @@ console.log('\n=== T6. UI：HUD（src/ui/hud.js）===');
       .every((token) => chips.includes(token)),
     chips.slice(0, 120));
   ok('T6-6 主動技的按鍵標籤取自資料（KeyQ → Q）', chips.includes('[Q]BOOST'), '取自 tables.activeSkills[].key');
+}
+
+console.log('\n=== T7. UI：畫面流程（src/ui/screens.js）===');
+{
+  const makeDoc = () => {
+    const nodes = new Map();
+    const mk = (id) => {
+      const el = {
+        id, innerHTML: '', style: {}, dataset: {}, textContent: '', children: [], firstChild: null, onclick: null,
+        classList: { _s: new Set(), add(c) { this._s.add(c); }, remove(c) { this._s.delete(c); }, contains(c) { return this._s.has(c); } },
+        focus() { el.focused = true; },
+        appendChild(child) { el.children.push(child); if (!el.firstChild) el.firstChild = child; return child; },
+        setAttribute(k, v) { el[k] = v; },
+      };
+      return el;
+    };
+    return {
+      _nodes: nodes,
+      getElementById(id) { if (!nodes.has(id)) nodes.set(id, mk(id)); return nodes.get(id); },
+      querySelectorAll() { return []; },
+      createElement() { return mk('created'); },
+      _mk: mk,
+    };
+  };
+
+  const STATES = { MENU: 'menu', PLAYING: 'playing', PAUSED: 'paused', SHOP: 'shop', GAMEOVER: 'gameover', UPGRADE: 'upgrade' };
+  const game = { state: STATES.PLAYING, score: 500, continues: 2, level: 4, isVSMode: false, playerStats: { pierce: false } };
+  const calls = { buy: [], restart: 0, continue: 0, sound: 0, music: [], jingle: 0, mobile: 0 };
+  const doc = makeDoc();
+  const screens = makeScreens({
+    doc, getGame: () => game, states: STATES,
+    tables: { shopItems: [{ id: 'health', name: '生命', icon: '❤', color: '#f00', desc: 'd', price: 100, type: 'health' }, { id: 'pierce', name: '穿甲', icon: '➤', color: '#ff0', desc: 'd', price: 200, type: 'pierce' }] },
+    hooks: {
+      getShopPrice: (p) => p, buyItem: (id) => calls.buy.push(id), restartGame: () => calls.restart++,
+      continueGame: () => calls.continue++, updateMobileControls: () => calls.mobile++,
+      playSound: () => calls.sound++, playMusic: (n) => calls.music.push(n), jingleGameOver: () => calls.jingle++,
+      jingleLevelClear: () => calls.jingleLevelClear = (calls.jingleLevelClear || 0) + 1,
+      stopMusic: () => calls.stopMusic = (calls.stopMusic || 0) + 1,
+    },
+  });
+
+  screens.togglePause();
+  ok('T7-1 暫停：狀態轉 PAUSED、overlay 顯示並有繼續／商店按鈕、有音效',
+    game.state === STATES.PAUSED && doc.getElementById('overlay').innerHTML.includes('PAUSED')
+    && doc.getElementById('overlay').innerHTML.includes('resumeBtn') && calls.sound === 1,
+    `state=${game.state}`);
+  ok('T7-2 暫停時焦點在「繼續」按鈕上（鍵盤可直接操作）', doc.getElementById('resumeBtn').focused === true);
+
+  screens.togglePause();
+  ok('T7-3 再按一次恢復 PLAYING 並隱藏 overlay',
+    game.state === STATES.PLAYING && doc.getElementById('overlay').classList.contains('hidden') && calls.sound === 2);
+
+  screens.openShop();
+  const shopHTML = doc.getElementById('overlay').innerHTML;
+  ok('T7-4 商店：狀態轉 SHOP、列出所有品項與價格',
+    game.state === STATES.SHOP && shopHTML.includes('分數: 500') && shopHTML.includes('生命') && shopHTML.includes('💰 100'),
+    `state=${game.state}`);
+  ok('T7-5 分數足夠時沒有品項被 disabled', !shopHTML.includes('pointer-events:none'), shopHTML.match(/disabled/g)?.length + ' 個 disabled');
+
+  game.score = 50; game.playerStats.pierce = true;      // 買不起 + 已擁有穿甲
+  screens.closeShop(); screens.openShop();
+  const poorHTML = doc.getElementById('overlay').innerHTML;
+  ok('T7-5b 買不起與已擁有的品項會被 disabled',
+    (poorHTML.match(/pointer-events:none/g) || []).length === 2, `${(poorHTML.match(/pointer-events:none/g) || []).length} 個 disabled`);
+  game.score = 500; game.playerStats.pierce = false;
+  screens.closeShop();
+
+  screens.closeShop();
+  ok('T7-6 關閉商店回到 PLAYING 並隱藏 overlay',
+    game.state === STATES.PLAYING && doc.getElementById('overlay').classList.contains('hidden'));
+
+  game.continues = 2;
+  screens.showGameOver();
+  ok('T7-7 遊戲結束：轉 GAMEOVER、播放結束音效與曲目、還有接關次數時問 CONTINUE',
+    game.state === STATES.GAMEOVER && calls.jingle === 1 && calls.music.includes('GAMEOVER')
+    && doc.getElementById('overlay').innerHTML.includes('CONTINUE?'), `state=${game.state}`);
+
+  game.continues = 0;
+  screens.showGameOver();
+  ok('T7-8 沒有接關次數時直接顯示 SYSTEM FAILURE',
+    doc.getElementById('overlay').innerHTML.includes('SYSTEM FAILURE'));
+
+  // 升級畫面：只負責畫卡片與回報選擇
+  let picked = null;
+  screens.renderUpgrade(
+    [{ id: 'GATLING', title: '格林機槍', desc: 'd', icon: '🔥', color: '#f40' }],
+    (opt) => { picked = opt.id; },
+  );
+  const cards = doc.getElementById('cards');
+  ok('T7-10 升級畫面：狀態轉 UPGRADE、卡片內容正確、點擊會回報選擇',
+    game.state === 'upgrade' && cards.children.length === 1
+    && cards.children[0].innerHTML.includes('格林機槍') && cards.children[0].className === 'upgrade-card',
+    `state=${game.state} cards=${cards.children.length}`);
+  cards.children[0].onclick();
+  ok('T7-11 點卡片會把選項交回遊戲層（onPick）', picked === 'GATLING', String(picked));
+
+  // REBOOT 按鈕（showFinalGameOver 內註冊）
+  doc.getElementById('restartBtn').onclick();
+  ok('T7-9 REBOOT 會播 MENU 曲目並呼叫重開流程',
+    calls.restart === 1 && calls.music.includes('MENU'), JSON.stringify(calls));
 }
 
 console.log('\n=== X. 靜態掃描：呼叫了但沒有定義的裸函式 ===');
