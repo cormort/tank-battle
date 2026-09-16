@@ -24,6 +24,7 @@ src/platform/       平台層（純函式，Node 可測；不碰遊戲內部狀�
   input.js            鍵盤／觸控 → intent；放開所有輸入只有一個實作
   viewport.js         DPR 倍率、觸控裝置判定、canvas backing store
   audio.js            音效與 BGM（Web Audio）；DOM 與遊戲狀態用 hook／rng 注入
+  lifecycle.js        失去焦點／切到背景／回到前景的事件 → 意圖對應（可 unbind）
 src/data/           資料層：唯一來源，這裡改數值就是改遊戲
   config.js           CONFIG（畫布、子彈、粒子、池、AI、玩法）
   weapons.js          四條流派樹、射擊參數、起始武器、掉落池
@@ -49,7 +50,7 @@ tools/              驗證工具（Node + Playwright）
 三支工具，都不需要建置：
 
 ```bash
-node tools/verify-core.mjs    # 核心與平台層單元測試（48 項，純 Node、秒級）
+node tools/verify-core.mjs    # 核心與平台層單元測試（50 項，純 Node、秒級）
 node tools/verify-data.mjs    # 資料層閘門（5 項，純 Node、秒級）
 node tools/verify-replay.mjs  # 確定性與 replay（12 項）
 node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay
@@ -98,6 +99,8 @@ fx.clearAll();                                      // restartGame() 內，重�
   iPadOS 的 Macintosh UA 因此判得出來）、`applyCanvasScale()`。
 - **audio.js**：`makeSound()`／`makeMusic()`；平台層不碰 DOM —— 圖示更新用 `onIconChange`、
   「是否在遊戲中」用 `isPlaying()`、噪音 buffer 的隨機來源用 `rng` 注入。
+- **lifecycle.js**：`bindLifecycle({ onLeave, onReturn })` 把 `visibilitychange`／`blur`／`focus`／
+  `pointerdown` 對應到「放開輸入＋自動暫停」與「恢復音訊」，並回傳 `unbind()`。
 
 > 抽 audio 時踩到一個**靜默失效**：噪音 buffer 產生用的 `rnd()` 是 index.html 的變數，
 > 搬進模組後不在作用域內，`init()` 拋錯被 `catch` 吞掉 → 整個遊戲沒聲音。

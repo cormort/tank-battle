@@ -353,6 +353,7 @@ import { computeRenderScale, detectMobile as detectMobileDevice, readEnv, applyC
 import { makeInputState, applyKey, dirFromInput, releaseAll as releaseAllKeys, makeTouchState, releaseTouch, DIR } from './src/platform/input.js';
 import { makeStateMachine, STATES } from './src/core/state.js';
 import { makeSound, makeMusic } from './src/platform/audio.js';
+import { bindLifecycle } from './src/platform/lifecycle.js';
 
 // 可重現亂數：整局的隨機都走這一個產生器，?seed=N 可指定（replay 測試靠這個）。
 // 原本 59 處直接呼叫 rnd()，任何一處都會讓兩次執行分岔、無法回放。
@@ -3212,14 +3213,11 @@ function autoPauseIfPlaying() {
 function resumeAudioIfNeeded() {
   if (Sound.ctx && Sound.ctx.state === 'suspended') Sound.resume();
 }
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { releaseAllInput(); autoPauseIfPlaying(); }
-  else resumeAudioIfNeeded();
+// 事件 → 意圖的對應集中在 src/platform/lifecycle.js（可在 Node 用 stub 測）
+bindLifecycle({
+  onLeave: () => { releaseAllInput(); autoPauseIfPlaying(); },
+  onReturn: resumeAudioIfNeeded,
 });
-window.addEventListener('blur', () => { releaseAllInput(); autoPauseIfPlaying(); });
-window.addEventListener('focus', resumeAudioIfNeeded);
-// iOS 從背景回來後 AudioContext 需要新的使用者手勢才能恢復，補一個一次性的解鎖點
-window.addEventListener('pointerdown', resumeAudioIfNeeded);
 document.getElementById('startBtn').addEventListener('click', () => {
   Sound.init(); Sound.resume();
   Music.play('MENU');

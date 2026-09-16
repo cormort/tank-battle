@@ -58,6 +58,7 @@ import { makeStateMachine, STATES, isKnownState } from '../src/core/state.js';
 import { makeInputState, applyKey, dirFromInput, releaseAll, makeTouchState, releaseTouch, KEY_BINDINGS } from '../src/platform/input.js';
 import { computeRenderScale, detectMobile } from '../src/platform/viewport.js';
 import { makeSound, makeMusic } from '../src/platform/audio.js';
+import { bindLifecycle } from '../src/platform/lifecycle.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const gameSource = readFileSync(join(ROOT, 'index.html'), 'utf8');
@@ -282,6 +283,41 @@ console.log('\n=== A. 音效與 BGM（src/platform/audio.js）===');
     `曲目=${track ? 'LEVEL' : 'null'}｜排程器=${scheduled}｜關閉後=${music._track}`);
   music.stop();
   ok('A7 stop 會清掉計時器與曲目', music._timer === null && music._track === null);
+}
+
+console.log('\n=== L. 生命週期（src/platform/lifecycle.js）===');
+{
+  const makeEmitter = () => {
+    const handlers = new Map();
+    return {
+      hidden: false,
+      addEventListener(type, fn) { (handlers.get(type) || handlers.set(type, []).get(type)).push(fn); },
+      removeEventListener(type, fn) {
+        const list = handlers.get(type) || [];
+        const i = list.indexOf(fn); if (i >= 0) list.splice(i, 1);
+      },
+      fire(type) { (handlers.get(type) || []).slice().forEach((fn) => fn()); },
+      count(type) { return (handlers.get(type) || []).length; },
+    };
+  };
+
+  const win = makeEmitter(), doc = makeEmitter();
+  let leaves = 0, returns = 0;
+  const unbind = bindLifecycle({ onLeave: () => leaves++, onReturn: () => returns++, win, doc });
+
+  doc.hidden = false; doc.fire('visibilitychange');
+  doc.hidden = true; doc.fire('visibilitychange');
+  win.fire('blur'); win.fire('focus'); win.fire('pointerdown');
+  // 事件 → callback：visibilitychange(hidden→leave)、visibilitychange(顯示→return)、
+  // blur→leave、focus→return、pointerdown→return（iOS 解鎖音訊）= leave 2 / return 3
+  ok('L1 五個事件依語意分別觸發 onLeave／onReturn',
+    leaves === 2 && returns === 3, `leave=${leaves} return=${returns}`);
+
+  unbind();
+  win.fire('blur');
+  ok('L2 unbind 之後不再觸發（監聽器有正確移除）',
+    leaves === 2 && win.count('blur') === 0 && doc.count('visibilitychange') === 0,
+    `blur 監聽器=${win.count('blur')}、visibility=${doc.count('visibilitychange')}`);
 }
 
 console.log('\n=== C. 架構契約 ===');
