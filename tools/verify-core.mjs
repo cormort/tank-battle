@@ -14,8 +14,50 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// ── 假的 Web Audio（audio.js 只在 init() 內讀 window.AudioContext，所以先放好 stub）──
+class FakeNode {
+  constructor(kind) { this.kind = kind; this.connections = []; this.disconnected = false; this.onended = null; }
+  connect(node) { this.connections.push(node); return node; }
+  disconnect() { this.disconnected = true; }
+}
+class FakeGain extends FakeNode {
+  constructor() { super('gain'); this.gain = { value: 1, setValueAtTime() {}, exponentialRampToValueAtTime() {} }; }
+}
+class FakeOscillator extends FakeNode {
+  constructor() { super('osc'); this.type = 'sine'; this.frequency = { setValueAtTime() {}, exponentialRampToValueAtTime() {} }; }
+  start() {} stop() { if (this.onended) setTimeout(() => this.onended(), 0); }
+}
+class FakeBufferSource extends FakeNode {
+  constructor() { super('src'); this.buffer = null; }
+  start() {} stop() { if (this.onended) setTimeout(() => this.onended(), 0); }
+}
+class FakeBiquad extends FakeNode {
+  constructor() { super('biquad'); this.type = 'bandpass'; this.frequency = { value: 0 }; this.Q = { value: 0 }; }
+}
+class FakeAudioContext {
+  constructor() {
+    this.sampleRate = 8000;
+    this.currentTime = 0;
+    this.state = 'running';
+    this.destination = new FakeNode('dest');
+    this.created = { gain: 0, osc: 0, src: 0, biquad: 0 };
+  }
+  createGain() { this.created.gain++; return new FakeGain(); }
+  createOscillator() { this.created.osc++; return new FakeOscillator(); }
+  createBufferSource() { this.created.src++; return new FakeBufferSource(); }
+  createBiquadFilter() { this.created.biquad++; return new FakeBiquad(); }
+  createBuffer(ch, len) { const data = new Float32Array(len); return { getChannelData: () => data }; }
+  resume() { this.state = 'running'; }
+}
+globalThis.window = { AudioContext: FakeAudioContext };
+globalThis.document = globalThis.document || { getElementById: () => null };
+
 import { makeEffects } from '../src/core/effects.js';
 import { makeRng, hashSeed, defaultSeed } from '../src/core/rng.js';
+import { makeStateMachine, STATES, isKnownState } from '../src/core/state.js';
+import { makeInputState, applyKey, dirFromInput, releaseAll, makeTouchState, releaseTouch, KEY_BINDINGS } from '../src/platform/input.js';
+import { computeRenderScale, detectMobile } from '../src/platform/viewport.js';
+import { makeSound, makeMusic } from '../src/platform/audio.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const gameSource = readFileSync(join(ROOT, 'index.html'), 'utf8');
@@ -101,6 +143,147 @@ console.log('\n=== R. 可重現亂數（src/core/rng.js）===');
   ok('R7 int(n) 落在 [0,n) 且每個值都出現過', ints.every((v) => v >= 0 && v < 4) && new Set(ints).size === 4);
 }
 
+console.log('\n=== S. 狀態機（src/core/state.js）===');
+{
+  const sm = makeStateMachine({ initial: STATES.MENU });
+  ok('S1 初始狀態與 is()', sm.is(STATES.MENU));
+
+  const okFlow = sm.set(STATES.PLAYING);
+  ok('S2 白名單內的轉移 ok=true 且真的套用', okFlow.ok && okFlow.applied && sm.is(STATES.PLAYING));
+
+  sm.set(STATES.SHOP);                    // playing → shop：已宣告
+  const bad = sm.set(STATES.PAUSED);      // shop → paused：未宣告
+  ok('S3 未宣告的轉移仍會套用（遊戲不會卡死）但會登記警告',
+    bad.applied && !bad.ok && sm.is(STATES.PAUSED) && sm.warnings().length === 1,
+    JSON.stringify(sm.warnings()));
+
+  const unknown = sm.set('nonsense');
+  ok('S4 未知狀態值不會被套用（避免打錯字把狀態設成 undefined）',
+    !unknown.applied && sm.is(STATES.PAUSED), JSON.stringify(unknown));
+
+  const same = sm.set(STATES.PAUSED);
+  ok('S5 同狀態重設不記錄', same.reason === 'same-state' && sm.history().length === 3);
+
+  sm.reset();
+  ok('S6 reset 回到初始狀態並清空紀錄與警告',
+    sm.is(STATES.MENU) && sm.history().length === 0 && sm.warnings().length === 0);
+
+  ok('S7 狀態列舉完整（7 個）且 isKnownState 正確',
+    Object.keys(STATES).length === 7 && isKnownState(STATES.SHOP) && !isKnownState('menu2'));
+
+  // 實際遊戲會走的流程必須全部在白名單內（否則玩家會一直看到警告）
+  const flow = [STATES.PLAYING, STATES.PAUSED, STATES.PLAYING, STATES.SHOP, STATES.PLAYING,
+    STATES.LEVEL_COMPLETE, STATES.UPGRADE, STATES.PLAYING, STATES.GAMEOVER, STATES.MENU];
+  const sm2 = makeStateMachine();
+  const undeclared = flow.filter((st) => { const r = sm2.set(st); return !r.ok; });
+  ok('S8 實際流程（playing→paused→shop→levelComplete→upgrade→gameover→menu）沒有未宣告轉移',
+    undeclared.length === 0, undeclared.length ? `未宣告：${undeclared.join('、')}` : `${flow.length} 步全部合法`);
+}
+
+console.log('\n=== I. 輸入意圖（src/platform/input.js）===');
+{
+  const st = makeInputState();
+  applyKey(st, 'KeyW', true);
+  ok('I1 方向鍵對應到 intent', st.up === true && dirFromInput(st) === 0);
+  applyKey(st, 'KeyW', false);
+  applyKey(st, 'ArrowRight', true);
+  ok('I2 放開後 intent 清除、方向切換', st.up === false && dirFromInput(st) === 1);
+
+  applyKey(st, 'ArrowRight', false);      // 先放開上一步的方向鍵
+  applyKey(st, 'KeyS', true);
+  applyKey(st, 'KeyA', true);
+  ok('I3 方向優先序：上 → 右 → 下 → 左（同時按住下與左時取下）',
+    dirFromInput(st) === 2, String(dirFromInput(st)));
+  releaseAll(st);
+  ok('I3b 沒有任何方向鍵時回傳 fallback（-1 = 不動）', dirFromInput(st) === -1);
+
+  const sk = makeInputState();
+  const first = applyKey(sk, 'KeyQ', true, { skillKey: 'KeyQ' });
+  const repeat = applyKey(sk, 'KeyQ', true, { skillKey: 'KeyQ' });
+  ok('I4 主動技能是邊緣觸發（按住不會連發）', first.skillPressed === true && repeat.skillPressed === false);
+
+  const ed = makeInputState();
+  const inButton = applyKey(ed, 'Space', true, { editable: true });
+  const inGame = applyKey(ed, 'Space', true, { editable: false });
+  ok('I5 焦點在 UI 元件上時不攔截預設行為（按鈕才能用 Space 啟動）',
+    inButton.preventDefault === false && inGame.preventDefault === true && ed.fire === true);
+
+  releaseAll(ed);
+  ok('I6 releaseAll 清空所有 intent', !ed.up && !ed.right && !ed.down && !ed.left && !ed.fire && !ed.skill);
+
+  const touch = makeTouchState();
+  touch.dir = 3; touch.fire = true; touch.joyActive = true; touch.joyDx = 12;
+  releaseTouch(touch);
+  ok('I7 releaseTouch 把搖桿與 FIRE 歸零',
+    touch.dir === -1 && touch.fire === false && touch.joyActive === false && touch.joyDx === 0);
+
+  ok('I8 對應表同時支援 WASD 與方向鍵（含 Space/KeyJ 射擊）',
+    KEY_BINDINGS.KeyW === 'up' && KEY_BINDINGS.ArrowUp === 'up' && KEY_BINDINGS.Space === 'fire' && KEY_BINDINGS.KeyJ === 'fire');
+}
+
+console.log('\n=== V. 視窗與裝置（src/platform/viewport.js）===');
+{
+  ok('V1 DPR 倍率上限 2（DPR 3 全螢幕填色成本會翻 4~9 倍）',
+    computeRenderScale(1) === 1 && computeRenderScale(2) === 2 && computeRenderScale(3) === 2 && computeRenderScale(0) === 1,
+    [1, 2, 3, 0].map(computeRenderScale).join('/'));
+
+  const ipad = detectMobile({ maxTouchPoints: 5, coarsePointer: true, narrowViewport: false, userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' });
+  const desktop = detectMobile({ maxTouchPoints: 0, coarsePointer: false, narrowViewport: false, userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605' });
+  const iphone = detectMobile({ maxTouchPoints: 5, coarsePointer: true, narrowViewport: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)' });
+  ok('V2 iPadOS（UA 是 Macintosh 但 pointer coarse）判定為觸控裝置', ipad === true);
+  ok('V3 桌機（無觸控點）判定為非觸控', desktop === false);
+  ok('V4 iPhone（觸控 + 窄畫面）判定為觸控裝置', iphone === true);
+}
+
+console.log('\n=== A. 音效與 BGM（src/platform/audio.js）===');
+{
+  let iconStates = [];
+  const sound = makeSound({ onIconChange: (on) => iconStates.push(on) });
+  sound.init();
+  ok('A1 init 建立 AudioContext、master gain 與噪音 buffer（失敗時 error 可供排查）',
+    sound.ready === true && !!sound.master && !!sound.noiseBuf && sound.ctx.created.gain === 1,
+    sound.error ? `init 失敗：${sound.error.message}` : 'ready');
+
+  sound.pulse(440, 0.1, 0.3);
+  sound.noise(0.1, 0.3);
+  ok('A2 pulse/noise 會建立對應節點', sound.ctx.created.osc === 1 && sound.ctx.created.src === 1);
+
+  // 同時發聲上限 8：超過就丟掉（避免轟炸流疊 20~30 個 voice 削波）
+  const oscBefore = sound.ctx.created.osc;
+  for (let i = 0; i < 20; i++) sound.pulse(200 + i, 0.05, 0.2);
+  const granted = sound.ctx.created.osc - oscBefore;
+  ok('A3 同時發聲上限 8 個（舊版會疊 20~30 個 voice）',
+    sound._activeVoices === 8 && granted === 6,
+    `voices=${sound._activeVoices}｜20 次請求只放行 ${granted} 個（原本已有 2 個名額在用）`);
+
+  await new Promise((r) => setTimeout(r, 20));    // 等 onended 觸發
+  ok('A4 節點在 onended 時 disconnect 並歸還發聲名額（舊版從不回收）',
+    sound._activeVoices === 0, `voices=${sound._activeVoices}`);
+
+  sound.toggle();
+  sound.toggle();
+  ok('A5 toggle 會把 master gain 歸零並回報圖示狀態',
+    sound.master.gain.value === 0.18 && iconStates.join(',') === 'false,true', iconStates.join(','));
+}
+
+{
+  // Music：重新開啟時要恢復播放（舊版只設 enabled 卻不重播 → 切回來一片安靜）
+  const sound = makeSound();
+  sound.init();
+  let playing = true;
+  const music = makeMusic(sound, { isPlaying: () => playing, onIconChange: () => {} });
+  music.enabled = false;
+  music.toggle();                       // 重新開啟
+  const track = music._track;
+  const scheduled = music._timer !== null;
+  music.toggle();                       // 再關閉
+  ok('A6 BGM 重新開啟時會依 isPlaying() 選曲並恢復播放',
+    !!track && track === music.TRACKS.LEVEL && scheduled && music._track === null,
+    `曲目=${track ? 'LEVEL' : 'null'}｜排程器=${scheduled}｜關閉後=${music._track}`);
+  music.stop();
+  ok('A7 stop 會清掉計時器與曲目', music._timer === null && music._track === null);
+}
+
 console.log('\n=== C. 架構契約 ===');
 {
   const tickCalls = (gameCode.match(/fx\.tick\(\)/g) || []).length;
@@ -119,6 +302,13 @@ console.log('\n=== C. 架構契約 ===');
 
   ok('C3 效果 id 一覽表與程式碼一致（invul/barrier/slow/boost/wall/freeze/combo/skill）',
     ['invul', 'barrier', 'slow', 'boost', 'wall', 'freeze', 'combo', 'skill'].every((id) => gameCode.includes(`'${id}'`)));
+
+  ok('C5 移動判斷改用平台層意圖（不再手寫 G.keys[方向鍵]）',
+    !/G\.keys\['(ArrowUp|ArrowRight|ArrowDown|ArrowLeft|KeyW|KeyA|KeyS|KeyD)'\]/.test(gameCode),
+    (gameCode.match(/G\.keys\['(Arrow|Key[WASD])/g) || []).length + ' 處殘留');
+
+  ok('C6 G.state 由狀態機存取器管理（Object.defineProperty + set() 檢查）',
+    /Object\.defineProperty\(G, 'state'/.test(gameCode) && /gameState\.set\(value\)/.test(gameCode));
 
   ok('C4 restart 會清空所有時效（fx.clearAll 在 restartGame 內）',
     /function restartGame\(\)[\s\S]{0,1500}?fx\.clearAll\(\)/.test(gameCode));

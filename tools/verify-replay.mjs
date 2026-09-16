@@ -77,12 +77,14 @@ async function runReplay({ seed, ticks, events }) {
       if (!byTick.has(ev.tick)) byTick.set(ev.tick, []);
       byTick.get(ev.tick).push(ev);
     }
-    const held = {};
+    // 派發真正的鍵盤事件，而不是直接寫 G.keys —— 這樣才會走過平台層的輸入路徑
+    // （keydown/keyup 監聽 → applyKey → intent → 移動）。M3 抽出輸入層時，舊寫法
+    // 因為遊戲已改讀 intent 而失去作用，R2 就是這樣抓到介面不一致的。
     for (let i = 0; i < ticks; i++) {
       for (const ev of byTick.get(i) || []) {
-        if (ev.down) held[ev.code] = true; else delete held[ev.code];
+        // 注意要派在 document：監聽器掛在 document，派在 window 不會往下傳
+        document.dispatchEvent(new KeyboardEvent(ev.down ? 'keydown' : 'keyup', { code: ev.code, bubbles: true }));
       }
-      G.keys = { ...held };
       T.stepTicks(1);
     }
     return { checksum: T.gameChecksum(), frames: G.frameCount, score: G.score, level: G.level,

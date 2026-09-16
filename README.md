@@ -19,6 +19,11 @@ index.html          遊戲本體（單檔可開，<script type="module">）
 src/core/           執行期核心
   rng.js              可重現亂數（xorshift32；?seed=N）
   effects.js          時效系統：所有有持續時間的效果集中在這裡，只有一個 tick 進入點
+  state.js            狀態機：7 個狀態 + 轉移白名單（未宣告的轉移會留下警告）
+src/platform/       平台層（純函式，Node 可測；不碰遊戲內部狀態）
+  input.js            鍵盤／觸控 → intent；放開所有輸入只有一個實作
+  viewport.js         DPR 倍率、觸控裝置判定、canvas backing store
+  audio.js            音效與 BGM（Web Audio）；DOM 與遊戲狀態用 hook／rng 注入
 src/data/           資料層：唯一來源，這裡改數值就是改遊戲
   config.js           CONFIG（畫布、子彈、粒子、池、AI、玩法）
   weapons.js          四條流派樹、射擊參數、起始武器、掉落池
@@ -44,11 +49,11 @@ tools/              驗證工具（Node + Playwright）
 三支工具，都不需要建置：
 
 ```bash
-node tools/verify-core.mjs    # 執行期核心單元測試（18 項，純 Node、秒級）
+node tools/verify-core.mjs    # 核心與平台層單元測試（48 項，純 Node、秒級）
 node tools/verify-data.mjs    # 資料層閘門（5 項，純 Node、秒級）
 node tools/verify-replay.mjs  # 確定性與 replay（12 項）
 node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay
-node tools/verify-game.mjs    # 遊戲行為與平台細節（31 項，Playwright）
+node tools/verify-game.mjs    # 遊戲行為與平台細節（36 項，Playwright）
 #   PW_MODULE=/path/to/playwright/index.js node tools/verify-game.mjs
 #   PROBE_URL=https://cormort.github.io/tank-battle/ node tools/verify-game.mjs   # 打遠端
 ```
@@ -83,6 +88,27 @@ fx.clearAll();                                      // restartGame() 內，重�
 
 `tools/verify-core.mjs` 用純 Node 驗證它的語意（到期、`extend` 取較長、callback 時機、快照），
 並檢查兩條架構契約：**只有一個 `fx.tick()`**、**已遷移的舊欄位不得再出現**（避免兩份真相）。
+
+### 平台層（`src/platform/`）
+
+- **input.js**：按鍵 → intent 的對應是一張表；`releaseAll()` 是「放開所有輸入」的唯一實作
+  （鍵盤與觸控共用）。主動技能是**邊緣觸發**（`skillPressed`），不再每幀查表、也不會按住連發。
+  焦點在 UI 元件上時不攔截 Space／方向鍵的預設行為（否則按鈕無法用 Space 啟動）。
+- **viewport.js**：`computeRenderScale()`（上限 2 倍）、`detectMobile()`（以 `pointer: coarse` 為主，
+  iPadOS 的 Macintosh UA 因此判得出來）、`applyCanvasScale()`。
+- **audio.js**：`makeSound()`／`makeMusic()`；平台層不碰 DOM —— 圖示更新用 `onIconChange`、
+  「是否在遊戲中」用 `isPlaying()`、噪音 buffer 的隨機來源用 `rng` 注入。
+
+> 抽 audio 時踩到一個**靜默失效**：噪音 buffer 產生用的 `rnd()` 是 index.html 的變數，
+> 搬進模組後不在作用域內，`init()` 拋錯被 `catch` 吞掉 → 整個遊戲沒聲音。
+> 修法是明確注入 `rng`，並讓 `catch` 留下 `Sound.error` 與 console 警告；
+> `verify-game` 的 F5 與 `verify-core` 的 A1 現在都守住這條。
+
+### 狀態機（`src/core/state.js`）
+
+`G.state` 是狀態機的存取器：既有的 `G.state = X` 不必改寫，但會經過轉移白名單檢查並記錄。
+未宣告的轉移**仍然允許**（遊戲不會因為漏寫白名單就卡死）但會登記警告 ——
+`verify-game` 的 F1 把真實流程走一遍並要求**警告數為 0**，`verify-core` 的 S8 用純函式驗同一件事。
 
 ### `verify-replay.mjs`（確定性與 replay）
 

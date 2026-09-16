@@ -322,6 +322,73 @@ const hazards = await page.evaluate(async () => {
 ok('E5 mine／bomb 召喚物會對玩家造成傷害（舊版沒有行為分支）',
   hazards.afterMine < hazards.before && hazards.cleared === 0, JSON.stringify(hazards));
 
+console.log('\n=== F. 狀態機與輸入意圖（M3 平台層） ===');
+// F1：真實流程走一遍，不能出現「未宣告的狀態轉移」——
+// 白名單漏寫時玩家會看到畫面卡住或計時器亂跑，這條是那個契約的整合檢查。
+const stateFlow = await page.evaluate(async () => {
+  const T = window.__T, G = T.G;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  T.gameState.reset();
+  T.restartGame();                       // → playing
+  T.togglePause();                       // → paused
+  T.togglePause();                       // → playing
+  T.openShop();                          // → shop
+  T.closeShop();                         // → playing
+  G.state = T.STATES.PLAYING;
+  G.isVSMode = false; G.level = 2; G.bossSpawned = true;
+  G.maxEnemies = 12; G.enemiesSpawned = 12; G.aliveEnemies = 0; G.enemies.length = 0;
+  await wait(120);                       // → levelComplete（由每 tick 的 checkLevelComplete）
+  const afterLevel = G.state;
+  T.showGameOver();                      // → gameover
+  const afterGameOver = G.state;
+  T.restartGame();                       // → playing（重開）
+  return {
+    afterLevel, afterGameOver, final: G.state,
+    warnings: T.gameState.warnings(),
+    history: T.gameState.history().map((h) => `${h.from}→${h.to}${h.ok ? '' : '(未宣告)'}`),
+  };
+});
+ok('F1 實際流程（遊玩→暫停→商店→關卡結算→遊戲結束→重開）沒有未宣告的狀態轉移',
+  stateFlow.warnings.length === 0,
+  stateFlow.warnings.length ? stateFlow.warnings.join('；') : stateFlow.history.join('、'));
+ok('F2 流程真的走過這些狀態（不是空跑）',
+  stateFlow.afterLevel === 'levelComplete' && stateFlow.afterGameOver === 'gameover' && stateFlow.final === 'playing',
+  JSON.stringify({ level: stateFlow.afterLevel, gameover: stateFlow.afterGameOver, final: stateFlow.final }));
+
+// F3：未知狀態值不會被套用（G.state 是狀態機的存取器）
+const unknownState = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  const before = G.state;
+  G.state = 'nonsense';
+  const after = G.state;
+  G.state = before;
+  return { before, after };
+});
+ok('F3 設定未知狀態不會生效（打錯字不會把狀態機弄壞）',
+  unknownState.after === unknownState.before, JSON.stringify(unknownState));
+
+// F4：失去焦點時平台層的意圖狀態也要清空（不只 G.keys）
+const intentRelease = await page.evaluate(() => {
+  const T = window.__T;
+  T.input.up = true; T.input.fire = true;
+  window.dispatchEvent(new Event('blur'));
+  return { up: T.input.up, fire: T.input.fire };
+});
+ok('F4 blur 會清空平台層的輸入意圖', intentRelease.up === false && intentRelease.fire === false,
+  JSON.stringify(intentRelease));
+
+// F5：音訊初始化必須成功 —— 平台層抽出時曾把噪音 buffer 用的 rnd() 留在模組外，
+// init() 拋錯被 catch 吞掉，整個遊戲靜默無聲（沒有任何測試會發現）。這條守住它。
+const audio = await page.evaluate(() => {
+  const T = window.__T;
+  return {
+    ready: T.Sound.ready, error: T.Sound.error ? String(T.Sound.error.message || T.Sound.error) : null,
+    hasMaster: !!T.Sound.master, hasNoise: !!T.Sound.noiseBuf, musicTrack: !!T.Music._track,
+  };
+});
+ok('F5 音訊引擎初始化成功（沒有靜默失敗：ready=true、error=null）',
+  audio.ready === true && audio.error === null && audio.hasMaster && audio.hasNoise, JSON.stringify(audio));
+
 console.log('\n=== B. 手機與輸入 ===');
 // B1：手機橫向可以開始遊戲
 // 真實手機情境：iPhone UA + isMobile + hasTouch + DPR3（否則 pointer:coarse 與 UA 都不成立，
