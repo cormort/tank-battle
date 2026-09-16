@@ -10,7 +10,9 @@
 /** 字串 → 32 bit 整數 seed（讓 ?seed=abc 這種可讀的種子也能用）。 */
 export function hashSeed(input) {
   if (input === null || input === undefined) return 1;
-  const text = String(input);
+  const text = String(input).trim();
+  if (text === '') return 1;             // ?seed= 空字串視為「沒有指定」
+
   if (/^\d+$/.test(text)) return (Number(text) >>> 0) || 1;
   let h = 2166136261 >>> 0;              // FNV-1a
   for (let i = 0; i < text.length; i++) {

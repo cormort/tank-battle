@@ -136,18 +136,19 @@ ok('A2 商店購買已滿級武器時分數不會被扣（舊版先扣 1500 再�
 // A3：barrierTimer 會遞減，且 BARRIER 護盾到期後不再無敵
 const barrier = await page.evaluate(async () => {
   const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
   G.playerStats.passives = ['BARRIER'];
-  G.playerStats.barrierTimer = 0;
+  T.fx.clear('barrier');
   G.playerStats.hp = 3; G.playerStats.maxHp = 3;
   // 模擬被子彈打到兩次：第一次啟動護盾，第二次應該被吸收
   const fakeBullet = { x: G.player.x, y: G.player.y, size: 4, power: 1, alive: true, hitTanks: [] };
   T.handleBulletHit(fakeBullet, G.player);
-  const armed = G.playerStats.barrierTimer;
+  const armed = T.fx.left('barrier');
   await new Promise((r) => setTimeout(r, 600));    // 約 36 tick
-  const afterTicks = G.playerStats.barrierTimer;
+  const afterTicks = T.fx.left('barrier');
   return { armed, afterTicks, decrements: armed > afterTicks };
 });
-ok('A3 barrierTimer 會隨時間遞減（舊版永不遞減 → 拿了 BARRIER 就整局無敵）',
+ok('A3 BARRIER 護盾會隨時間到期（舊版 barrierTimer 永不遞減 → 拿了 BARRIER 就整局無敵）',
   barrier.decrements && barrier.armed > 0, JSON.stringify(barrier));
 
 // A4：BOOST 讓冷卻變短（舊版乘 2 反而變長）
@@ -157,11 +158,11 @@ const boost = await page.evaluate(() => {
   G.playerStats.weapon = 'NORMAL'; G.playerStats.weaponTier = 0; G.playerStats.route = null;
   G.playerStats.shopFireRateBonus = 0; G.playerStats.heatStacks = 0;
   const shootOnce = () => { G.player.bulletTimer = 0; G.player.shoot(); return G.player.bulletTimer; };
-  G.playerStats.boostTimer = 0;
+  T.fx.clear('boost');
   const cdNormal = shootOnce();
-  G.playerStats.boostTimer = 180;
+  T.fx.set('boost', 180);
   const cdBoost = shootOnce();
-  G.playerStats.boostTimer = 0;
+  T.fx.clear('boost');
   return { cdNormal, cdBoost };
 });
 ok('A4 BOOST 期間的實際冷卻比平常短（舊版 cooldownMult *= 2 讓「超頻」變成射速砍半）',
@@ -264,16 +265,16 @@ ok('E2 空投事件會實際產生道具（舊版 activate 之後什麼都沒發
 const freezing = await page.evaluate(async () => {
   const T = window.__T, G = T.G;
   G.playerStats.passives = [];
-  G.playerStats.barrierTimer = 0; G.playerStats.invulTimer = 0;
-  G.playerStats.hp = 3; G.playerStats.maxHp = 3; G.playerStats.slowTimer = 0;
+  T.fx.clear('barrier'); T.fx.clear('invul'); T.fx.clear('slow');
+  G.playerStats.hp = 3; G.playerStats.maxHp = 3;
   G.state = T.STATE.PLAYING;
   T.handleBulletHit({ x: G.player.x, y: G.player.y, size: 4, power: 0, isPlayer: false,
     alive: true, hitTanks: [], freezing: true }, G.player);
-  const timer = G.playerStats.slowTimer;
+  const timer = T.fx.left('slow');
   await new Promise((r) => setTimeout(r, 150));
   const speed = G.player.speed;
   const half = 2.5 * G.playerStats.speedMult * 0.5;
-  G.playerStats.slowTimer = 0;
+  T.fx.clear('slow'); T.applyPlayerSpeed();
   await new Promise((r) => setTimeout(r, 150));
   const restored = G.player.speed;
   return { timer, speed: +speed.toFixed(2), half: +half.toFixed(2), restored: +restored.toFixed(2) };
@@ -305,7 +306,7 @@ ok('E4 特殊敵人（SNIPER/ENGINEER/INTERFERER/GUARD/MINELAYER）會被生成'
 const hazards = await page.evaluate(async () => {
   const T = window.__T, G = T.G;
   G.state = T.STATE.PLAYING;
-  G.playerStats.passives = []; G.playerStats.barrierTimer = 0; G.playerStats.invulTimer = 0;
+  G.playerStats.passives = []; T.fx.clear('barrier'); T.fx.clear('invul');
   G.playerStats.hp = 3; G.playerStats.maxHp = 3;
   G.player.hp = 3;                    // 一條命內的耐久（playerStats.hp 是剩餘命數，兩者語意不同）
   G.player.alive = true;

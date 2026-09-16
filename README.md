@@ -18,6 +18,7 @@
 index.html          遊戲本體（單檔可開，<script type="module">）
 src/core/           執行期核心
   rng.js              可重現亂數（xorshift32；?seed=N）
+  effects.js          時效系統：所有有持續時間的效果集中在這裡，只有一個 tick 進入點
 src/data/           資料層：唯一來源，這裡改數值就是改遊戲
   config.js           CONFIG（畫布、子彈、粒子、池、AI、玩法）
   weapons.js          四條流派樹、射擊參數、起始武器、掉落池
@@ -43,8 +44,9 @@ tools/              驗證工具（Node + Playwright）
 三支工具，都不需要建置：
 
 ```bash
+node tools/verify-core.mjs    # 執行期核心單元測試（18 項，純 Node、秒級）
 node tools/verify-data.mjs    # 資料層閘門（5 項，純 Node、秒級）
-node tools/verify-replay.mjs  # 確定性與 replay（11 項）
+node tools/verify-replay.mjs  # 確定性與 replay（12 項）
 node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay
 node tools/verify-game.mjs    # 遊戲行為與平台細節（31 項，Playwright）
 #   PW_MODULE=/path/to/playwright/index.js node tools/verify-game.mjs
@@ -64,6 +66,24 @@ node tools/verify-game.mjs    # 遊戲行為與平台細節（31 項，Playwrigh
 > （例如新增一個道具的 `duration` 會被 `MAP_EVENTS.duration` 的讀取掩蓋）。
 > 它抓的是「整個欄位名沒人用」，無法判斷「這一張表的這一個欄位沒人用」。
 
+### 時效系統（`src/core/effects.js`）
+
+所有有持續時間的效果（無敵／反應護盾／凍緩／超頻／堡壘／時間凍結／連擊視窗／主動技能冷卻）
+都在 `fx` 這個 `EffectSet` 裡，**只有 `update()` 會呼叫 `fx.tick()`**。會這樣收斂是因為原本的
+遞減散在 5 個地方，於是出現兩種 bug：`barrierTimer` 只寫不減（拿了 BARRIER 就整局無敵）、
+`wallTimer`／`timeFreezeTimer` 的遞減寫在 PLAYING 之外（暫停與商店期間堡壘時間照样流失）。
+
+```js
+fx.set('boost', 180);                              // 設定
+fx.set('slow', 120, { onExpire: applyPlayerSpeed }); // 到期行為用 callback 宣告
+fx.has('invul'); fx.left('wall');                  // 查詢
+const expired = fx.tick();                          // 唯一的遞減入口（update() 內）
+fx.clearAll();                                      // restartGame() 內，重新開始就清空
+```
+
+`tools/verify-core.mjs` 用純 Node 驗證它的語意（到期、`extend` 取較長、callback 時機、快照），
+並檢查兩條架構契約：**只有一個 `fx.tick()`**、**已遷移的舊欄位不得再出現**（避免兩份真相）。
+
 ### `verify-replay.mjs`（確定性與 replay）
 
 整局的隨機都走 `src/core/rng.js` 的 seeded 產生器，`?sim` 模式讓 update 只由 `__T.stepTicks()`
@@ -74,7 +94,7 @@ node tools/verify-game.mjs    # 遊戲行為與平台細節（31 項，Playwrigh
 - R2 重播結果與 `tools/replays/smoke.json` 記錄一致 → **玩法改動會讓這條紅**（相當於「玩一局」進 CI）
 - R3/R4 換 seed、換輸入都要得到不同結果（否則 replay 是假的）
 - S1–S4 原始碼層級：沒有 `Math.random()`、沒有與全域 `rnd` 同名的區域變數（會 TDZ）
-- T1 所有計時／壽命欄位都有遞減端或到期判定 —— 這一類修過兩次：
+- T1 所有計時／壽命欄位都有遞減端或到期判定（收斂進 `fx` 之後，掃描對象從 19 個降到 13 個） —— 這一類修過兩次：
   `barrierTimer` 永不遞減（拿了 BARRIER 就整局無敵）、`laserLife` 只寫不讀（每次射擊遺留 29 顆永生子彈）。
   掃描接受 `--`、`-= 1`、`Math.max(0, x-1)`、`<= 0` 到期判定、以及 `+= 1`／`(x || 0) + 1` 計數型推進；
   `maxLife` 是分母不是計時器，明確排除。

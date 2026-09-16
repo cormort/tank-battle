@@ -348,6 +348,7 @@ import {
   ELITE_PREFIXES, SPECIAL_ENEMY_TYPES, SHOP_ITEMS, makeDirectorEvents, MAP_EVENTS,
 } from './src/data/index.js';
 import { makeRng, hashSeed, defaultSeed } from './src/core/rng.js';
+import { makeEffects } from './src/core/effects.js';
 
 // 可重現亂數：整局的隨機都走這一個產生器，?seed=N 可指定（replay 測試靠這個）。
 // 原本 59 處直接呼叫 rnd()，任何一處都會讓兩次執行分岔、無法回放。
@@ -357,6 +358,17 @@ let rnd = makeRng(SEED);
 // ?sim：確定性模擬模式。遊戲迴圈不再自己 update()，時間只由 stepTicks() 推進 ——
 // 否則真實時間的 rAF 會與測試的逐步模擬交錯，同樣的 seed 也會得到不同結果（實測 947 vs 940 幀）。
 const DETERMINISTIC = _bootParams.has('sim');
+
+// 玩家／全域的時效集中在這裡，並且只有 update() 會呼叫 tick()（唯一的遞減進入點）。
+// 效果 id：invul（無敵）、barrier（反應護盾）、slow（凍緩）、boost（超頻）、
+//          wall（堡壘）、freeze（時間凍結）、combo（連擊視窗）、skill（主動技能冷卻）
+const fx = makeEffects();
+
+// 玩家速度：由「基礎速度 × 凍緩係數」決定，凍緩消失時自動還原（效果系統的到期 callback）
+function applyPlayerSpeed() {
+  if (!G.player) return;
+  G.player.applyTypeStats();      // 速度公式只有一份（見 Tank.applyTypeStats）
+}
 
 // Director 事件表：行為需要的執行期物件用 getter 注入（W／TILE／Tank 等宣告在 import 之後，
 // 直接取值會在 TDZ 內；getter 只會在事件真正觸發時才解析）。
@@ -832,7 +844,7 @@ const WeaponManager = {
     let cooldownMult = getHeatStacksMultiplier();
     // cooldownMult 是冷卻倍率（越小越快；HEAT 也是用 1/(1+stacks*0.03) 變快）。
     // 舊版寫 *= 2 讓「超頻爆發」期間冷卻加倍＝射速砍半，按下去是懲罰而不是爆發。
-    if (G.playerStats.boostTimer > 0) cooldownMult *= 0.5;
+    if (fx.has('boost')) cooldownMult *= 0.5;
     const fireRateBonus = G.playerStats.shopFireRateBonus || 0;
     const actualCD = Math.max(2, Math.floor(config.fireRate * cooldownMult * (1 - fireRateBonus)));
     tank.bulletTimer = actualCD;
@@ -969,15 +981,14 @@ const G = {
   playerStats: {
     weapon: 'NORMAL', weaponTier: 0, pierce: false, speedMult: 1,
     maxHp: 3, hp: 3, route: null,
-    passives: [], activeSkill: null, activeCooldown: 0,
-    heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0, slowTimer: 0,
-    combo: 0, comboTimer: 0, shopFireRateBonus: 0, weaponDamageBonus: 0
+    passives: [], activeSkill: null,
+    heatStacks: 0, rageMultiplier: 1,
+    combo: 0, shopFireRateBonus: 0, weaponDamageBonus: 0
   },
   summonEntities: [],
   mapEvent: null,
   directorEvents: [],
   touch: { dir: -1, fire: false, joyActive: false, joyDx: 0, joyDy: 0 },
-  wallTimer: 0, timeFreezeTimer: 0,
   permanentStats: { scr: 0, upgradePoints: 0 },
   levelWeaponStacks: {}, levelClearedCount: 0
 };
@@ -1130,13 +1141,13 @@ function applyUpgrade(opt) {
   if (opt.type === 'active') {
     ps.activeSkill = opt.id;
     const skillData = ACTIVE_SKILLS.find(s => s.id === opt.id);
-    ps.activeCooldown = skillData ? skillData.cooldown : 0;
+    fx.set('skill', skillData ? skillData.cooldown : 0);
   }
 
   if (opt.id === 'SPEED') ps.speedMult *= 1.2;
   if (opt.id === 'HEAL') { ps.maxHp++; ps.hp = ps.maxHp; }
   if (opt.id === 'PIERCE') ps.pierce = true;
-  if (opt.id === 'SHIELD') ps.invulTimer = 30; // 抵擋一次
+  if (opt.id === 'SHIELD') fx.set('invul', 30); // 抵擋一次
 
   document.getElementById('upgradeUI').classList.add('hidden');
   G.level++;
@@ -1224,7 +1235,7 @@ function applyPassiveTick() {
 // ==================== 主動技能觸發 ====================
 function triggerActiveSkill() {
   const ps = G.playerStats;
-  if (!ps.activeSkill || ps.activeCooldown > 0) return;
+  if (!ps.activeSkill || fx.has('skill')) return;
 
   const skillData = ACTIVE_SKILLS.find(s => s.id === ps.activeSkill);
   if (!skillData) return;
@@ -1250,7 +1261,7 @@ function triggerActiveSkill() {
       break;
   }
 
-  ps.activeCooldown = skillData.cooldown;
+  fx.set('skill', skillData.cooldown);
   triggerShake(5, 3);
   Sound.pulse(600, 0.15, 0.4, 'square');
 }
@@ -1272,7 +1283,7 @@ function dashPlayer() {
   const ny = G.player.y + DY[dir] * 100;
   G.player.x = Math.max(0, Math.min(W - TILE, nx));
   G.player.y = Math.max(0, Math.min(H - TILE, ny));
-  G.player.invulTimer = 10;
+  fx.set('invul', 10);
   spawnExplosion(G.player.x, G.player.y, 'shield');
 }
 
@@ -1321,9 +1332,9 @@ function spawnDecoy() {
 }
 
 function boostMode() {
-  // 效果統一由 boostTimer 在 shoot() 的冷卻計算裡實現（見 index.html 的 cooldownMult）。
+  // 效果統一由 fx('boost') 在 shoot() 的冷卻計算裡實現（見 index.html 的 cooldownMult）。
   // 舊版另外寫了一個 rapidFire 旗標，但全檔沒有任何地方讀它（純死寫入）。
-  G.playerStats.boostTimer = 180;
+  fx.set('boost', 180);
 }
 
 function activatePowerUp(type) {
@@ -1348,7 +1359,7 @@ function activatePowerUp(type) {
       Sound.bigExplode();
       break;
     case 'WALL':
-      G.wallTimer = 900;
+      fx.set('wall', 900);
       break;
     case 'STAR': {
       const currentWp = WEAPON_TREE[G.playerStats.weapon];
@@ -1369,10 +1380,10 @@ function activatePowerUp(type) {
       break;
     }
     case 'TIME':
-      G.timeFreezeTimer = 600;
+      fx.set('freeze', 600);
       break;
     case 'SHIELD':
-      G.playerStats.invulTimer = 600;
+      fx.set('invul', 600);
       break;
     case 'ONEUP':
       G.continues++;
@@ -1859,7 +1870,9 @@ class Tank {
     if (this.isPlayer) {
       this.maxHp = G.playerStats.maxHp;
       this.hp = G.playerStats.hp;
-      this.speed = 2.5 * G.playerStats.speedMult;
+      // 凍緩（FREEZING 詞綴）係數在這裡套用：換關會建立新的玩家 Tank，
+      // 若只在外部的 applyPlayerSpeed() 調整，換關後速度就會被重設而失效。
+      this.speed = 2.5 * G.playerStats.speedMult * (fx.has('slow') ? 0.5 : 1);
       this.weapon = G.playerStats.weapon || 'NORMAL';
       this.weaponTier = G.playerStats.weaponTier || 0;
       this.pierce = G.playerStats.pierce;
@@ -2236,7 +2249,7 @@ function updateBullet(b) {
     }
     if (t === BASE) {
       b.alive = false;
-      if (G.wallTimer > 0) {
+      if (fx.has('wall')) {
         spawnExplosion(b.x, b.y, 'spark');
         return;
       }
@@ -2332,18 +2345,22 @@ function handleBulletHit(b, t) {
     // BARRIER：被打到時吸收該次傷害，並開啟 2 秒（120 tick）護盾；護盾期間再被打也一律吸收。
     // 舊版 barrierTimer 全檔沒有任何遞減（grep `barrierTimer--` = 0 次），所以第一次被打到
     // 之後就永久無敵 —— 玩家不會掉血、不會死，整局的平衡與計分都失去意義。
-    if (G.playerStats.passives.includes('BARRIER') || G.playerStats.barrierTimer > 0) {
+    if (G.playerStats.passives.includes('BARRIER') || fx.has('barrier')) {
       b.alive = false;
       spawnExplosion(b.x, b.y, 'shield');
-      if (G.playerStats.barrierTimer <= 0) G.playerStats.barrierTimer = 120;
+      if (!fx.has('barrier')) fx.set('barrier', 120);
       return;
     }
-    if (G.playerStats.invulTimer > 0) {
+    if (fx.has('invul')) {
       b.alive = false;
       spawnExplosion(b.x, b.y, 'shield');
       return;
     }
-    if (b.freezing) G.playerStats.slowTimer = 120;   // FREEZING 詞綴：凍緩 2 秒
+    // FREEZING 詞綴：凍緩 2 秒；到期時把速度還原（效果系統的 onExpire，不再需要 _slowed 旗標）
+    if (b.freezing) {
+      fx.set('slow', 120, { onExpire: applyPlayerSpeed });
+      applyPlayerSpeed();
+    }
   }
 
   // 计算伤害倍率
@@ -2815,7 +2832,7 @@ function drawMapEvent() {
 function addCombo(kill = true) {
   if (!kill) return;
   G.playerStats.combo++;
-  G.playerStats.comboTimer = 120;
+  fx.set('combo', 120);
 
   const bonus = Math.min(G.playerStats.combo, 10) * 0.1;
   G.score += Math.floor((10 + G.level * 2) * (1 + bonus));
@@ -2826,14 +2843,6 @@ function addCombo(kill = true) {
   }
 }
 
-function updateCombo() {
-  if (G.playerStats.comboTimer > 0) {
-    G.playerStats.comboTimer--;
-    if (G.playerStats.comboTimer === 0) {
-      G.playerStats.combo = 0;
-    }
-  }
-}
 
 // ==================== 經濟系統 ====================
 function getDynamicPrice(basePrice) {
@@ -3244,10 +3253,11 @@ function restartGame() {
   G.playerStats = {
     weapon: 'NORMAL', weaponTier: 0, pierce: false, speedMult: 1,
     maxHp: 3, hp: 3, route: null,
-    passives: [], activeSkill: null, activeCooldown: 0,
-    heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0, slowTimer: 0,
-    combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 0, shopFireRateBonus: 0
+    passives: [], activeSkill: null,
+    heatStacks: 0, rageMultiplier: 1,
+    combo: 0, weaponDamageBonus: 0, shopFireRateBonus: 0
   };
+  fx.clearAll();                 // 重新開始就該清空所有時效（契約由 verify-core 驗證）
   updateHUD();
   G.summonEntities = [];
   G.mapEvent = null;
@@ -3345,20 +3355,20 @@ function updateHUD() {
     chips.push(`<span class="power-chip" style="background:#330033;border-color:#ff00ff">P${G.playerStats.passives.length}</span>`);
   }
   if (G.playerStats.activeSkill) {
-    const cdPct = Math.floor((G.playerStats.activeCooldown / 30) * 100);
+    const cdPct = Math.floor((fx.left('skill') / 30) * 100);
     const skillDef = ACTIVE_SKILLS.find((s) => s.id === G.playerStats.activeSkill);
     const keyLabel = skillDef && skillDef.key ? skillDef.key.replace('Key', '') : 'Q';
     chips.push(`<span class="power-chip" style="background:#003300;border-color:#00ff00">[${keyLabel}]${G.playerStats.activeSkill}${cdPct > 0 ? '(' + cdPct + ')' : ''}</span>`);
   }
-  if (G.playerStats.boostTimer > 0) {
+  if (fx.has('boost')) {
     chips.push(`<span class="power-chip" style="background:#ff0000;border-color:#ff6600">OVERCLOCK</span>`);
   }
-  if (G.wallTimer > 0) {
-    const sec = Math.ceil(G.wallTimer / 60);
+  if (fx.has('wall')) {
+    const sec = Math.ceil(fx.left('wall') / 60);
     chips.push(`<span class="power-chip" style="background:#444;border-color:#888">🧱${sec}s</span>`);
   }
-  if (G.timeFreezeTimer > 0) {
-    const sec = Math.ceil(G.timeFreezeTimer / 60);
+  if (fx.has('freeze')) {
+    const sec = Math.ceil(fx.left('freeze') / 60);
     chips.push(`<span class="power-chip" style="background:#004;border-color:#00ffff">⏱️${sec}s</span>`);
   }
   chips.push(`<span class="power-chip" style="background:#300;border-color:#f88">❤️${G.continues}</span>`);
@@ -3560,7 +3570,7 @@ function buyItem(itemId) {
       addScorePopup(G.player.x, G.player.y - 30, '額外生命+1!', '#ff0000');
       break;
     case 'wall':
-      G.wallTimer = 900;
+      fx.set('wall', 900);
       addScorePopup(G.player.x, G.player.y - 30, '堡壘 15秒!', '#888888');
       break;
     case 'weapon': {
@@ -3792,20 +3802,12 @@ function update() {
     if (G.keys[skillKey] && !G.keys._skillUsed) { G.keys._skillUsed = true; triggerActiveSkill(); }
     if (!G.keys[skillKey]) G.keys._skillUsed = false;
 
-    if (G.playerStats.activeCooldown > 0) G.playerStats.activeCooldown--;
-    if (G.playerStats.boostTimer > 0) G.playerStats.boostTimer--;
-    if (G.playerStats.invulTimer > 0) G.playerStats.invulTimer--;
-    if (G.playerStats.barrierTimer > 0) G.playerStats.barrierTimer--;
-    // FREEZING 詞綴：被子彈凍到時減速 50%，持續 slowTimer 個 tick（見 handleBulletHit）
-    if (G.playerStats.slowTimer > 0) {
-      G.playerStats.slowTimer--;
-      if (G.player) { G.player.speed = 2.5 * G.playerStats.speedMult * 0.5; G.player._slowed = true; }
-    } else if (G.player && G.player._slowed) {
-      G.player.speed = 2.5 * G.playerStats.speedMult;
-      G.player._slowed = false;
-    }
+    // 所有玩家／全域時效的唯一遞減進入點（舊版散在 5 處，其中兩處還在 PLAYING 之外，
+    // 導致暫停與商店期間堡壘時間照样流失）。
+    const expired = fx.tick();
+    if (expired.includes('slow')) applyPlayerSpeed();
+    if (expired.includes('combo')) G.playerStats.combo = 0;
     applyPassiveTick();
-    updateCombo();
 
     if (G.player && G.player.alive) {
       G.player.update();
@@ -3873,7 +3875,7 @@ function update() {
     }
 
     for (let i = 0; i < G.enemies.length; i++) {
-      if (G.enemies[i].alive && G.timeFreezeTimer <= 0) updateEnemyAI(G.enemies[i]);
+      if (G.enemies[i].alive && !fx.has('freeze')) updateEnemyAI(G.enemies[i]);
     }
 
     const ba = bulletsPool.active;
@@ -3995,8 +3997,8 @@ function updateSummonEntities() {
   }
   compact(G.powerUps);
 
-  if (G.wallTimer > 0) G.wallTimer--;
-  if (G.timeFreezeTimer > 0) G.timeFreezeTimer--;
+  // 堡壘與時間凍結已納入 fx，由 update() 的單一進入點遞減
+  // （順帶修正：暫停與商店期間不再倒數）
 }
 
 function drawSummonEntities() {
@@ -4226,7 +4228,8 @@ requestAnimationFrame(gameLoop);
     // 驗證工具會呼叫的函式
     applyUpgrade, buyItem, handleBulletHit, updateBullet, drawEagleDirect, eagleSprite,
     spawnEnemy, updateDirector, updateDirectorEvents, updateSummonEntities, damagePlayerFromHazard,
-    stepTicks, gameChecksum, seed: SEED, deterministic: DETERMINISTIC,
+    stepTicks, gameChecksum, seed: SEED, deterministic: DETERMINISTIC, fx,
+    applyPlayerSpeed,
     rngState: () => rnd.state(), setRngState: (v) => rnd.setState(v),
     drawParticles, drawPowerUps, drawMapEvent, buildTankSprite, rollMapEvent,
     // 驗證工具會讀寫的模組層狀態（掛物件本身，屬性讀寫才有效）
