@@ -162,6 +162,34 @@ ok('S3 沒有與全域 rnd 同名的區域變數（會 TDZ：Cannot access rnd b
 ok('S4 rng.js 提供 state 讀寫（replay 可從中斷點續跑）',
   /next\.state\s*=/.test(rngSource) && /next\.setState\s*=/.test(rngSource));
 
+console.log('\n=== T. 時效欄位：宣告的計時器必須有遞減端 ===');
+// 這一類 bug 修過兩次：barrierTimer 永不遞減（拿了 BARRIER 就整局無敵）、
+// laserLife 只寫不讀（每次射擊遺留 29 顆永生子彈）。共同特徵是「有寫入、沒有遞減」。
+{
+  const fields = new Set();
+  for (const m of gameSource.matchAll(/\.([A-Za-z_][A-Za-z0-9_]*Timer)\s*=[^=]/g)) fields.add(m[1]);
+  for (const m of gameSource.matchAll(/\.(\w*[Ll]ife)\s*=\s*\d/g)) fields.add(m[1]);
+  fields.delete('maxLife');       // maxLife 是分母／常數（life / maxLife），不是計時器
+  const neverTicked = [];
+  for (const field of fields) {
+    const tickPatterns = [
+      new RegExp(`${field}\\s*--`),                      // fooTimer--
+      new RegExp(`${field}\\s*-=\\s*1`),                 // fooTimer -= 1
+      new RegExp(`${field}\\s*=\\s*Math\\.max\\(0,\\s*${field}\\s*-`),  // foo = Math.max(0, foo - 1)
+      new RegExp(`--\\s*${field}`),                      // --fooTimer
+      new RegExp(`${field}\\s*<=\\s*0`),                 // 以「到期」判定（例如 life <= 0 → alive = false）
+      new RegExp(`${field}\\s*>\\s*0\\s*&&`),           // 有守衛（遞減寫在守衛內）
+      new RegExp(`${field}\\s*\\+=\\s*1`),               // 計數型：fooTimer += 1（累加到門檻才做事）
+      new RegExp(`${field}\\s*\\+\\+|\\+\\+\\s*${field}`),   // 計數型：fooTimer++ / ++fooTimer
+      new RegExp(`${field}\\s*=\\s*\\(\\s*[\\w.]*${field}\\s*\\|\\|\\s*0\\s*\\)\\s*\\+\\s*1`),   // 惰性初始化計數：x.fooTimer = (x.fooTimer || 0) + 1
+    ];
+    if (!tickPatterns.some((re) => re.test(gameSource))) neverTicked.push(field);
+  }
+  ok(`所有 ${fields.size} 個計時／壽命欄位都有遞減或到期判定（沒有「寫了卻不會前進」的計時器）`,
+    neverTicked.length === 0,
+    neverTicked.length ? `沒有遞減端：${neverTicked.join('、')}` : '0 個孤兒計時器');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 await browser.close();
 server.close();

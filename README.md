@@ -74,6 +74,10 @@ node tools/verify-game.mjs    # 遊戲行為與平台細節（31 項，Playwrigh
 - R2 重播結果與 `tools/replays/smoke.json` 記錄一致 → **玩法改動會讓這條紅**（相當於「玩一局」進 CI）
 - R3/R4 換 seed、換輸入都要得到不同結果（否則 replay 是假的）
 - S1–S4 原始碼層級：沒有 `Math.random()`、沒有與全域 `rnd` 同名的區域變數（會 TDZ）
+- T1 所有計時／壽命欄位都有遞減端或到期判定 —— 這一類修過兩次：
+  `barrierTimer` 永不遞減（拿了 BARRIER 就整局無敵）、`laserLife` 只寫不讀（每次射擊遺留 29 顆永生子彈）。
+  掃描接受 `--`、`-= 1`、`Math.max(0, x-1)`、`<= 0` 到期判定、以及 `+= 1`／`(x || 0) + 1` 計數型推進；
+  `maxLife` 是分母不是計時器，明確排除。
 
 > 開發時實際踩到兩件事，現在都有斷言守著：`const rnd = Math.random()` 被全域取代成
 > `const rnd = rnd()`（自我引用 TDZ），以及真實時間的 rAF 與測試的逐步模擬交錯

@@ -1896,7 +1896,6 @@ class Tank {
       // 特殊敵人類型初始化
       this.slowTimer = 0;
       this.shieldHits = this.elitePrefix === 'SHIELDED' ? 3 : 0;
-      this.regenTimer = 0;
       this.summonTimer = 0;
     }
   }
@@ -2019,6 +2018,17 @@ class Tank {
       this._spr = spr; this._sprDir = this.aimDir; this._sprPhase = phase; this._sprSize = s;
     }
     ctx.drawImage(this._spr, x, y);
+
+    // 帶道具的敵人發光：glowTimer 原本只被寫入、沒有任何讀取端 → 玩家看不出哪隻會掉寶
+    if (this.glowTimer > 0) {
+      this.glowTimer--;
+      const R = this.size * 1.8;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.25 + Math.sin(G.frameCount * 0.2) * 0.1;
+      ctx.drawImage(glowCanvas('#ffd700'), x + this.size / 2 - R / 2, y + this.size / 2 - R / 2, R, R);
+      ctx.restore();
+    }
 
     if (this.elitePrefix && this.eliteEffects) {
       const eff = this.eliteEffects;
@@ -3137,7 +3147,6 @@ function spawnEnemy() {
   if (elitePrefix) e.applyTypeStats();
   e.slowTimer = 0;
   e.shieldHits = elitePrefix === 'SHIELDED' ? 3 : 0;
-  e.regenTimer = 0;
   e.summonTimer = 0;
   assignPowerUpDrop(e);
   G.enemies.push(e);
