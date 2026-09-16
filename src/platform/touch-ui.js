@@ -63,9 +63,6 @@ export function makeTouchInput({
       this.fireTouchId = null;
       touch.dir = -1;
       touch.fire = false;
-      touch.joyActive = false;
-      touch.joyDx = 0;
-      touch.joyDy = 0;
       if (this.joyStick) { this.joyStick.style.left = '50%'; this.joyStick.style.top = '50%'; }
       if (this.fireBtn) this.fireBtn.classList.remove('pressed');
       if (this.joyBase) {
@@ -127,9 +124,6 @@ export function makeTouchInput({
           e.preventDefault();
           this.joyTouchId = null;
           touch.dir = -1;
-          touch.joyActive = false;
-          touch.joyDx = 0;
-          touch.joyDy = 0;
           this.joyStick.style.left = '50%';
           this.joyStick.style.top = '50%';
           this.joyBase.style.left = '30px';
@@ -157,13 +151,7 @@ export function makeTouchInput({
       const normDist = clampedDist / maxR;
       if (normDist < getConfig().JOYSTICK_DEADZONE) {
         touch.dir = -1;
-        touch.joyActive = false;
-        touch.joyDx = 0;
-        touch.joyDy = 0;
       } else {
-        touch.joyActive = true;
-        touch.joyDx = dx;
-        touch.joyDy = dy;
         touch.dir = Math.abs(dx) > Math.abs(dy)
           ? (dx > 0 ? DIR.RIGHT : DIR.LEFT)
           : (dy > 0 ? DIR.DOWN : DIR.UP);

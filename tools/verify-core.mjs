@@ -70,6 +70,13 @@ import { readdirSync, statSync as statSyncNode } from 'node:fs';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const gameSource = readFileSync(join(ROOT, 'index.html'), 'utf8');
 const maskComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:'"\\])\/\/[^\n]*/g, '$1 ');
+const maskStrings = (text) => text
+  .replace(/`(?:[^`\\]|\\.)*`/g, '``')
+  .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+  .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+  // 只遮「看起來是 regex」的字面值（以 ^ 開頭或含轉義），避免吃掉除法運算式
+  .replace(/\/\^(?:[^\/\\\n]|\\.)*\/[gimsuy]*/g, 'RE')
+  .replace(/\/[^\/\s]*\\[^\/\n]*\/[gimsuy]*/g, 'RE');
 const gameCode = maskComments(gameSource);
 
 let passed = 0, failed = 0;
@@ -220,10 +227,13 @@ console.log('\n=== I. 輸入意圖（src/platform/input.js）===');
   ok('I6 releaseAll 清空所有 intent', !ed.up && !ed.right && !ed.down && !ed.left && !ed.fire && !ed.skill);
 
   const touch = makeTouchState();
-  touch.dir = 3; touch.fire = true; touch.joyActive = true; touch.joyDx = 12;
+  touch.dir = 3; touch.fire = true;
   releaseTouch(touch);
-  ok('I7 releaseTouch 把搖桿與 FIRE 歸零',
-    touch.dir === -1 && touch.fire === false && touch.joyActive === false && touch.joyDx === 0);
+  // 搖桿是四方向離散：dir = -1 代表「回中央」。過去還有 joyActive／joyDx／joyDy
+  // 三個欄位（寫了沒人讀），已由 Y 組掃描揪出移除，這裡一併斷言它們不再復活。
+  ok('I7 releaseTouch 把方向與 FIRE 歸零（不再有多餘的搖桿欄位）',
+    touch.dir === -1 && touch.fire === false
+    && !('joyActive' in touch) && !('joyDx' in touch) && !('joyDy' in touch));
 
   ok('I8 對應表同時支援 WASD 與方向鍵（含 Space/KeyJ 射擊）',
     KEY_BINDINGS.KeyW === 'up' && KEY_BINDINGS.ArrowUp === 'up' && KEY_BINDINGS.Space === 'fire' && KEY_BINDINGS.KeyJ === 'fire');
@@ -353,10 +363,10 @@ console.log('\n=== T2. 觸控 UI（src/platform/touch-ui.js）===');
   els.fireButton.fire('touchstart');
   ok('T2-2 按下 FIRE 會設定 fire=true 與 pressed 樣式', touch.fire === true && els.fireButton.classList.contains('pressed'));
 
-  touch.dir = 1; touch.joyDx = 30; touch.joyActive = true;
+  touch.dir = 1;
   mobile.reset();
   ok('T2-3 reset() 會強制放開搖桿與射擊鍵、並把搖桿移回中央',
-    touch.dir === -1 && touch.fire === false && touch.joyActive === false && touch.joyDx === 0
+    touch.dir === -1 && touch.fire === false
     && els.joystickStick.style.left === '50%' && !els.fireButton.classList.contains('pressed'),
     JSON.stringify({ dir: touch.dir, fire: touch.fire, stick: els.joystickStick.style.left }));
 
@@ -674,13 +684,6 @@ console.log('\n=== X. 靜態掃描：呼叫了但沒有定義的裸函式 ===');
     ...collectSources(join(ROOT, 'src')),
   ];
   // 這個掃描要再把字串遮掉：'rgba(0,0,0,0.5)' 之類的文字內容不是函式呼叫
-  const maskStrings = (text) => text
-    .replace(/`(?:[^`\\]|\\.)*`/g, '``')
-    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
-    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
-    // 只遮「看起來是 regex」的字面值（以 ^ 開頭或含轉義），避免吃掉除法運算式
-    .replace(/\/\^(?:[^\/\\\n]|\\.)*\/[gimsuy]*/g, 'RE')
-    .replace(/\/[^\/\s]*\\[^\/\n]*\/[gimsuy]*/g, 'RE');
   const stripped = sources.map(({ path, code }) => ({ path, code: maskStrings(maskComments(code)) }));
 
   const DECLARED = new Set();
@@ -768,6 +771,83 @@ console.log('\n=== C. 架構契約 ===');
 
   ok('C4 restart 會清空所有時效（fx.clearAll 在 restartGame 內）',
     /function restartGame\(\)[\s\S]{0,1500}?fx\.clearAll\(\)/.test(gameCode));
+}
+
+console.log('\n=== Y. 靜態掃描：寫了卻沒有讀取的欄位 ===');
+{
+  // 這一類 bug 修過三次以上：barrierTimer（只寫不減 → 永久無敵）、glowTimer（只寫不讀 →
+  // 帶道具敵人不會發光）、laserLife（只寫不讀 → 每次射擊遺留 29 顆永生子彈）。
+  // 資料層的死欄位由 verify-data 的 D 組守；這裡守的是程式碼層。
+  const sources = [
+    { path: 'index.html', code: (gameSource.match(/<script type="module">([\s\S]*?)<\/script>/) || [, gameSource])[1] },
+    ...(() => {
+      const out = [];
+      const walk = (dir) => {
+        for (const entry of readdirSync(dir)) {
+          const full = join(dir, entry);
+          if (statSyncNode(full).isDirectory()) walk(full);
+          else if (/\.js$/.test(entry)) out.push({ path: full.replace(ROOT, ''), code: readFileSync(full, 'utf8') });
+        }
+      };
+      walk(join(ROOT, 'src'));
+      return out;
+    })(),
+  ].map(({ path, code }) => ({ path, code: maskStrings(maskComments(code)) }));
+
+  // 依「接收者」過濾宿主物件：canvas 繪圖狀態、DOM、WebAudio 的屬性都是「我們寫、宿主讀」，
+  // 不是遊戲資料流。欄位掃描只關心遊戲自己的狀態物件。
+  const HOST_RECEIVERS = new Set(['style', 'classList', 'dataset', 'frequency', 'gain', 'Q', 'port', 'body',
+    'document', 'doc', 'window', 'ctx', 'c', 'c2', 'cx2d', 'staticCtx', 'forestCtx', 'canvas', 'src', 'filt', 'gn',
+    'osc', 'self', 'location', 'navigator', 'performance', 'Module', 'ov', 'div', 'btn', 'container']);
+  // 宿主物件（canvas 繪圖狀態、DOM 元素）的屬性由瀏覽器讀取，不屬遊戲資料流。
+  // 只靠接收者名字擋不住（某人把 context 取名 c2 就漏了），因此再依欄位名擋一層。
+  const HOST_FIELDS = new Set(['fillStyle', 'strokeStyle', 'lineWidth', 'font', 'textAlign', 'textBaseline',
+    'globalAlpha', 'globalCompositeOperation', 'shadowBlur', 'shadowColor', 'lineCap', 'lineJoin',
+    'innerHTML', 'textContent', 'innerText', 'tabIndex', 'title', 'src', 'async', 'defer', 'href', 'disabled',
+    'className', 'id', 'type', 'value', 'placeholder', 'checked']);
+  // 刻意的對外介面（測試／工具會讀，但不在掃描範圍內）
+  const PUBLIC_API = new Map([
+    ['__T', '掛給驗證工具與 replay 的除錯介面'],
+    ['int', 'rng 產生器的公開方法（工具與測試使用）'],
+    ['range', '同上'],
+    ['state', 'rng 產生器的公開方法（replay 從中斷點續跑）'],
+    ['setState', '同上'],
+  ]);
+
+  const writes = new Map();   // field → Set(來源)
+  const reads = new Map();
+  for (const { path, code } of sources) {
+    for (const m of code.matchAll(/([\w$.]+)\.([A-Za-z_$][\w$]*)\s*=[^=]/g)) {
+      const receiver = m[1].split('.').pop();
+      const field = m[2];
+      if (HOST_RECEIVERS.has(receiver)) continue;
+      if (HOST_FIELDS.has(field)) continue;
+      if (/^on[a-z]/.test(field)) continue;                 // 事件處理器（瀏覽器讀）
+      if (!writes.has(field)) writes.set(field, new Set());
+      writes.get(field).add(path);
+    }
+    for (const m of code.matchAll(/\.([A-Za-z_$][\w$]*)(?!\s*=[^=])/g)) {
+      if (!reads.has(m[1])) reads.set(m[1], new Set());
+      reads.get(m[1]).add(path);
+    }
+  }
+
+  // 允許清單：寫入是為了外部介面／快取鍵，逐項附理由
+  const ALLOWED = new Map([
+    ['_sprDir', 'sprite 快取鍵，與 _spr 一起做比對式讀取'],
+    ['_sprPhase', '同上'],
+    ['_sprSize', '同上'],
+    ...PUBLIC_API,
+  ]);
+
+  const orphans = [...writes.keys()]
+    .filter((field) => !reads.has(field))
+    .filter((field) => !ALLOWED.has(field))
+    .map((field) => `${field}（寫入於 ${[...writes.get(field)].join('、')}）`);
+
+  ok(`程式碼中沒有「寫了卻沒有讀取」的欄位（共掃描 ${writes.size} 個被寫入的欄位）`,
+    orphans.length === 0,
+    orphans.length ? orphans.slice(0, 8).join('；') : `0 個孤兒欄位（另有 ${ALLOWED.size} 項註明理由的例外）`);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

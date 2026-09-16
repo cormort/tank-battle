@@ -600,7 +600,7 @@ const WeaponManager = {
       b.pierce = false;
       b.x = cx - 3 + DX[tank.aimDir] * (hs + 2);
       b.y = cy - 3 + DY[tank.aimDir] * (hs + 2);
-      b.speed = tank.type === 'BOSS' ? CONFIG.BULLET.SPEED_BOSS : CONFIG.BULLET.SPEED_ENEMY;
+      b.speed = bulletSpeed(tank.type === 'BOSS' ? CONFIG.BULLET.SPEED_BOSS : CONFIG.BULLET.SPEED_ENEMY);
       b.vx = DX[tank.aimDir]; b.vy = DY[tank.aimDir];
       b.power = tank.weapon === 'SPREAD' ? 2 : 1;
       b.hitTanks.length = 0;
@@ -661,7 +661,7 @@ const WeaponManager = {
     b.isPlayer = tank.isPlayer;
     b.freezing = !tank.isPlayer && tank.elitePrefix === 'FREEZING';   // FREEZING 精英的子彈會凍緩玩家
     b.vx = vx; b.vy = vy;
-    b.speed = tank.isPlayer ? CONFIG.BULLET.SPEED_PLAYER : CONFIG.BULLET.SPEED_ENEMY;
+    b.speed = bulletSpeed(tank.isPlayer ? CONFIG.BULLET.SPEED_PLAYER : CONFIG.BULLET.SPEED_ENEMY);
     b.power = power;
     b.pierce = (effect === 'PIERCE' || effect === 'LASER_BEAM' || tank.pierce);
     b.hitTanks.length = 0;
@@ -757,7 +757,6 @@ const G = {
     combo: 0, shopFireRateBonus: 0, weaponDamageBonus: 0
   },
   summonEntities: [],
-  mapEvent: null,
   directorEvents: [],
   touch: makeTouchState(),
   permanentStats: { scr: 0, upgradePoints: 0 },
@@ -929,7 +928,9 @@ function applyUpgrade(opt) {
 // ==================== 被動技能效果系統 ====================
 function applyPassiveEffects(target, source, effectType) {
   const ps = G.playerStats;
-  let result = { damageMult: 1, triggered: false };
+  // 回傳值從來沒有被任何呼叫端使用（兩個呼叫點都丟棄），各 case 的效果直接作用在狀態上。
+  // 保留 triggered 會變成「寫了卻沒有讀取」的死欄位（見 verify-core 的 Y 組掃描）。
+  const effect = { damageMult: 1 };
 
   for (const passiveId of ps.passives) {
     const passive = PASSIVE_SKILLS.find(p => p.id === passiveId);
@@ -939,36 +940,31 @@ function applyPassiveEffects(target, source, effectType) {
       case 'HEAT':
         if (effectType === 'shoot') {
           ps.heatStacks = Math.min(ps.heatStacks + 1, 20);
-          result.triggered = true;
         }
         break;
       case 'RAGE':
         if (effectType === 'damage_dealt' && source) {
-          result.damageMult *= source.hp < source.maxHp * 0.5 ? 2 : (source.hp < source.maxHp * 0.75 ? 1.5 : 1);
-          result.triggered = true;
+          effect.damageMult *= source.hp < source.maxHp * 0.5 ? 2 : (source.hp < source.maxHp * 0.75 ? 1.5 : 1);
         }
         break;
       case 'WEAKEN':
         if (effectType === 'boss_damage' && target && target.type === 'BOSS') {
-          result.damageMult *= 1.5;
-          result.triggered = true;
+          effect.damageMult *= 1.5;
         }
         break;
       case 'CHAIN':
         if (effectType === 'bullet_hit' && target) {
           spawnChainBullet(source.x, source.y, target);
-          result.triggered = true;
         }
         break;
       case 'OVERCHARGE':
         if (effectType === 'laser_kill' && target) {
           chainLightning(target.x, target.y, target);
-          result.triggered = true;
         }
         break;
     }
   }
-  return result;
+  return effect;
 }
 
 function getHeatStacksMultiplier() {
@@ -1223,7 +1219,7 @@ function spawnBullet(x, y, dir, isPlayer, pierce = false, power = 1) {
   b.power = finalPower;
   b.vx = DX[dir];
   b.vy = DY[dir];
-  b.speed = isPlayer ? CONFIG.BULLET.SPEED_PLAYER : CONFIG.BULLET.SPEED_ENEMY;
+  b.speed = bulletSpeed(isPlayer ? CONFIG.BULLET.SPEED_PLAYER : CONFIG.BULLET.SPEED_ENEMY);
   b.hitTanks.length = 0;
 }
 
@@ -1249,7 +1245,6 @@ function spawnChainBullet(x, y, target) {
     const basePower = WEAPON_TREE[G.playerStats.weapon]?.basePower || 1;
     const powerBonus = G.playerStats.weaponDamageBonus || 0;
     b.power = 0.5 * basePower + powerBonus;
-    b.chainCount = 1;
     b.hitTanks.length = 0;
   }
 }
@@ -1331,7 +1326,7 @@ const particlesPool = new Pool(
 );
 
 const bulletsPool = new Pool(
-  () => ({ x:0, y:0, dir:0, vx:0, vy:0, isPlayer:false, speed:0, size:CONFIG.BULLET.SIZE, alive:false, power:1, pierce:false, hitTanks:[], ignoreTiles:false, _isChild:false, laserLife:0, chainCount:0, freezing:false }),
+  () => ({ x:0, y:0, dir:0, vx:0, vy:0, isPlayer:false, speed:0, size:CONFIG.BULLET.SIZE, alive:false, power:1, pierce:false, hitTanks:[], ignoreTiles:false, _isChild:false, laserLife:0, freezing:false }),
   (b) => { 
     b.alive = true; 
     b.size = CONFIG.BULLET.SIZE; 
@@ -1340,7 +1335,6 @@ const bulletsPool = new Pool(
     b.ignoreTiles = false;
     b._isChild = false;
     b.laserLife = 0;
-    b.chainCount = 0;
     b.freezing = false;
   }, 
   CONFIG.POOL.BULLET_INITIAL,
@@ -2008,7 +2002,7 @@ function handleBulletHit(b, t) {
       c.isPlayer = true;
       c.vx = DX[dir] * cos - DY[dir] * sin;
       c.vy = DX[dir] * sin + DY[dir] * cos;
-      c.speed = CONFIG.BULLET.SPEED_PLAYER * 0.8;
+      c.speed = bulletSpeed(CONFIG.BULLET.SPEED_PLAYER * 0.8);
       c.power = childPower;
       c._isChild = true;
     }
@@ -2235,9 +2229,18 @@ let mapEventState = {
   timer: 0,
   duration: 0,
   volcanoTimer: 0,
-  iceFriction: false,
-  volcanoTargets: []
+  volcanoTargets: [],
+  slideDir: -1,     // ICE：失去輸入後仍會沿著的最後方向
+  slideTicks: 0     // ICE：剩餘滑行 tick 數
 };
+
+const ICE_SLIDE_TICKS = 14;   // 冰面滑行：放開方向後仍滑行約 0.23 秒
+
+// EMP 地圖事件的效果必須對「事件期間生成的子彈」也生效，而不只是啟動瞬間場上那幾顆。
+// 標準子彈的生成點一律走這裡，速度公式只有一份（鏈電／雷射光束等特效段不在此列）。
+function bulletSpeed(base) {
+  return (mapEventState.active && mapEventState.type === 'EMP') ? base * 0.5 : base;
+}
 
 function rollMapEvent() {
   if (!G.isVSMode || G.level < 3) return null;
@@ -2255,9 +2258,9 @@ function activateMapEvent(ev) {
   mapEventState.duration = ev.duration;
   mapEventState.volcanoTimer = 0;
   mapEventState.volcanoTargets = [];
-  mapEventState.iceFriction = false;
 
-  if (ev.id === 'ICE') G.playerStats.speedMult *= 0.6; 
+  if (ev.id === 'DESERT') G.playerStats.speedMult *= 0.7;   // 沙漠：移速 -30%（原本完全沒有實作）
+  if (ev.id === 'ICE') { mapEventState.slideDir = -1; mapEventState.slideTicks = 0; }
   if (ev.id === 'EMP') {
     for (const b of bulletsPool.active) {
       if (b.isPlayer && b.alive) b.speed *= 0.5;
@@ -2275,10 +2278,7 @@ function updateMapEvent() {
       break;
 
     case 'ICE':
-      if (G.player && G.player.alive && G.player.moving) {
-        G.player.moving = true;
-      }
-      break;
+      break;   // 滑行在移動段處理（需要看輸入），這裡不必做事
 
     case 'VOLCANIC':
       mapEventState.volcanoTimer++;
@@ -2326,11 +2326,9 @@ function deactivateMapEvent() {
   mapEventState.active = false;
   mapEventState.type = null;
 
-  if (evType === 'ICE') {
-    G.playerStats.speedMult /= 0.6; 
-  }
-  if (evType === 'EMP') {
-  }
+  if (evType === 'DESERT') G.playerStats.speedMult /= 0.7;
+  mapEventState.slideDir = -1;
+  mapEventState.slideTicks = 0;
 }
 
 let _nightGradient = null, _nightGradientX = 0, _nightGradientY = 0;
@@ -2789,9 +2787,14 @@ function startLevel() {
   G.spawnEffects = [];
   deactivateMapEvent();
 
-  if (G.isVSMode && G.level >= 3 && rnd() < 0.25) {
-    const ev = MAP_EVENTS[(rnd() * MAP_EVENTS.length) | 0];
-    if (ev) activateMapEvent(ev);
+  // 地圖事件的唯一啟動點。舊版只把 rollMapEvent() 的結果塞進一個從來沒人讀的 G.mapEvent
+  // → activateMapEvent() 沒有任何呼叫端，整個子系統（updateMapEvent 與 6 種事件效果）是死碼。
+  // 注意順序：必須排在 deactivateMapEvent() 之後，否則剛啟動的 DESERT 減速會在同一次
+  // startLevel 內被立刻除回去（等於沒有效果）。
+  const mapEv = rollMapEvent();
+  if (mapEv) {
+    activateMapEvent(mapEv);
+    G.directorEvents.push({ name: `${mapEv.icon || ''} ${mapEv.name}`, desc: mapEv.effect, life: 240 });
   }
 
   G.map = generateMap(G.level);
@@ -2827,10 +2830,8 @@ function restartGame() {
   fx.clearAll();                 // 重新開始就該清空所有時效（契約由 verify-core 驗證）
   updateHUD();
   G.summonEntities = [];
-  G.mapEvent = null;
   G.directorEvents = [];
   G.permanentStats = { scr: 0, upgradePoints: 0 };
-  G.mapEvent = rollMapEvent();
   screens.renderMenu();          // 標題畫面（實作在 src/ui/screens.js）
   startLevel();
 }
@@ -2907,7 +2908,7 @@ function releaseAllInput() {
   if (typeof MobileInput !== 'undefined' && MobileInput.reset) MobileInput.reset();
 }
 function autoPauseIfPlaying() {
-  if (G.state === STATE.PLAYING) { G._autoPaused = true; togglePause(); }
+  if (G.state === STATE.PLAYING) togglePause();   // 自動暫停（不需要記狀態：玩家自己按 P 恢復）
 }
 function resumeAudioIfNeeded() {
   if (Sound.ctx && Sound.ctx.state === 'suspended') Sound.resume();
@@ -3098,7 +3099,14 @@ function update() {
 
       // 移動方向由平台層的意圖決定（鍵盤優先，其次觸控搖桿）
       const moveDir = dirFromInput(input, G.touch.dir >= 0 ? G.touch.dir : -1);
-      if (moveDir >= 0) { G.player.move(moveDir); moved = true; }
+      if (moveDir >= 0) {
+        G.player.move(moveDir); moved = true;
+        mapEventState.slideDir = moveDir; mapEventState.slideTicks = ICE_SLIDE_TICKS;
+      } else if (mapEventState.active && mapEventState.type === 'ICE' &&
+                 mapEventState.slideTicks > 0 && mapEventState.slideDir >= 0) {
+        // 冰面：沒有輸入時仍沿最後方向滑行，直到滑行量用完（地圖事件 ICE = '坦克滑行慣性'）
+        G.player.move(mapEventState.slideDir); moved = true; mapEventState.slideTicks--;
+      }
 
       if (!moved) G.player.moving = false;
 
@@ -3513,6 +3521,7 @@ requestAnimationFrame(gameLoop);
     applyPlayerSpeed, input, gameState, STATES, releaseAllInput,
     rngState: () => rnd.state(), setRngState: (v) => rnd.setState(v),
     drawParticles, drawPowerUps, drawMapEvent, buildTankSprite, rollMapEvent,
+    activateMapEvent, deactivateMapEvent, updateMapEvent, spawnBullet,
     // 驗證工具會讀寫的模組層狀態（掛物件本身，屬性讀寫才有效）
     mapEventState, eagleCache, tankSpriteCache: _tankSpriteCache, smokeColor: SMOKE_COLOR,
     ctx, canvas,   // 主畫布與其 2D context（工具用來檢查繪圖狀態，例如 textAlign）
