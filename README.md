@@ -16,6 +16,8 @@
 
 ```
 index.html          遊戲本體（單檔可開，<script type="module">）
+src/core/           執行期核心
+  rng.js              可重現亂數（xorshift32；?seed=N）
 src/data/           資料層：唯一來源，這裡改數值就是改遊戲
   config.js           CONFIG（畫布、子彈、粒子、池、AI、玩法）
   weapons.js          四條流派樹、射擊參數、起始武器、掉落池
@@ -42,6 +44,8 @@ tools/              驗證工具（Node + Playwright）
 
 ```bash
 node tools/verify-data.mjs    # 資料層閘門（5 項，純 Node、秒級）
+node tools/verify-replay.mjs  # 確定性與 replay（11 項）
+node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay
 node tools/verify-game.mjs    # 遊戲行為與平台細節（31 項，Playwright）
 #   PW_MODULE=/path/to/playwright/index.js node tools/verify-game.mjs
 #   PROBE_URL=https://cormort.github.io/tank-battle/ node tools/verify-game.mjs   # 打遠端
@@ -60,6 +64,21 @@ node tools/verify-game.mjs    # 遊戲行為與平台細節（31 項，Playwrigh
 > （例如新增一個道具的 `duration` 會被 `MAP_EVENTS.duration` 的讀取掩蓋）。
 > 它抓的是「整個欄位名沒人用」，無法判斷「這一張表的這一個欄位沒人用」。
 
+### `verify-replay.mjs`（確定性與 replay）
+
+整局的隨機都走 `src/core/rng.js` 的 seeded 產生器，`?sim` 模式讓 update 只由 `__T.stepTicks()`
+推進（真實時間的 rAF 不會交錯），因此 **seed + 輸入序列** 就唯一決定結果，把結果壓成
+`__T.gameChecksum()` 後就能比對：
+
+- R1 同一份 replay 跑兩次 → checksum 相同（沒有隱藏的隨機或時間依賴）
+- R2 重播結果與 `tools/replays/smoke.json` 記錄一致 → **玩法改動會讓這條紅**（相當於「玩一局」進 CI）
+- R3/R4 換 seed、換輸入都要得到不同結果（否則 replay 是假的）
+- S1–S4 原始碼層級：沒有 `Math.random()`、沒有與全域 `rnd` 同名的區域變數（會 TDZ）
+
+> 開發時實際踩到兩件事，現在都有斷言守著：`const rnd = Math.random()` 被全域取代成
+> `const rnd = rnd()`（自我引用 TDZ），以及真實時間的 rAF 與測試的逐步模擬交錯
+> （同樣 seed 卻得到 947 vs 940 幀）。
+
 ### `verify-game.mjs`（行為與平台）
 
 31 項：A 主玩法（武器進化鏈、商店扣分時機、BARRIER 時效、BOOST 方向、子彈壽命回收、
@@ -70,7 +89,10 @@ E 資料接線（SURGE deactivate、空投真的掉寶、FREEZING 凍緩、特�
 
 ### 遊戲內建除錯鉤子
 
-- `?bot`：把內部符號掛到 `window.__T`（`G`／`STATE`／`Pool`／`Tank`／資料表／供測試呼叫的函式）
+- `?bot`：把內部符號掛到 `window.__T`（`G`／`STATE`／`Pool`／`Tank`／資料表／供測試呼叫的函式／
+  `stepTicks`／`gameChecksum`／`seed`／`rngState`）
+- `?sim`：確定性模擬模式（update 只由 `stepTicks()` 推進，replay 測試用）
+- `?seed=N`：指定亂數種子（可重現同一局）
 - `?speed=N`：加速模擬（1–20 倍）
 - `?mute` / `?bot`：靜音
 

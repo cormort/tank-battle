@@ -347,6 +347,16 @@ import {
   PASSIVE_SKILLS, ACTIVE_SKILLS, POWER_UPS, COMMON_DROPS,
   ELITE_PREFIXES, SPECIAL_ENEMY_TYPES, SHOP_ITEMS, makeDirectorEvents, MAP_EVENTS,
 } from './src/data/index.js';
+import { makeRng, hashSeed, defaultSeed } from './src/core/rng.js';
+
+// 可重現亂數：整局的隨機都走這一個產生器，?seed=N 可指定（replay 測試靠這個）。
+// 原本 59 處直接呼叫 rnd()，任何一處都會讓兩次執行分岔、無法回放。
+const _bootParams = new URLSearchParams(location.search);
+const SEED = _bootParams.has('seed') ? hashSeed(_bootParams.get('seed')) : defaultSeed();
+let rnd = makeRng(SEED);
+// ?sim：確定性模擬模式。遊戲迴圈不再自己 update()，時間只由 stepTicks() 推進 ——
+// 否則真實時間的 rAF 會與測試的逐步模擬交錯，同樣的 seed 也會得到不同結果（實測 947 vs 940 幀）。
+const DETERMINISTIC = _bootParams.has('sim');
 
 // Director 事件表：行為需要的執行期物件用 getter 注入（W／TILE／Tank 等宣告在 import 之後，
 // 直接取值會在 TDZ 內；getter 只會在事件真正觸發時才解析）。
@@ -437,7 +447,7 @@ const Sound = {
       const sr = this.ctx.sampleRate;
       const buf = this.ctx.createBuffer(1, sr, sr);
       const data = buf.getChannelData(0);
-      for (let i = 0; i < sr; i++) data[i] = Math.random() * 2 - 1;
+      for (let i = 0; i < sr; i++) data[i] = rnd() * 2 - 1;
       this.noiseBuf = buf;
       this.ready = true;
     } catch (e) { /* ignore */ }
@@ -761,7 +771,7 @@ const STATE = { MENU:'menu', PLAYING:'playing', PAUSED:'paused', UPGRADE:'upgrad
 // Fisher-Yates 洗牌
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
-    const j = (Math.random() * (i + 1)) | 0;
+    const j = (rnd() * (i + 1)) | 0;
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
@@ -907,8 +917,8 @@ const WeaponManager = {
   triggerBombard() {
     if (G.frameCount % 180 === 0) {
       for (let i = 0; i < 20; i++) {
-        const bx = Math.random() * W;
-        const by = Math.random() * H;
+        const bx = rnd() * W;
+        const by = rnd() * H;
         setTimeout(() => {
           if (G.level === G.level && G.state === STATE.PLAYING) {
             spawnExplosion(bx, by, 'big');
@@ -1095,7 +1105,7 @@ function applyUpgrade(opt) {
     if (opt.id === 'RANDOM') {
       // 隨機派系
       const starters = ['RAPID', 'SPREAD', 'PLASMA', 'SUMMON'];
-      const chosen = starters[(Math.random() * starters.length) | 0];
+      const chosen = starters[(rnd() * starters.length) | 0];
       ps.weapon = chosen;
       const wp = WEAPON_TREE[chosen];
       if (wp) {
@@ -1269,8 +1279,8 @@ function dashPlayer() {
 function callAirStrike() {
   const currentLevel = G.level;
   for (let i = 0; i < 12; i++) {
-    const x = Math.random() * W;
-    const y = Math.random() * H;
+    const x = rnd() * W;
+    const y = rnd() * H;
     setTimeout(() => {
       if (G.level !== currentLevel || G.state !== STATE.PLAYING) return;
       spawnExplosion(x, y, 'big');
@@ -1609,7 +1619,7 @@ function generateMap(level) {
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) map[r][c] = STEEL;
-        else if (Math.random() < 0.03) map[r][c] = FOREST;
+        else if (rnd() < 0.03) map[r][c] = FOREST;
       }
     }
     return map;
@@ -1625,11 +1635,11 @@ function generateMap(level) {
   for (let r = 2; r < ROWS - 2; r++) {
     for (let c = 1; c < COLS - 1; c++) {
       if (r >= ROWS - 4 && c >= baseC - 3 && c <= baseC + 3) continue;
-      const rnd = Math.random();
-      if (rnd < density * 0.55) map[r][c] = BRICK;
-      else if (rnd < density * (0.55 + steelRatio)) map[r][c] = STEEL;
-      else if (rnd < density * (0.55 + steelRatio + 0.04)) map[r][c] = WATER;
-      else if (rnd < density * (0.55 + steelRatio + 0.08)) map[r][c] = FOREST;
+      const roll = rnd();      // 不可命名為 rnd：會蓋掉全域產生器並自我引用（TDZ）
+      if (roll < density * 0.55) map[r][c] = BRICK;
+      else if (roll < density * (0.55 + steelRatio)) map[r][c] = STEEL;
+      else if (roll < density * (0.55 + steelRatio + 0.04)) map[r][c] = WATER;
+      else if (roll < density * (0.55 + steelRatio + 0.08)) map[r][c] = FOREST;
     }
   }
   return map;
@@ -1839,7 +1849,7 @@ class Tank {
     this.size = TILE - 4;
     this.bulletTimer = 0; this.alive = true; this.moving = false;
     this.flashTimer = 0; 
-    this.aiChangeTimer = Math.random() * 50; 
+    this.aiChangeTimer = rnd() * 50; 
     this.aiDir = dir;
     this.lastDist = Infinity;
     this.applyTypeStats();
@@ -1870,7 +1880,7 @@ class Tank {
         this.bossPhaseTimer = 0;
       }
       else {
-        this.speed = 1.0 + Math.random() * 0.5;
+        this.speed = 1.0 + rnd() * 0.5;
         this.color = '#c33';
         this.hp = this.maxHp = 1;
         this.bulletCooldown = CONFIG.BULLET.ENEMY_NORMAL;
@@ -2452,19 +2462,19 @@ function spawnExplosion(x, y, type) {
   else count = CONFIG.PARTICLE.SPARK_COUNT;
   
   for (let i = 0; i < count; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const speed = Math.random() * (type === 'big' ? 4 : 2) + 0.5;
+    const angle = rnd() * Math.PI * 2;
+    const speed = rnd() * (type === 'big' ? 4 : 2) + 0.5;
 
     const spark = particlesPool.acquire();
     spark.type = 'spark'; 
     spark.x = x; spark.y = y;
     spark.vx = Math.cos(angle) * speed; 
     spark.vy = Math.sin(angle) * speed;
-    spark.life = spark.maxLife = 15 + Math.random() * 20; 
-    spark.size = Math.random() * 3 + 1.5;
+    spark.life = spark.maxLife = 15 + rnd() * 20; 
+    spark.size = rnd() * 3 + 1.5;
     
     if (type === 'shield') spark.color = '#5cd8ff';
-    else spark.color = Math.random() > 0.5 ? '#ffaa00' : '#ff3300';
+    else spark.color = rnd() > 0.5 ? '#ffaa00' : '#ff3300';
 
     if (type === 'big' || type === 'tank') {
       const smoke = particlesPool.acquire();
@@ -2472,8 +2482,8 @@ function spawnExplosion(x, y, type) {
       smoke.x = x; smoke.y = y;
       smoke.vx = Math.cos(angle) * speed * 0.3; 
       smoke.vy = Math.sin(angle) * speed * 0.3 - 0.5;
-      smoke.life = smoke.maxLife = 30 + Math.random() * 30; 
-      smoke.size = Math.random() * 4 + 4;
+      smoke.life = smoke.maxLife = 30 + rnd() * 30; 
+      smoke.size = rnd() * 4 + 4;
       smoke.color = 'rgba(100, 100, 100, 0.5)';
     }
   }
@@ -2567,9 +2577,9 @@ function renderBullets() {
 function updateDirector() {
   if (!G.isVSMode || G.frameCount % 300 !== 0) return;
 
-  if (Math.random() < 0.15 && G.directorEvents.length === 0) {
+  if (rnd() < 0.15 && G.directorEvents.length === 0) {
     const events = Object.keys(DIRECTOR_EVENTS);
-    const eventName = events[(Math.random() * events.length) | 0];
+    const eventName = events[(rnd() * events.length) | 0];
     const event = DIRECTOR_EVENTS[eventName];
     event.activate();
     G.directorEvents.push({ name: event.name, desc: event.desc, life: event.duration, type: eventName });
@@ -2592,17 +2602,17 @@ function updateDirectorEvents() {
       // 空投箱落地時掉一個道具（用既有的 POWER_UPS 池與掉落清單）。
       if (ev.life % 30 === 0 && ev.life > 0) {
         const pool = COMMON_DROPS;
-        const type = pool[(Math.random() * pool.length) | 0];
-        const px = Math.max(TILE, Math.min(W - TILE * 2, ev.x + (Math.random() - 0.5) * TILE * 4));
-        const py = Math.max(TILE, Math.min(H - TILE * 2, ev.y + (Math.random() - 0.5) * TILE * 4));
+        const type = pool[(rnd() * pool.length) | 0];
+        const px = Math.max(TILE, Math.min(W - TILE * 2, ev.x + (rnd() - 0.5) * TILE * 4));
+        const py = Math.max(TILE, Math.min(H - TILE * 2, ev.y + (rnd() - 0.5) * TILE * 4));
         G.powerUps.push({ type, x: px, y: py, life: 600, maxLife: 600, alive: true });
       }
     } else if (ev.type === 'orbital') {
       ev.timer++;
       if (ev.timer % 60 === 0) {
         ev.stage++;
-        const x = Math.random() * W;
-        const y = Math.random() * H;
+        const x = rnd() * W;
+        const y = rnd() * H;
         ev.targets.push({ x, y, stage: ev.stage });
       }
       if (ev.timer > 240) {
@@ -2637,8 +2647,8 @@ let mapEventState = {
 
 function rollMapEvent() {
   if (!G.isVSMode || G.level < 3) return null;
-  if (Math.random() < 0.2) {
-    const ev = MAP_EVENTS[(Math.random() * MAP_EVENTS.length) | 0];
+  if (rnd() < 0.2) {
+    const ev = MAP_EVENTS[(rnd() * MAP_EVENTS.length) | 0];
     return ev;
   }
   return null;
@@ -2679,8 +2689,8 @@ function updateMapEvent() {
     case 'VOLCANIC':
       mapEventState.volcanoTimer++;
       if (mapEventState.volcanoTimer % 90 === 0) {
-        const rx = Math.random() * (W - TILE * 4) + TILE * 2;
-        const ry = Math.random() * (H - TILE * 4) + TILE * 2;
+        const rx = rnd() * (W - TILE * 4) + TILE * 2;
+        const ry = rnd() * (H - TILE * 4) + TILE * 2;
         mapEventState.volcanoTargets.push({ x: rx, y: ry, life: 60 });
         if (G.player && G.player.alive && Math.hypot(G.player.x - rx, G.player.y - ry) < TILE * 3) {
           G.playerStats.hp -= 0.3;
@@ -2891,7 +2901,7 @@ function updateSpecialEnemyAI(e) {
 
 
 function assignPowerUpDrop(e) {
-  if (Math.random() < 0.3) {
+  if (rnd() < 0.3) {
     e.hasPowerUp = true;
     let powerTypes = [];
     const playerRoute = G.playerStats.route;
@@ -2908,15 +2918,15 @@ function assignPowerUpDrop(e) {
 
     if (powerTypes.length === 0) powerTypes = [...WEAPON_DROPS_T1];
 
-    if (Math.random() < 0.3 && G.playerStats.weaponTier >= 2) {
+    if (rnd() < 0.3 && G.playerStats.weaponTier >= 2) {
       powerTypes = powerTypes.concat(WEAPON_DROPS_T2);
     }
 
     // 15% 機率掉落非武器道具（BOMB/WALL/STAR 等）
-    if (Math.random() < 0.15) {
-      e.powerUpType = COMMON_DROPS[(Math.random() * COMMON_DROPS.length) | 0];
+    if (rnd() < 0.15) {
+      e.powerUpType = COMMON_DROPS[(rnd() * COMMON_DROPS.length) | 0];
     } else {
-      e.powerUpType = powerTypes[(Math.random() * powerTypes.length) | 0];
+      e.powerUpType = powerTypes[(rnd() * powerTypes.length) | 0];
     }
     e.glowTimer = 30;
   }
@@ -2925,11 +2935,11 @@ function assignPowerUpDrop(e) {
 function spawnEnemyAt(x, y) {
   if (G.enemies.length >= G.maxEnemies) return;
   const types = ['NORMAL', 'FAST', 'HEAVY'];
-  const type = types[(Math.random() * types.length) | 0];
+  const type = types[(rnd() * types.length) | 0];
   const e = new Tank(
-    clampPos(x + (Math.random() - 0.5) * TILE * 4),
-    clampPos(y + (Math.random() - 0.5) * TILE * 4),
-    (Math.random() * 4) | 0, type, false
+    clampPos(x + (rnd() - 0.5) * TILE * 4),
+    clampPos(y + (rnd() - 0.5) * TILE * 4),
+    (rnd() * 4) | 0, type, false
   );
   assignPowerUpDrop(e);
   G.enemies.push(e);
@@ -2993,10 +3003,10 @@ function updateEnemyAI(e) {
       const dist = Math.hypot(dx, dy);
       if (dist <= CONFIG.AI.VISION_RANGE * 1.5) {
         e.aiDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? RIGHT : LEFT) : (dy > 0 ? DOWN : UP);
-        if (Math.abs(dist - e.lastDist) < 0.5) e.aiDir = (e.aiDir + (Math.random() < 0.5 ? 1 : 3)) % 4;
+        if (Math.abs(dist - e.lastDist) < 0.5) e.aiDir = (e.aiDir + (rnd() < 0.5 ? 1 : 3)) % 4;
         e.lastDist = dist;
       } else {
-        if (--e.aiChangeTimer <= 0) { e.aiDir = (Math.random() * 4) | 0; e.aiChangeTimer = CONFIG.AI.CHANGE_INTERVAL + Math.random() * 30; }
+        if (--e.aiChangeTimer <= 0) { e.aiDir = (rnd() * 4) | 0; e.aiChangeTimer = CONFIG.AI.CHANGE_INTERVAL + rnd() * 30; }
       }
     }
   } else if (--e.aiChangeTimer <= 0) {
@@ -3005,13 +3015,13 @@ function updateEnemyAI(e) {
       const dy = G.basePos.r*TILE - e.y;
       e.aiDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? RIGHT : LEFT) : (dy > 0 ? DOWN : UP);
     } else {
-      if (Math.random() < 0.4 && G.player && G.player.alive) {
+      if (rnd() < 0.4 && G.player && G.player.alive) {
         const dx = G.player.x - e.x;
         const dy = G.player.y - e.y;
         e.aiDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? RIGHT : LEFT) : (dy > 0 ? DOWN : UP);
-      } else { e.aiDir = (Math.random() * 4) | 0; }
+      } else { e.aiDir = (rnd() * 4) | 0; }
     }
-    e.aiChangeTimer = CONFIG.AI.CHANGE_INTERVAL + Math.random() * 50;
+    e.aiChangeTimer = CONFIG.AI.CHANGE_INTERVAL + rnd() * 50;
   }
 
   const actualSpeed = e.speed * speedMult;
@@ -3021,7 +3031,7 @@ function updateEnemyAI(e) {
   e.speed = savedSpeed;
 
   const shootChance = G.isVSMode ? 0.005 : 0.02;
-  if (Math.random() < shootChance) e.shoot();
+  if (rnd() < shootChance) e.shoot();
 }
 
 // ==================== 敵人生成 ====================
@@ -3032,11 +3042,11 @@ function spawnEnemy() {
   const isBoss = (!G.isVSMode && G.level % CONFIG.GAMEPLAY.BOSS_LEVEL_INTERVAL === 0 && G.enemiesSpawned === G.maxEnemies - 1);
 
   if (G.isVSMode) {
-    const edge = (Math.random() * 4) | 0;
-    if (edge === 0) { sx = TILE + Math.random()*(W-TILE*3); sy = TILE; }
-    else if (edge === 1) { sx = W-TILE*2; sy = TILE + Math.random()*(H-TILE*3); }
-    else if (edge === 2) { sx = TILE + Math.random()*(W-TILE*3); sy = H-TILE*2; }
-    else { sx = TILE; sy = TILE + Math.random()*(H-TILE*3); }
+    const edge = (rnd() * 4) | 0;
+    if (edge === 0) { sx = TILE + rnd()*(W-TILE*3); sy = TILE; }
+    else if (edge === 1) { sx = W-TILE*2; sy = TILE + rnd()*(H-TILE*3); }
+    else if (edge === 2) { sx = TILE + rnd()*(W-TILE*3); sy = H-TILE*2; }
+    else { sx = TILE; sy = TILE + rnd()*(H-TILE*3); }
     
     sx = ((sx/TILE)|0)*TILE; 
     sy = ((sy/TILE)|0)*TILE;
@@ -3089,9 +3099,9 @@ function spawnEnemy() {
   let type = 'NORMAL';
   if (G.isVSMode) {
     const phase = Math.floor((G.frameCount - G.vsModeStartFrame) / 600);
-    const rnd = Math.random();
-    if (phase >= 2 && rnd < 0.15) type = 'HEAVY';
-    else if (rnd < 0.35) type = 'FAST';
+    const roll = rnd();     // 同上：避免與全域 rnd 同名
+    if (phase >= 2 && roll < 0.15) type = 'HEAVY';
+    else if (roll < 0.35) type = 'FAST';
     else type = 'SUICIDE';
   } else if (isBoss) {
     type = 'BOSS';
@@ -3100,7 +3110,7 @@ function spawnEnemy() {
     const fastChance = Math.min(0.3, 0.1 + G.level * 0.01);
     const heavyChance = Math.min(0.25, 0.05 + G.level * 0.012);
     const suicideChance = Math.min(0.2, 0.05 + G.level * 0.008);
-    const r = Math.random();
+    const r = rnd();
     if (r < fastChance) type = 'FAST';
     else if (r < fastChance + heavyChance) type = 'HEAVY';
     else if (r < fastChance + heavyChance + suicideChance) type = 'SUICIDE';
@@ -3108,16 +3118,16 @@ function spawnEnemy() {
     // 特殊敵人（SNIPER / ENGINEER / INTERFERER / GUARD / MINELAYER）：
     // updateSpecialEnemyAI 早就寫好了 58 行，但生成端從來沒有產生過這些型別 ——
     // 整段 AI 與 SPECIAL_ENEMY_TYPES 都是死碼。這裡在第 4 關之後以低機率生成。
-    if (G.level >= 4 && Math.random() < 0.07) {
+    if (G.level >= 4 && rnd() < 0.07) {
       const specials = Array.from(SPECIAL_ENEMY_TYPES);
-      type = specials[(Math.random() * specials.length) | 0];
+      type = specials[(rnd() * specials.length) | 0];
     }
   }
 
   let elitePrefix = null;
-  if (G.isVSMode && G.level > 3 && Math.random() < 0.1) {
+  if (G.isVSMode && G.level > 3 && rnd() < 0.1) {
     const prefixes = Object.keys(ELITE_PREFIXES);
-    elitePrefix = prefixes[(Math.random() * prefixes.length) | 0];
+    elitePrefix = prefixes[(rnd() * prefixes.length) | 0];
   }
 
   const e = new Tank(sx, sy, DOWN, type, false);
@@ -3194,8 +3204,8 @@ function startLevel() {
   G.spawnEffects = [];
   deactivateMapEvent();
 
-  if (G.isVSMode && G.level >= 3 && Math.random() < 0.25) {
-    const ev = MAP_EVENTS[(Math.random() * MAP_EVENTS.length) | 0];
+  if (G.isVSMode && G.level >= 3 && rnd() < 0.25) {
+    const ev = MAP_EVENTS[(rnd() * MAP_EVENTS.length) | 0];
     if (ev) activateMapEvent(ev);
   }
 
@@ -3927,7 +3937,7 @@ function updateSummonEntities() {
           spawnBullet(cx, cy, dir, true, false, se.damage);
         } else {
           const dirs = [UP, DOWN, LEFT, RIGHT];
-          const randDir = dirs[(Math.random() * 4) | 0];
+          const randDir = dirs[(rnd() * 4) | 0];
           spawnBullet(cx, cy, randDir, true, false, se.damage);
         }
         se.cooldown = 25;
@@ -4071,7 +4081,7 @@ function render() {
   }
 
   if (G.shakeTimer > 0) {
-    ctx.translate((Math.random() - 0.5) * G.shakeIntensity, (Math.random() - 0.5) * G.shakeIntensity);
+    ctx.translate((rnd() - 0.5) * G.shakeIntensity, (rnd() - 0.5) * G.shakeIntensity);
   }
 
   const isGameplay = G.state === STATE.PLAYING || G.state === STATE.PAUSED || G.state === STATE.GAMEOVER;
@@ -4131,7 +4141,7 @@ function gameLoop(now) {
   Perf.beginFrame();
 
   let updates = 0;
-  while (_accumMs >= TICK_MS && updates < _maxUpdatesPerFrame) {
+  while (!DETERMINISTIC && _accumMs >= TICK_MS && updates < _maxUpdatesPerFrame) {
     Perf.begin();
     if (G.state !== STATE.PAUSED) update();
     _accumMs -= TICK_MS;
@@ -4151,6 +4161,30 @@ function gameLoop(now) {
 // 執行期錯誤：顯示一次提示（不要每幀洗版），並讓遊戲繼續跑 —— 單一敵人或粒子的資料異常
 // 不該讓整場遊戲變成靜止畫面。
 let _lastReportedError = null;
+// ── 確定性測試用的鉤子（M2）──
+// step(n)：同步跑 n 個 update()。測試靠這個「按 tick 驅動」，不受 rAF 排程與真實時間影響，
+// 因此「同一組 seed + 同一串輸入」可以被精確重現。
+function stepTicks(n) {
+  for (let i = 0; i < n; i++) {
+    if (G.state === STATE.PLAYING) update();
+    else G.frameCount++;          // 非 PLAYING 也要推進，讓測試知道時間有在前進
+  }
+}
+
+// checksum：把「會影響玩法結果」的狀態壓成一個數字。replay 測試比較這個值，
+// 刻意不含粒子、爆炸、鏡頭抖動等純視覺狀態。
+function gameChecksum() {
+  const parts = [G.frameCount, G.score, G.level, G.state, G.playerStats.hp, G.playerStats.weapon,
+    G.aliveEnemies, G.enemiesSpawned, Math.round(G.playerStats.weaponDamageBonus * 1000)];
+  if (G.player) parts.push(Math.round(G.player.x * 100), Math.round(G.player.y * 100), Math.round(G.player.hp * 100), G.player.aimDir);
+  for (const e of G.enemies) parts.push(e.type, Math.round(e.x * 100), Math.round(e.y * 100), Math.round(e.hp * 100));
+  parts.push('bullets:' + bulletsPool.active.length, 'rng:' + rnd.state());
+  const text = parts.join(',');
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h >>> 0;
+}
+
 function reportRuntimeError(err) {
   const msg = (err && err.message) || String(err);
   if (msg === _lastReportedError) return;
@@ -4183,6 +4217,8 @@ requestAnimationFrame(gameLoop);
     // 驗證工具會呼叫的函式
     applyUpgrade, buyItem, handleBulletHit, updateBullet, drawEagleDirect, eagleSprite,
     spawnEnemy, updateDirector, updateDirectorEvents, updateSummonEntities, damagePlayerFromHazard,
+    stepTicks, gameChecksum, seed: SEED, deterministic: DETERMINISTIC,
+    rngState: () => rnd.state(), setRngState: (v) => rnd.setState(v),
     drawParticles, drawPowerUps, drawMapEvent, buildTankSprite, rollMapEvent,
     // 驗證工具會讀寫的模組層狀態（掛物件本身，屬性讀寫才有效）
     mapEventState, eagleCache: _eagleCache, tankSpriteCache: _tankSpriteCache, smokeColor: SMOKE_COLOR,
