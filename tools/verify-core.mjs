@@ -60,6 +60,7 @@ import { computeRenderScale, detectMobile } from '../src/platform/viewport.js';
 import { makeSound, makeMusic } from '../src/platform/audio.js';
 import { bindLifecycle } from '../src/platform/lifecycle.js';
 import { makeTouchInput } from '../src/platform/touch-ui.js';
+import { makeTileRenderer, EAGLE_ALIVE_SPRITE, EAGLE_DEAD_SPRITE } from '../src/render/tiles.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const gameSource = readFileSync(join(ROOT, 'index.html'), 'utf8');
@@ -365,6 +366,64 @@ console.log('\n=== T2. 觸控 UI（src/platform/touch-ui.js）===');
   const noDoc = makeTouchInput({ touch: makeTouchState(), getConfig: () => ({ JOYSTICK_MAX_RADIUS: 45, JOYSTICK_DEADZONE: 0.2 }), isMobile: () => true, doc: null, win: null });
   ok('T2-5 沒有 DOM 時建構不會拋錯（元素為 null、reset 仍安全）',
     noDoc.joyArea === null && (noDoc.reset(), true));
+}
+
+console.log('\n=== T3. 渲染：地形與基地圖磚（src/render/tiles.js）===');
+{
+  // 假的 canvas context：只記錄呼叫次數
+  const makeCtx = () => {
+    const calls = { fillRect: 0, fillStyle: 0, drawImage: 0, clearRect: 0, setTransform: 0 };
+    const ctx = {
+      _calls: calls,
+      setTransform() { calls.setTransform++; },
+      clearRect() { calls.clearRect++; },
+      drawImage() { calls.drawImage++; },
+      beginPath() {}, arc() {}, fill() {},
+    };
+    Object.defineProperty(ctx, 'fillStyle', { set() { calls.fillStyle++; }, get() { return ''; } });
+    ctx.fillRect = (...a) => { calls.fillRect++; ctx._last = a; };
+    return ctx;
+  };
+  const makeDoc = () => ({
+    createElement: () => ({ width: 0, height: 0, getContext: () => makeCtx() }),
+  });
+
+  const tiles = makeTileRenderer({ TILE: 26, renderScale: 2, doc: makeDoc() });
+
+  const brickCtx = makeCtx();
+  tiles.drawBrickNES(brickCtx, 0, 0, 26);
+  ok('T3-1 磚塊圖磚用固定次數的填色畫完（沒有逐像素）',
+    brickCtx._calls.fillRect === 11 && brickCtx._calls.fillStyle === 3,   // 底色 + 磚紅 + 高光
+    `fillRect=${brickCtx._calls.fillRect} fillStyle=${brickCtx._calls.fillStyle}`);
+
+  const steelCtx = makeCtx();
+  tiles.drawSteelNES(steelCtx, 0, 0, 26);
+  ok('T3-2 鋼牆圖磚是 4 個象限的邊框', steelCtx._calls.fillRect === 20, `fillRect=${steelCtx._calls.fillRect}`);
+
+  const waterCtx = makeCtx();
+  tiles.drawWaterDirect(waterCtx, 0, 0, 0);
+  const phase0 = waterCtx._calls.fillRect;
+  const waterCtx2 = makeCtx();
+  tiles.drawWaterDirect(waterCtx2, 0, 0, 1);
+  ok('T3-3 水面兩個相位畫的數量不同（有動畫感）',
+    phase0 === 6 && waterCtx2._calls.fillRect === 6 && phase0 > 0, `phase0=${phase0} phase1=${waterCtx2._calls.fillRect}`);
+
+  // 老鷹：離屏快取（每幀 1 次 drawImage，而不是 127 次 fillRect）
+  const eagleCtx = makeCtx();
+  tiles.drawEagleDirect(eagleCtx, 10, 20, false);
+  const firstSprite = tiles.eagleCache.alive;
+  tiles.drawEagleDirect(eagleCtx, 10, 20, false);
+  tiles.drawEagleDirect(eagleCtx, 10, 20, true);
+  ok('T3-4 老鷹每幀只做 1 次 drawImage、0 次逐像素填色',
+    eagleCtx._calls.drawImage === 3 && eagleCtx._calls.fillRect === 0,
+    `drawImage=${eagleCtx._calls.drawImage} fillRect=${eagleCtx._calls.fillRect}`);
+  ok('T3-5 老鷹精靈被快取（第二次取得同一個物件、活的與死的不同）',
+    firstSprite === tiles.eagleCache.alive && tiles.eagleCache.alive !== tiles.eagleCache.dead
+    && tiles.eagleCache.scale === 2, `scale=${tiles.eagleCache.scale}`);
+  ok('T3-6 精靈圖資料是 13×13 且都有非零像素',
+    EAGLE_ALIVE_SPRITE.length === 13 && EAGLE_DEAD_SPRITE.length === 13
+    && EAGLE_ALIVE_SPRITE.flat().filter((v) => v !== 0).length > 100,
+    `alive 非零 ${EAGLE_ALIVE_SPRITE.flat().filter((v) => v !== 0).length} 個`);
 }
 
 console.log('\n=== C. 架構契約 ===');

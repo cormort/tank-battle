@@ -21,6 +21,8 @@ src/core/           執行期核心
   rng.js              可重現亂數（xorshift32；?seed=N）
   effects.js          時效系統：所有有持續時間的效果集中在這裡，只有一個 tick 進入點
   state.js            狀態機：7 個狀態 + 轉移白名單（未宣告的轉移會留下警告）
+src/render/         渲染層
+  tiles.js            地形與基地圖磚（依賴注入 TILE／renderScale／doc；老鷹有離屏快取）
 src/platform/       平台層（純函式，Node 可測；不碰遊戲內部狀態）
   input.js            鍵盤／觸控 → intent；放開所有輸入只有一個實作
   viewport.js         DPR 倍率、觸控裝置判定、canvas backing store
@@ -66,7 +68,7 @@ detectMobile` 這種碰撞會讓別名指向自己造成無限遞迴 —— 實�
 五支工具，都不需要建置：
 
 ```bash
-node tools/verify-core.mjs    # 核心與平台層單元測試（55 項，純 Node、秒級）
+node tools/verify-core.mjs    # 核心／平台層／渲染層單元測試（61 項，純 Node、秒級）
 node tools/verify-data.mjs    # 資料層閘門（5 項，純 Node、秒級）
 node tools/verify-replay.mjs  # 確定性與 replay（12 項）
 node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay

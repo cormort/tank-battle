@@ -355,6 +355,7 @@ import { makeStateMachine, STATES } from './src/core/state.js';
 import { makeSound, makeMusic } from './src/platform/audio.js';
 import { bindLifecycle } from './src/platform/lifecycle.js';
 import { makeTouchInput } from './src/platform/touch-ui.js';
+import { makeTileRenderer } from './src/render/tiles.js';
 
 // 可重現亂數：整局的隨機都走這一個產生器，?seed=N 可指定（replay 測試靠這個）。
 // 原本 59 處直接呼叫 rnd()，任何一處都會讓兩次執行分岔、無法回放。
@@ -1450,149 +1451,15 @@ function generateMap(level) {
   return map;
 }
 
-function drawBrickNES(cx2d, x, y, size) {
-  const half = size / 2;
-  cx2d.fillStyle = '#7a7a7a';
-  cx2d.fillRect(x, y, size, size);
-  cx2d.fillStyle = '#b8401c';
-  cx2d.fillRect(x + 1, y + 1, half - 2, half - 2);
-  cx2d.fillRect(x + half + 1, y + 1, half - 2, half - 2);
-  cx2d.fillRect(x + 1, y + half + 1, (half / 2) - 1, half - 2);
-  cx2d.fillRect(x + (half / 2) + 1, y + half + 1, half - 2, half - 2);
-  cx2d.fillRect(x + size - (half / 2), y + half + 1, (half / 2) - 1, half - 2);
-  cx2d.fillStyle = '#d96846';
-  cx2d.fillRect(x + 1, y + 1, half - 2, 1);
-  cx2d.fillRect(x + half + 1, y + 1, half - 2, 1);
-  cx2d.fillRect(x + 1, y + half + 1, (half / 2) - 1, 1);
-  cx2d.fillRect(x + (half / 2) + 1, y + half + 1, half - 2, 1);
-  cx2d.fillRect(x + size - (half / 2), y + half + 1, (half / 2) - 1, 1);
-}
 
-function drawSteelNES(cx2d, x, y, size) {
-  const half = size / 2;
-  for (let qy = 0; qy < 2; qy++) {
-    for (let qx = 0; qx < 2; qx++) {
-      const px = x + qx * half;
-      const py = y + qy * half;
-      cx2d.fillStyle = '#9a9aa8';
-      cx2d.fillRect(px, py, half, half);
-      cx2d.fillStyle = '#dcdce8';
-      cx2d.fillRect(px, py, half - 1, 1);
-      cx2d.fillRect(px, py, 1, half - 1);
-      cx2d.fillStyle = '#5a5a66';
-      cx2d.fillRect(px + 1, py + half - 1, half - 1, 1);
-      cx2d.fillRect(px + half - 1, py + 1, 1, half - 1);
-    }
-  }
-}
 
-function drawForestNES(cx2d, x, y, size) {
-  cx2d.fillStyle = '#0a4a0a';
-  cx2d.fillRect(x, y, size, size);
-  cx2d.fillStyle = '#1f7a1f';
-  const blobs = [
-    [size*0.25, size*0.30, 5],
-    [size*0.70, size*0.30, 5],
-    [size*0.40, size*0.65, 5],
-    [size*0.80, size*0.75, 4],
-    [size*0.15, size*0.75, 4],
-  ];
-  for (const [bx, by, br] of blobs) {
-    cx2d.beginPath(); cx2d.arc(x+bx, y+by, br, 0, Math.PI*2); cx2d.fill();
-  }
-  cx2d.fillStyle = '#2eaf2e';
-  for (const [bx, by, br] of blobs) {
-    cx2d.fillRect(x+bx-1, y+by-br+1, 2, 2);
-  }
-}
 
-const EAGLE_ALIVE_SPRITE = [
-  [0,0,0,0,2,2,2,2,2,0,0,0,0],
-  [0,0,0,2,2,1,1,1,2,2,0,0,0],
-  [0,0,2,2,1,1,3,1,1,2,2,0,0],
-  [2,2,2,1,1,3,3,3,1,1,2,2,2],
-  [2,1,2,1,3,3,3,3,3,1,2,1,2],
-  [2,1,1,1,1,3,3,3,1,1,1,1,2],
-  [2,1,1,3,1,1,3,1,1,3,1,1,2],
-  [0,2,1,3,3,1,1,1,3,3,1,2,0],
-  [0,0,2,1,3,3,3,3,3,1,2,0,0],
-  [0,0,0,2,1,3,3,3,1,2,0,0,0],
-  [0,0,0,2,1,1,3,1,1,2,0,0,0],
-  [0,0,2,2,1,1,1,1,1,2,2,0,0],
-  [0,2,2,2,2,2,2,2,2,2,2,2,0]
-];
 
-const EAGLE_DEAD_SPRITE = [
-  [0,0,3,3,3,0,3,0,3,3,3,0,0],
-  [0,3,3,0,3,3,3,3,3,0,3,3,0],
-  [3,3,0,0,0,3,3,3,0,0,0,3,3],
-  [3,0,0,3,0,0,3,0,0,3,0,0,3],
-  [3,0,3,3,3,0,0,0,3,3,3,0,3],
-  [0,3,3,0,0,3,3,3,0,0,3,3,0],
-  [3,0,0,3,3,3,3,3,3,3,0,0,3],
-  [3,3,0,0,3,3,3,3,3,0,0,3,3],
-  [0,3,3,3,0,0,3,0,0,3,3,3,0],
-  [3,0,0,3,3,3,3,3,3,3,0,0,3],
-  [3,3,0,0,0,3,3,3,0,0,0,3,3],
-  [0,3,3,3,0,0,3,0,0,3,3,3,0],
-  [3,0,0,3,3,3,3,3,3,3,0,0,3]
-];
 
-function drawWaterDirect(cx2d, x, y, phase) {
-  cx2d.fillStyle = '#1c4ca8';
-  cx2d.fillRect(x, y, TILE, TILE);
-  cx2d.fillStyle = '#74c0fc';
-  const half = TILE / 2;
-  if (phase === 0) {
-    cx2d.fillRect(x+2, y+4, 6, 2); cx2d.fillRect(x+half+2, y+4, 6, 2);
-    cx2d.fillRect(x+4, y+half+4, 6, 2); cx2d.fillRect(x+half+4, y+half+4, 4, 2);
-    cx2d.fillRect(x, y+half+4, 2, 2);
-  } else {
-    cx2d.fillRect(x+4, y+4, 6, 2); cx2d.fillRect(x+half+4, y+4, 4, 2);
-    cx2d.fillRect(x, y+4, 2, 2); cx2d.fillRect(x+2, y+half+4, 6, 2);
-    cx2d.fillRect(x+half+2, y+half+4, 6, 2);
-  }
-}
 
 // 離屏快取：基地老鷹是固定圖樣，舊版卻在 render() 每幀逐像素重畫
 // （實測 ALIVE 有 127 個非零像素 → 每幀 127 次 fillStyle + 127 次 fillRect = 254 次 canvas API，
 //   只為了畫一格 26×26 的圖磚；而且這條路徑在遊戲進行中是無條件執行的）。
-const _eagleCache = { alive: null, dead: null, scale: 0 };
-function buildEagleSprite(dead) {
-  const scale = typeof RENDER_SCALE === 'number' ? RENDER_SCALE : 1;
-  const cv = document.createElement('canvas');
-  cv.width = TILE * scale; cv.height = TILE * scale;
-  const c = cv.getContext('2d');
-  c.setTransform(scale, 0, 0, scale, 0, 0);
-  c.imageSmoothingEnabled = false;
-  const sprite = dead ? EAGLE_DEAD_SPRITE : EAGLE_ALIVE_SPRITE;
-  c.fillStyle = '#000';
-  c.fillRect(0, 0, TILE, TILE);
-  const px = TILE / 13;
-  const palette = dead ? { 1: '#404040', 2: '#202020', 3: '#a02020' } : { 1: '#d0d0d0', 2: '#ffffff', 3: '#404040' };
-  for (let py = 0; py < 13; py++) {
-    for (let pxi = 0; pxi < 13; pxi++) {
-      const v = sprite[py][pxi];
-      if (v !== 0) {
-        c.fillStyle = palette[v];
-        c.fillRect(pxi * px, py * px, px + 1, px + 1);
-      }
-    }
-  }
-  return cv;
-}
-function eagleSprite(dead) {
-  const scale = typeof RENDER_SCALE === 'number' ? RENDER_SCALE : 1;
-  if (_eagleCache.scale !== scale || !_eagleCache.alive) {
-    _eagleCache.alive = buildEagleSprite(false);
-    _eagleCache.dead = buildEagleSprite(true);
-    _eagleCache.scale = scale;
-  }
-  return dead ? _eagleCache.dead : _eagleCache.alive;
-}
-function drawEagleDirect(cx2d, x, y, dead) {
-  cx2d.drawImage(eagleSprite(dead), x, y, TILE, TILE);
-}
 
 function cacheStaticMap() {
   staticCtx.clearRect(0, 0, W, H);
@@ -2273,6 +2140,10 @@ function handleBulletHit(b, t) {
 }
 
 const SMOKE_COLOR = '#505050';   // 煙霧固定色：舊版每顆每幀用樣板字串組 rgba() 再指派 fillStyle
+
+// 地形與基地圖磚：實作在 src/render/tiles.js（依賴注入 TILE／renderScale／doc）
+const tileArt = makeTileRenderer({ TILE, renderScale: RENDER_SCALE, doc: document });
+const { drawBrickNES, drawSteelNES, drawForestNES, drawWaterDirect, drawEagleDirect, eagleSprite, eagleCache } = tileArt;
 
 // ==================== 粒子系統 ====================
 function spawnExplosion(x, y, type) {
@@ -3865,7 +3736,7 @@ requestAnimationFrame(gameLoop);
     rngState: () => rnd.state(), setRngState: (v) => rnd.setState(v),
     drawParticles, drawPowerUps, drawMapEvent, buildTankSprite, rollMapEvent,
     // 驗證工具會讀寫的模組層狀態（掛物件本身，屬性讀寫才有效）
-    mapEventState, eagleCache: _eagleCache, tankSpriteCache: _tankSpriteCache, smokeColor: SMOKE_COLOR,
+    mapEventState, eagleCache, tankSpriteCache: _tankSpriteCache, smokeColor: SMOKE_COLOR,
     ctx, canvas,   // 主畫布與其 2D context（工具用來檢查繪圖狀態，例如 textAlign）
     // 資料表（工具用來做等價比對與死欄位掃描）
     WEAPON_REGISTRY, MAP_EVENTS, DIRECTOR_EVENTS, STARTER_WEAPONS, WEAPON_DROPS_T1, WEAPON_DROPS_T2,
