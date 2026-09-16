@@ -1,0 +1,781 @@
+{
+ "CONFIG": {
+  "CANVAS": {
+   "W": 520,
+   "H": 520,
+   "TILE": 26
+  },
+  "BULLET": {
+   "PLAYER_COOLDOWN": 14,
+   "PLAYER_COOLDOWN_VS": 8,
+   "ENEMY_NORMAL": 70,
+   "ENEMY_FAST": 60,
+   "ENEMY_HEAVY": 70,
+   "BOSS": 45,
+   "SPEED_PLAYER": 6,
+   "SPEED_ENEMY": 3.5,
+   "SPEED_BOSS": 4,
+   "SIZE": 6
+  },
+  "PARTICLE": {
+   "SPARK_COUNT": 6,
+   "TANK_DEATH_COUNT": 15,
+   "BIG_COUNT": 30,
+   "POOL_SIZE": 400
+  },
+  "POOL": {
+   "BULLET_INITIAL": 200,
+   "BULLET_MAX": 500
+  },
+  "AI": {
+   "VISION_RANGE": 312,
+   "CHANGE_INTERVAL": 30,
+   "VS_UPDATE_INTERVAL": 12
+  },
+  "GAMEPLAY": {
+   "POSITION_PRECISION": 0.5,
+   "SHAKE_DECAY": 0.88,
+   "PLAYER_RESPAWN_INVUL": 90,
+   "PLAYER_HIT_FLASH": 8,
+   "MAX_ENEMIES_ON_SCREEN": 4,
+   "MAX_ENEMIES_ON_SCREEN_VS": 18,
+   "BOSS_LEVEL_INTERVAL": 5,
+   "VS_MODE_INTERVAL": 10,
+   "UPGRADE_INTERVAL": 3,
+   "STARTING_CONTINUES": 3
+  },
+  "GRID": {
+   "CELL_SIZE": 52
+  },
+  "MOBILE": {
+   "JOYSTICK_DEADZONE": 0.25,
+   "JOYSTICK_MAX_RADIUS": 50
+  }
+ },
+ "WEAPON_TREE": {
+  "RAPID": {
+   "id": "RAPID",
+   "route": "A",
+   "tier": 1,
+   "name": "快速射擊",
+   "desc": "雙連發模式，子彈貫穿",
+   "next": "GATLING",
+   "color": "#ff6b00",
+   "icon": "⚡",
+   "basePower": 1
+  },
+  "GATLING": {
+   "id": "GATLING",
+   "route": "A",
+   "tier": 2,
+   "name": "格林機槍",
+   "desc": "雙管射擊，火力+10%",
+   "next": "CHAINGUN",
+   "color": "#ff4400",
+   "icon": "🔥",
+   "basePower": 1.1
+  },
+  "CHAINGUN": {
+   "id": "CHAINGUN",
+   "route": "A",
+   "tier": 3,
+   "name": "連環炮",
+   "desc": "三管齊射，火力+20%",
+   "next": "OVERDRIVE",
+   "color": "#cc2200",
+   "icon": "💥",
+   "basePower": 1.2
+  },
+  "OVERDRIVE": {
+   "id": "OVERDRIVE",
+   "route": "A",
+   "tier": 4,
+   "name": "過載出火",
+   "desc": "四管齊射，全螢幕橫掃",
+   "next": null,
+   "color": "#880000",
+   "icon": "💀",
+   "basePower": 1.4
+  },
+  "SPREAD": {
+   "id": "SPREAD",
+   "route": "B",
+   "tier": 1,
+   "name": "散彈核心",
+   "desc": "扇形發射 3 發子彈",
+   "next": "CLUSTER",
+   "color": "#ffdd00",
+   "icon": "💫",
+   "basePower": 1
+  },
+  "CLUSTER": {
+   "id": "CLUSTER",
+   "route": "B",
+   "tier": 2,
+   "name": "集束彈頭",
+   "desc": "命中分裂 5 發小彈",
+   "next": "NAPALM",
+   "color": "#ffaa00",
+   "icon": "💛",
+   "basePower": 1.1
+  },
+  "NAPALM": {
+   "id": "NAPALM",
+   "route": "B",
+   "tier": 3,
+   "name": "凝固汽油彈",
+   "desc": "子彈留下燃燒地帶",
+   "next": "APOCALYPSE",
+   "color": "#ff6600",
+   "icon": "🔥",
+   "basePower": 1.2
+  },
+  "APOCALYPSE": {
+   "id": "APOCALYPSE",
+   "route": "B",
+   "tier": 4,
+   "name": "末日轟炸",
+   "desc": "5 發散彈 + 每 3 秒全螢幕轟炸",
+   "next": null,
+   "color": "#ff0000",
+   "icon": "☠️",
+   "basePower": 1.5
+  },
+  "PLASMA": {
+   "id": "PLASMA",
+   "route": "C",
+   "tier": 1,
+   "name": "電漿武器",
+   "desc": "高傷貫穿子彈",
+   "next": "D_LASER",
+   "color": "#00ddff",
+   "icon": "⚡",
+   "basePower": 1.2
+  },
+  "D_LASER": {
+   "id": "D_LASER",
+   "route": "C",
+   "tier": 2,
+   "name": "雙光束炮",
+   "desc": "雙光束射擊",
+   "next": "T_LASER",
+   "color": "#00aaff",
+   "icon": "🔷",
+   "basePower": 1.3
+  },
+  "T_LASER": {
+   "id": "T_LASER",
+   "route": "C",
+   "tier": 3,
+   "name": "三路光束",
+   "desc": "三道光束同時射擊",
+   "next": "OMEGA",
+   "color": "#0077ff",
+   "icon": "🔶",
+   "basePower": 1.4
+  },
+  "OMEGA": {
+   "id": "OMEGA",
+   "route": "C",
+   "tier": 4,
+   "name": "歐米茄射線",
+   "desc": "光束掃射，穿透障礙",
+   "next": null,
+   "color": "#0044cc",
+   "icon": "👁️",
+   "basePower": 1.6
+  },
+  "SUMMON": {
+   "id": "SUMMON",
+   "route": "D",
+   "tier": 1,
+   "name": "工程師",
+   "desc": "部署 1 個自動砲塔",
+   "next": "DRONE",
+   "color": "#44ff88",
+   "icon": "🛠️",
+   "basePower": 0.8
+  },
+  "DRONE": {
+   "id": "DRONE",
+   "route": "D",
+   "tier": 2,
+   "name": "維修無人機",
+   "desc": "砲塔生命與傷害提升",
+   "next": "TURRET",
+   "color": "#22cc66",
+   "icon": "🤖",
+   "basePower": 0.9
+  },
+  "TURRET": {
+   "id": "TURRET",
+   "route": "D",
+   "tier": 3,
+   "name": "自動砲台",
+   "desc": "砲塔傷害大幅提升",
+   "next": "FORTRESS",
+   "color": "#11aa44",
+   "icon": "🏰",
+   "basePower": 1
+  },
+  "FORTRESS": {
+   "id": "FORTRESS",
+   "route": "D",
+   "tier": 4,
+   "name": "要塞核心",
+   "desc": "終極塔防，四座砲台",
+   "next": null,
+   "color": "#008833",
+   "icon": "⚔️",
+   "basePower": 1.3
+  }
+ },
+ "WEAPON_REGISTRY": {
+  "NORMAL": {
+   "fireRate": 14,
+   "count": 1,
+   "spread": 0,
+   "power": 1,
+   "effect": null
+  },
+  "RAPID": {
+   "fireRate": 6,
+   "count": 1,
+   "spread": 0,
+   "power": 0.6,
+   "effect": "PIERCE"
+  },
+  "GATLING": {
+   "fireRate": 5,
+   "count": 2,
+   "spread": 0,
+   "power": 0.55,
+   "effect": "PIERCE"
+  },
+  "CHAINGUN": {
+   "fireRate": 4,
+   "count": 3,
+   "spread": 0,
+   "power": 0.5,
+   "effect": "PIERCE"
+  },
+  "OVERDRIVE": {
+   "fireRate": 3,
+   "count": 4,
+   "spread": 0,
+   "power": 0.45,
+   "effect": "PIERCE"
+  },
+  "SPREAD": {
+   "fireRate": 16,
+   "count": 3,
+   "spread": 0.25,
+   "power": 0.8,
+   "effect": null
+  },
+  "CLUSTER": {
+   "fireRate": 14,
+   "count": 3,
+   "spread": 0.25,
+   "power": 0.9,
+   "effect": null
+  },
+  "NAPALM": {
+   "fireRate": 12,
+   "count": 3,
+   "spread": 0.25,
+   "power": 0.7,
+   "effect": "BURN_ZONE"
+  },
+  "APOCALYPSE": {
+   "fireRate": 10,
+   "count": 5,
+   "spread": 0.4,
+   "power": 0.8,
+   "effect": "BOMBARD"
+  },
+  "PLASMA": {
+   "fireRate": 12,
+   "count": 1,
+   "spread": 0,
+   "power": 1.2,
+   "effect": "PIERCE"
+  },
+  "D_LASER": {
+   "fireRate": 10,
+   "count": 2,
+   "spread": 0,
+   "power": 1.1,
+   "effect": "PIERCE"
+  },
+  "T_LASER": {
+   "fireRate": 8,
+   "count": 3,
+   "spread": 0,
+   "power": 1,
+   "effect": "PIERCE"
+  },
+  "OMEGA": {
+   "fireRate": 6,
+   "count": 1,
+   "spread": 0,
+   "power": 1.4,
+   "effect": "LASER_BEAM"
+  },
+  "SUMMON": {
+   "fireRate": 20,
+   "count": 1,
+   "spread": 0,
+   "power": 0.8,
+   "effect": "SPAWN_TURRET"
+  },
+  "DRONE": {
+   "fireRate": 18,
+   "count": 1,
+   "spread": 0,
+   "power": 0.9,
+   "effect": "SPAWN_TURRET"
+  },
+  "TURRET": {
+   "fireRate": 16,
+   "count": 1,
+   "spread": 0,
+   "power": 1,
+   "effect": "SPAWN_TURRET"
+  },
+  "FORTRESS": {
+   "fireRate": 14,
+   "count": 1,
+   "spread": 0,
+   "power": 1.3,
+   "effect": "SPAWN_TURRET"
+  }
+ },
+ "POWER_UPS": {
+  "BOMB": {
+   "name": "炸彈",
+   "desc": "秒殺全屏敵人",
+   "icon": "💣",
+   "color": "#ff4400",
+   "duration": 0
+  },
+  "WALL": {
+   "name": "堡壘",
+   "desc": "鋼鐵城墙 15 秒",
+   "icon": "🧱",
+   "color": "#888888",
+   "duration": 15
+  },
+  "STAR": {
+   "name": "火力",
+   "desc": "武器升一級",
+   "icon": "⭐",
+   "color": "#ffd700",
+   "duration": 0
+  },
+  "TIME": {
+   "name": "時光",
+   "desc": "凍敵 10 秒",
+   "icon": "⏱️",
+   "color": "#00ffff",
+   "duration": 10
+  },
+  "SHIELD": {
+   "name": "護盾",
+   "desc": "無敵 10 秒",
+   "icon": "🛡️",
+   "color": "#8800ff",
+   "duration": 10
+  },
+  "ONEUP": {
+   "name": "+1",
+   "desc": "接關次數+1",
+   "icon": "❤️",
+   "color": "#ff69b4",
+   "duration": 0
+  },
+  "RAPID_DROP": {
+   "name": "快速射擊",
+   "desc": "射速+20% (本關有效)",
+   "icon": "⚡",
+   "color": "#ff6b00",
+   "duration": 0,
+   "weaponType": "RAPID"
+  },
+  "SPREAD_DROP": {
+   "name": "散彈",
+   "desc": "扇形射擊 (本關有效)",
+   "icon": "💫",
+   "color": "#ffdd00",
+   "duration": 0,
+   "weaponType": "SPREAD"
+  },
+  "PLASMA_DROP": {
+   "name": "電漿炮",
+   "desc": "貫穿彈 (本關有效)",
+   "icon": "🔷",
+   "color": "#00ddff",
+   "duration": 0,
+   "weaponType": "PLASMA"
+  },
+  "SUMMON_DROP": {
+   "name": "工程師",
+   "desc": "部署砲塔 (本關有效)",
+   "icon": "🛠️",
+   "color": "#44ff88",
+   "duration": 0,
+   "weaponType": "SUMMON"
+  },
+  "GATLING_DROP": {
+   "name": "格林機槍",
+   "desc": "格林機槍 (本關有效)",
+   "icon": "🔥",
+   "color": "#ff4400",
+   "duration": 0,
+   "weaponType": "GATLING",
+   "tier": 2
+  },
+  "CLUSTER_DROP": {
+   "name": "集束彈",
+   "desc": "集束彈頭 (本關有效)",
+   "icon": "💛",
+   "color": "#ffaa00",
+   "duration": 0,
+   "weaponType": "CLUSTER",
+   "tier": 2
+  },
+  "D_LASER_DROP": {
+   "name": "雙光束炮",
+   "desc": "雙光束炮 (本關有效)",
+   "icon": "🔷",
+   "color": "#00aaff",
+   "duration": 0,
+   "weaponType": "D_LASER",
+   "tier": 2
+  }
+ },
+ "PASSIVE_SKILLS": [
+  {
+   "id": "HEAT",
+   "name": "熱能反應",
+   "desc": "連續射擊越久，攻速越快",
+   "icon": "🔥",
+   "color": "#ff6600"
+  },
+  {
+   "id": "OVERCHARGE",
+   "name": "超載電容",
+   "desc": "雷射擊殺敵人會連鎖電擊",
+   "icon": "⚡",
+   "color": "#00ddff"
+  },
+  {
+   "id": "RAGE",
+   "name": "狂暴核心",
+   "desc": "生命越低傷害越高",
+   "icon": "🩸",
+   "color": "#ff0066"
+  },
+  {
+   "id": "BARRIER",
+   "name": "反應護盾",
+   "desc": "受傷後 2 秒無敵",
+   "icon": "🛡️",
+   "color": "#8888ff"
+  },
+  {
+   "id": "NUCLEAR",
+   "name": "核融合引擎",
+   "desc": "移動時持續灼燒周圍",
+   "icon": "☢️",
+   "color": "#44ff44"
+  },
+  {
+   "id": "WEAKEN",
+   "name": "弱點分析",
+   "desc": "對 BOSS 額外 +50% 傷害",
+   "icon": "🎯",
+   "color": "#ffff00"
+  },
+  {
+   "id": "VAMPIRE",
+   "name": "吸血光束",
+   "desc": "擊殺回血",
+   "icon": "🦇",
+   "color": "#cc0000"
+  },
+  {
+   "id": "CHAIN",
+   "name": "連鎖反應",
+   "desc": "子彈會彈跳到附近敵人",
+   "icon": "🔗",
+   "color": "#aa44ff"
+  }
+ ],
+ "ACTIVE_SKILLS": [
+  {
+   "id": "EMP",
+   "name": "EMP脈衝",
+   "desc": "清除附近子彈",
+   "cooldown": 20,
+   "key": "Q",
+   "icon": "📡"
+  },
+  {
+   "id": "DASH",
+   "name": "緊急衝刺",
+   "desc": "高速位移",
+   "cooldown": 15,
+   "key": "W",
+   "icon": "💨"
+  },
+  {
+   "id": "STRIKE",
+   "name": "空襲呼叫",
+   "desc": "指定區域轟炸",
+   "cooldown": 25,
+   "key": "E",
+   "icon": "💥"
+  },
+  {
+   "id": "SLOW",
+   "name": "時間扭曲",
+   "desc": "局部緩速敵人",
+   "cooldown": 18,
+   "key": "R",
+   "icon": "⏱️"
+  },
+  {
+   "id": "DECOY",
+   "name": "誘敵裝置",
+   "desc": "吸引敵軍攻擊",
+   "cooldown": 22,
+   "key": "A",
+   "icon": "👻"
+  },
+  {
+   "id": "BOOST",
+   "name": "超頻爆發",
+   "desc": "短時攻速翻倍",
+   "cooldown": 30,
+   "key": "S",
+   "icon": "🚀"
+  }
+ ],
+ "ELITE_PREFIXES": {
+  "BERSERKER": {
+   "name": "狂戰士",
+   "effect": "移速 x1.8",
+   "color": "#ff0000",
+   "icon": "🔴"
+  },
+  "SHIELDED": {
+   "name": "護盾",
+   "effect": "免疫前 3 發",
+   "color": "#8800ff",
+   "icon": "🟣"
+  },
+  "EXPLOSIVE": {
+   "name": "爆炸",
+   "effect": "死亡時爆炸",
+   "color": "#000000",
+   "icon": "⚫"
+  },
+  "FREEZING": {
+   "name": "冰凍",
+   "effect": "命中玩家減速",
+   "color": "#00ddff",
+   "icon": "🔵"
+  },
+  "REGEN": {
+   "name": "再生",
+   "effect": "每秒回血",
+   "color": "#00ff00",
+   "icon": "🟢"
+  },
+  "SUMMONER": {
+   "name": "召喚",
+   "effect": "持續召喚小兵",
+   "color": "#ffff00",
+   "icon": "🟡"
+  }
+ },
+ "SHOP_ITEMS": [
+  {
+   "id": "HEALTH_PLUS",
+   "name": "生命+1",
+   "desc": "最大生命值+1",
+   "icon": "❤️",
+   "color": "#ff69b4",
+   "price": 500,
+   "type": "health"
+  },
+  {
+   "id": "SPEED_BOOST",
+   "name": "移動加速",
+   "desc": "移動速度+20%",
+   "icon": "⚡",
+   "color": "#44ff44",
+   "price": 800,
+   "type": "speed"
+  },
+  {
+   "id": "PIERCE_AMMO",
+   "name": "穿甲彈",
+   "desc": "子彈可貫穿敵人",
+   "icon": "🎯",
+   "color": "#ffaa00",
+   "price": 1200,
+   "type": "pierce"
+  },
+  {
+   "id": "RAPID_FIRE",
+   "name": "快速射擊",
+   "desc": "射速+20%",
+   "icon": "🔥",
+   "color": "#ff6b00",
+   "price": 1000,
+   "type": "rapid"
+  },
+  {
+   "id": "EXTRA_LIFE",
+   "name": "額外生命",
+   "desc": "接關次數+1",
+   "icon": "💖",
+   "color": "#ff0000",
+   "price": 600,
+   "type": "life"
+  },
+  {
+   "id": "PERM_WALL",
+   "name": "堡壘",
+   "desc": "鋼鐵城牆 15 秒",
+   "icon": "🏰",
+   "color": "#888888",
+   "price": 2000,
+   "type": "wall"
+  },
+  {
+   "id": "WEAPON_UP",
+   "name": "武器升級",
+   "desc": "武器升一級",
+   "icon": "⭐",
+   "color": "#ffd700",
+   "price": 1500,
+   "type": "weapon"
+  }
+ ],
+ "MAP_EVENTS": [
+  {
+   "id": "DESERT",
+   "name": "🏜️ 沙漠",
+   "effect": "移速 -30%",
+   "color": "#cc8844",
+   "duration": 600
+  },
+  {
+   "id": "ICE",
+   "name": "❄️ 冰原",
+   "effect": "坦克滑行慣性",
+   "color": "#88ccff",
+   "duration": 600
+  },
+  {
+   "id": "VOLCANIC",
+   "name": "🌋 火山",
+   "effect": "定期噴岩漿",
+   "color": "#ff4422",
+   "duration": 480
+  },
+  {
+   "id": "EMP",
+   "name": "⚡ EMP區域",
+   "effect": "子彈速度減半",
+   "color": "#aa44ff",
+   "duration": 600
+  },
+  {
+   "id": "NIGHT",
+   "name": "🌙 夜戰",
+   "effect": "視野縮小",
+   "color": "#222244",
+   "duration": 600
+  },
+  {
+   "id": "TOXIC",
+   "name": "☣️ 毒霧",
+   "effect": "持續扣血",
+   "color": "#44ff44",
+   "duration": 480
+  }
+ ],
+ "DIRECTOR_EVENTS": {
+  "SURGE": {
+   "name": "⚠️ ENEMY SURGE",
+   "duration": 600,
+   "desc": "敵軍生成加倍"
+  },
+  "AIRDROP": {
+   "name": "📦 空投來了",
+   "duration": 900,
+   "desc": "高級物資出現"
+  },
+  "MINIBOSS": {
+   "name": "💀 BOSS 突襲",
+   "duration": 1200,
+   "desc": "Mini Boss 出現"
+  },
+  "ORBITAL": {
+   "name": "🚀 軌道轟炸",
+   "duration": 800,
+   "desc": "地面出現預警"
+  },
+  "TRAIN": {
+   "name": "🚂 補給列車",
+   "duration": 600,
+   "desc": "高速物資列車"
+  }
+ },
+ "STARTER_WEAPONS": [
+  "NORMAL",
+  "RAPID",
+  "SPREAD",
+  "PLASMA",
+  "SUMMON"
+ ],
+ "SPECIAL_ENEMY_TYPES": [
+  "SNIPER",
+  "ENGINEER",
+  "INTERFERER",
+  "GUARD",
+  "MINELAYER"
+ ],
+ "WEAPON_DROPS_T1": [
+  "RAPID_DROP",
+  "SPREAD_DROP",
+  "PLASMA_DROP",
+  "SUMMON_DROP"
+ ],
+ "WEAPON_DROPS_T2": [
+  "GATLING_DROP",
+  "CLUSTER_DROP",
+  "D_LASER_DROP"
+ ],
+ "COMMON_DROPS": [
+  "BOMB",
+  "WALL",
+  "STAR",
+  "TIME",
+  "SHIELD",
+  "ONEUP"
+ ],
+ "STATE": {
+  "MENU": "menu",
+  "PLAYING": "playing",
+  "PAUSED": "paused",
+  "UPGRADE": "upgrade",
+  "SHOP": "shop",
+  "GAMEOVER": "gameover",
+  "LEVEL_COMPLETE": "levelComplete"
+ }
+}
