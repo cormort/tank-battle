@@ -24,6 +24,9 @@ src/core/           執行期核心
 src/render/         渲染層
   tiles.js            地形與基地圖磚（依賴注入 TILE／renderScale／doc；老鷹有離屏快取）
   sprites.js          光暈精靈 glowCanvas（顏色 → 離屏畫布，快取重用）
+  effects.js          粒子／生成特效／分數彈出／子彈（依賴注入 ctx／pools）
+src/ui/             UI 層
+  hud.js              HUD 更新（依賴注入元素集合／狀態取值器／fx／資料表）
 src/platform/       平台層（純函式，Node 可測；不碰遊戲內部狀態）
   input.js            鍵盤／觸控 → intent；放開所有輸入只有一個實作
   viewport.js         DPR 倍率、觸控裝置判定、canvas backing store
@@ -69,7 +72,7 @@ detectMobile` 這種碰撞會讓別名指向自己造成無限遞迴 —— 實�
 五支工具，都不需要建置：
 
 ```bash
-node tools/verify-core.mjs    # 核心／平台層／渲染層單元測試（65 項，純 Node、秒級）
+node tools/verify-core.mjs    # 核心／平台層／渲染／UI 單元測試（76 項，純 Node、秒級）
 node tools/verify-data.mjs    # 資料層閘門（5 項，純 Node、秒級）
 node tools/verify-replay.mjs  # 確定性與 replay（12 項）
 node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay

@@ -357,6 +357,8 @@ import { bindLifecycle } from './src/platform/lifecycle.js';
 import { makeTouchInput } from './src/platform/touch-ui.js';
 import { makeTileRenderer } from './src/render/tiles.js';
 import { makeGlowCanvas } from './src/render/sprites.js';
+import { makeEffectRenderer } from './src/render/effects.js';
+import { makeHud } from './src/ui/hud.js';
 
 // 可重現亂數：整局的隨機都走這一個產生器，?seed=N 可指定（replay 測試靠這個）。
 // 原本 59 處直接呼叫 rnd()，任何一處都會讓兩次執行分岔、無法回放。
@@ -1824,36 +1826,6 @@ function buildTankSprite(type, aimDir, phase, s) {
   return cv;
 }
 
-function drawNESSpawnEffect(x, y, size, life, maxLife) {
-  ctx.save();
-  const frame = (((maxLife - life) >> 2) % 4);
-  const cx = x + size / 2;
-  const cy = y + size / 2;
-  const r = size / 2;
-  ctx.fillStyle = '#ffffff';
-  if (frame === 0) {
-    ctx.fillRect((cx - 1) | 0, y, 2, size);
-    ctx.fillRect(x, (cy - 1) | 0, size, 2);
-  } else if (frame === 1) {
-    ctx.fillRect((cx - 1) | 0, y, 2, size);
-    ctx.fillRect(x, (cy - 1) | 0, size, 2);
-    for (let i = -r + 2; i <= r - 2; i += 2) {
-      ctx.fillRect((cx + i) | 0, (cy + i) | 0, 2, 2);
-      ctx.fillRect((cx + i) | 0, (cy - i) | 0, 2, 2);
-    }
-  } else if (frame === 2) {
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx, y);    ctx.lineTo(x + size, cy);
-    ctx.lineTo(cx, y + size);  ctx.lineTo(x, cy);
-    ctx.closePath();
-    ctx.stroke();
-  } else {
-    ctx.fillRect((cx - 3) | 0, (cy - 3) | 0, 6, 6);
-  }
-  ctx.restore();
-}
 
 function drawNESShield(x, y, size) {
   const phase = (G.frameCount >> 1) & 1;
@@ -2149,6 +2121,15 @@ const glowCanvas = makeGlowCanvas({ doc: document });
 const tileArt = makeTileRenderer({ TILE, renderScale: RENDER_SCALE, doc: document });
 const { drawBrickNES, drawSteelNES, drawForestNES, drawWaterDirect, drawEagleDirect, eagleSprite, eagleCache } = tileArt;
 
+// 粒子／生成特效／分數彈出／子彈的繪製：實作在 src/render/effects.js（依賴注入）
+const effectRenderer = makeEffectRenderer({
+  ctx, particlesPool, bulletsPool,
+  getGame: () => G,
+  smokeColor: SMOKE_COLOR,
+  dirs: { UP, DOWN, LEFT },
+});
+const { drawParticles, drawNESSpawnEffect, drawScorePopups, renderBullets } = effectRenderer;
+
 // ==================== 粒子系統 ====================
 function spawnExplosion(x, y, type) {
   let count;
@@ -2198,32 +2179,6 @@ function updateParticles() {
   particlesPool.sweep();
 }
 
-function drawParticles() {
-  const arr = particlesPool.active;
-  ctx.save();
-  for (let i = 0; i < arr.length; i++) {
-    const p = arr[i];
-    if (!p.alive || p.type !== 'spark') continue;
-    const t = p.life / p.maxLife;
-    if (p.color === '#5cd8ff') {
-      ctx.fillStyle = t > 0.5 ? '#ffffff' : '#74c0fc';
-    } else {
-      ctx.fillStyle = t > 0.7 ? '#ffeb50' : t > 0.4 ? '#ff9020' : '#c03030';
-    }
-    const sz = (p.size + 0.5) | 0;
-    ctx.fillRect(p.x | 0, p.y | 0, sz, sz);
-  }
-  for (let i = 0; i < arr.length; i++) {
-    const p = arr[i];
-    if (!p.alive || p.type !== 'smoke') continue;
-    const a = Math.max(0, p.life / p.maxLife);
-    ctx.fillStyle = SMOKE_COLOR;      // 固定色 + globalAlpha（純數值）：不再為每顆煙霧配 rgba 字串
-    ctx.globalAlpha = a * 0.5;
-    ctx.fillRect(p.x | 0, p.y | 0, p.size | 0, p.size | 0);
-    ctx.globalAlpha = 1;
-  }
-  ctx.restore();
-}
 
 function updateScorePopups() {
   for (let i = G.scorePopups.length - 1; i >= 0; i--) {
@@ -2233,40 +2188,8 @@ function updateScorePopups() {
   }
 }
 
-function drawScorePopups() {
-  ctx.save();
-  ctx.font = '10px "Press Start 2P"';
-  ctx.fillStyle = '#ffe680';
-  for (let i = 0; i < G.scorePopups.length; i++) {
-    const p = G.scorePopups[i];
-    ctx.globalAlpha = p.life / 40;
-    ctx.fillText(p.text, p.x, p.y);
-  }
-  ctx.restore();
-}
 
 // ==================== 子彈批處理渲染 (NES 風格) ====================
-function renderBullets() {
-  const bullets = bulletsPool.active;
-  if (bullets.length === 0) return;
-
-  ctx.save();
-  for (let i = 0; i < bullets.length; i++) {
-    const b = bullets[i];
-    if (!b.alive) continue;
-    const cx = (b.x + b.size / 2) | 0;
-    const cy = (b.y + b.size / 2) | 0;
-    ctx.fillStyle = '#000';
-    ctx.fillRect(cx - 3, cy - 3, 6, 6);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(cx - 2, cy - 2, 4, 4);
-    if (b.dir === UP)         ctx.fillRect(cx - 1, cy - 4, 2, 2);
-    else if (b.dir === DOWN)  ctx.fillRect(cx - 1, cy + 2, 2, 2);
-    else if (b.dir === LEFT)  ctx.fillRect(cx - 4, cy - 1, 2, 2);
-    else                       ctx.fillRect(cx + 2, cy - 1, 2, 2);
-  }
-  ctx.restore();
-}
 
 // ==================== Director System（局內事件） ====================
 
@@ -2997,52 +2920,17 @@ const HUD = {
   level: document.getElementById('levelDisplay'),
   power: document.getElementById('powerStatus'),
 };
+// HUD 更新：實作在 src/ui/hud.js（依賴注入元素集合／狀態取值器／時效系統／資料表）
+const hud = makeHud({
+  els: HUD,
+  getGame: () => G,
+  fx,
+  tables: { weapons: WEAPON_TREE, activeSkills: ACTIVE_SKILLS },
+  config: CONFIG,
+});
+function updateHUD() { hud.update(); }
 
-function updateHUD() {
-  HUD.score.textContent = G.score;
-  HUD.lives.textContent = '♥'.repeat(Math.max(0, Math.ceil(G.playerStats.hp)));
-  HUD.enemies.textContent = G.maxEnemies - G.enemiesSpawned + G.aliveEnemies;
 
-  if (G.isVSMode) {
-    HUD.level.textContent = 'SURVIVAL';
-    HUD.level.className = 'value level vs-alert';
-  } else {
-    HUD.level.textContent = G.level + (G.level % CONFIG.GAMEPLAY.BOSS_LEVEL_INTERVAL === 0 ? '(BOSS)' : '');
-    HUD.level.className = 'value level';
-  }
-
-  const chips = [];
-  const weapon = G.playerStats.weapon || 'NORMAL';
-  if (weapon !== 'NORMAL') {
-    const wp = WEAPON_TREE[weapon];
-    chips.push(`<span class="power-chip" style="border-color:${wp ? wp.color : '#5cd8ff'}">${weapon}</span>`);
-  }
-  if (G.playerStats.pierce) chips.push(`<span class="power-chip">PIERCE</span>`);
-  if (G.playerStats.speedMult > 1) chips.push(`<span class="power-chip">SPEED+</span>`);
-  if (G.playerStats.shopFireRateBonus > 0) chips.push(`<span class="power-chip">RAPID+</span>`);
-  if (G.playerStats.passives.length > 0) {
-    chips.push(`<span class="power-chip" style="background:#330033;border-color:#ff00ff">P${G.playerStats.passives.length}</span>`);
-  }
-  if (G.playerStats.activeSkill) {
-    const cdPct = Math.floor((fx.left('skill') / 30) * 100);
-    const skillDef = ACTIVE_SKILLS.find((s) => s.id === G.playerStats.activeSkill);
-    const keyLabel = skillDef && skillDef.key ? skillDef.key.replace('Key', '') : 'Q';
-    chips.push(`<span class="power-chip" style="background:#003300;border-color:#00ff00">[${keyLabel}]${G.playerStats.activeSkill}${cdPct > 0 ? '(' + cdPct + ')' : ''}</span>`);
-  }
-  if (fx.has('boost')) {
-    chips.push(`<span class="power-chip" style="background:#ff0000;border-color:#ff6600">OVERCLOCK</span>`);
-  }
-  if (fx.has('wall')) {
-    const sec = Math.ceil(fx.left('wall') / 60);
-    chips.push(`<span class="power-chip" style="background:#444;border-color:#888">🧱${sec}s</span>`);
-  }
-  if (fx.has('freeze')) {
-    const sec = Math.ceil(fx.left('freeze') / 60);
-    chips.push(`<span class="power-chip" style="background:#004;border-color:#00ffff">⏱️${sec}s</span>`);
-  }
-  chips.push(`<span class="power-chip" style="background:#300;border-color:#f88">❤️${G.continues}</span>`);
-  HUD.power.innerHTML = chips.join('');
-}
 
 // ==================== 鍵盤輸入 ====================
 document.addEventListener('keydown', e => {

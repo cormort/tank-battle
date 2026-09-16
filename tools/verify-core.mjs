@@ -62,6 +62,8 @@ import { bindLifecycle } from '../src/platform/lifecycle.js';
 import { makeTouchInput } from '../src/platform/touch-ui.js';
 import { makeTileRenderer, EAGLE_ALIVE_SPRITE, EAGLE_DEAD_SPRITE } from '../src/render/tiles.js';
 import { makeGlowCanvas, hexToRgba } from '../src/render/sprites.js';
+import { makeEffectRenderer } from '../src/render/effects.js';
+import { makeHud } from '../src/ui/hud.js';
 import { readdirSync, statSync as statSyncNode } from 'node:fs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -450,6 +452,87 @@ console.log('\n=== T4. 渲染：光暈精靈（src/render/sprites.js）===');
   ok('T4-2 hexToRgba 支援 6 碼與 3 碼',
     hexToRgba('#ffd700', 0.5) === 'rgba(255,215,0,0.5)' && hexToRgba('#f00', 1) === 'rgba(255,0,0,1)',
     hexToRgba('#ffd700', 0.5));
+}
+
+console.log('\n=== T5. 渲染：粒子／子彈／分數彈出（src/render/effects.js）===');
+{
+  const makeCtx = () => {
+    const calls = { fillRect: 0, fillText: 0, save: 0, restore: 0, fillStyle: 0, stroke: 0 };
+    const ctx = { _calls: calls, save() { calls.save++; }, restore() { calls.restore++; },
+      fillText() { calls.fillText++; }, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {},
+      stroke() { calls.stroke++; }, globalAlpha: 1, fillRect() { calls.fillRect++; } };
+    Object.defineProperty(ctx, 'fillStyle', { set() { calls.fillStyle++; }, get() { return ''; } });
+    return ctx;
+  };
+  const mkPool = (items) => ({ active: items });
+  const spark = { alive: true, type: 'spark', x: 10, y: 10, size: 3, life: 5, maxLife: 10, color: '#fff' };
+  const smoke = { alive: true, type: 'smoke', x: 20, y: 20, size: 6, life: 8, maxLife: 10 };
+  const ctx = makeCtx();
+  const fx = makeEffectRenderer({ ctx, particlesPool: mkPool([spark, smoke]), bulletsPool: mkPool([]), getGame: () => ({ scorePopups: [] }), smokeColor: '#505050', dirs: { UP: 0, DOWN: 2, LEFT: 3 } });
+  fx.drawParticles();
+  ok('T5-1 粒子繪製：火花與煙霧各畫一次、且 save/restore 成對',
+    ctx._calls.fillRect === 2 && ctx._calls.save === 1 && ctx._calls.restore === 1,
+    JSON.stringify(ctx._calls));
+  ok('T5-2 煙霧結束後 globalAlpha 還原成 1（不會污染後續繪製）', ctx.globalAlpha === 1, String(ctx.globalAlpha));
+
+  const bullet = { alive: true, x: 30, y: 30, size: 4, dir: 0 };
+  const bctx = makeCtx();
+  const bfx = makeEffectRenderer({ ctx: bctx, particlesPool: mkPool([]), bulletsPool: mkPool([bullet]), getGame: () => ({ scorePopups: [] }), dirs: { UP: 0, DOWN: 2, LEFT: 3 } });
+  bfx.renderBullets();
+  ok('T5-3 子彈繪製：黑底 + 白心 + 方向缺口（3 次 fillRect）',
+    bctx._calls.fillRect === 3 && bctx._calls.save === 1, JSON.stringify(bctx._calls));
+
+  const emptyCtx = makeCtx();
+  const efx = makeEffectRenderer({ ctx: emptyCtx, particlesPool: mkPool([]), bulletsPool: mkPool([]), getGame: () => ({ scorePopups: [] }), dirs: { UP: 0, DOWN: 2, LEFT: 3 } });
+  efx.renderBullets();
+  ok('T5-4 沒有子彈時直接返回（不做 save/restore）', emptyCtx._calls.save === 0);
+
+  const pctx = makeCtx();
+  const pfx = makeEffectRenderer({ ctx: pctx, particlesPool: mkPool([]), bulletsPool: mkPool([]), getGame: () => ({ scorePopups: [{ text: '+10', x: 1, y: 2, life: 20 }] }), dirs: { UP: 0, DOWN: 2, LEFT: 3 } });
+  pfx.drawScorePopups();
+  ok('T5-5 分數彈出會依剩餘壽命設定透明度並畫出文字', pctx._calls.fillText === 1 && pctx.globalAlpha === 0.5, `alpha=${pctx.globalAlpha}`);
+}
+
+console.log('\n=== T6. UI：HUD（src/ui/hud.js）===');
+{
+  const el = () => ({ textContent: '', className: '', innerHTML: '' });
+  const els = { score: el(), lives: el(), enemies: el(), level: el(), power: el() };
+  const baseGame = {
+    score: 123, level: 3, continues: 2, isVSMode: false, maxEnemies: 20, enemiesSpawned: 5, aliveEnemies: 3,
+    playerStats: { hp: 3, weapon: 'NORMAL', pierce: false, speedMult: 1, shopFireRateBonus: 0, passives: [], activeSkill: null },
+    scorePopups: [],
+  };
+  const fxStub = { left: () => 0, has: () => false };
+  const tables = { weapons: { GATLING: { color: '#ff4400' } }, activeSkills: [{ id: 'BOOST', key: 'KeyQ' }] };
+  const config = { GAMEPLAY: { BOSS_LEVEL_INTERVAL: 5 } };
+  let game = baseGame;
+  const hud = makeHud({ els, getGame: () => game, fx: fxStub, tables, config });
+
+  hud.update();
+  ok('T6-1 分數／生命／敵人數寫進 HUD（敵人數 = 未生成 + 存活）',
+    els.score.textContent === 123 && els.lives.textContent === '♥♥♥' && els.enemies.textContent === 18,
+    `${els.score.textContent}/${els.lives.textContent}/${els.enemies.textContent}`);
+  ok('T6-2 一般關卡顯示關卡編號、VS 模式顯示 SURVIVAL',
+    els.level.textContent === '3', els.level.textContent);
+
+  game = { ...baseGame, isVSMode: true };
+  hud.update();
+  ok('T6-3 VS 模式顯示 SURVIVAL 並加上警示樣式',
+    els.level.textContent === 'SURVIVAL' && els.level.className.includes('vs-alert'), els.level.textContent);
+
+  game = { ...baseGame, level: 5 };
+  hud.update();
+  ok('T6-4 BOSS 關卡加上 (BOSS) 標記', els.level.textContent === '5(BOSS)', els.level.textContent);
+
+  game = { ...baseGame, playerStats: { ...baseGame.playerStats, weapon: 'GATLING', pierce: true, speedMult: 1.2, shopFireRateBonus: 0.2, passives: ['BARRIER'], activeSkill: 'BOOST' } };
+  const fx2 = { left: (id) => (id === 'skill' ? 15 : 120), has: (id) => id === 'boost' || id === 'wall' || id === 'freeze' };
+  makeHud({ els, getGame: () => game, fx: fx2, tables, config }).update();
+  const chips = els.power.innerHTML;
+  ok('T6-5 狀態晶片：武器／穿甲／加速／射速／被動／主動技（含按鍵與 CD）／超頻／堡壘／凍結／接關',
+    ['GATLING', 'PIERCE', 'SPEED+', 'RAPID+', 'P1', '[Q]BOOST(50)', 'OVERCLOCK', '🧱2s', '⏱️2s', '❤️2']
+      .every((token) => chips.includes(token)),
+    chips.slice(0, 120));
+  ok('T6-6 主動技的按鍵標籤取自資料（KeyQ → Q）', chips.includes('[Q]BOOST'), '取自 tables.activeSkills[].key');
 }
 
 console.log('\n=== X. 靜態掃描：呼叫了但沒有定義的裸函式 ===');
