@@ -338,59 +338,24 @@
   <div class="row"><span class="lbl">POOL PK</span><span id="perfPeak">0</span></div>
 </div>
 
-<script>
-'use strict';
+<script type="module">
+// 資料層（src/data/）是唯一來源：常數與內容表都在那裡，這裡只 import 取用。
+// 改成 type="module" 之後，頂層宣告不再是全域變數 —— 驗證工具需要的內部符號
+// 由檔案尾端的 ?bot 區塊統一掛到 window.__T（見「除錯鉤子」）。
+import {
+  CONFIG, WEAPON_TREE, WEAPON_REGISTRY, STARTER_WEAPONS, WEAPON_DROPS_T1, WEAPON_DROPS_T2,
+  PASSIVE_SKILLS, ACTIVE_SKILLS, POWER_UPS, COMMON_DROPS,
+  ELITE_PREFIXES, SPECIAL_ENEMY_TYPES, SHOP_ITEMS, makeDirectorEvents, MAP_EVENTS,
+} from './src/data/index.js';
+
+// Director 事件表：行為需要的執行期物件用 getter 注入（W／TILE／Tank 等宣告在 import 之後，
+// 直接取值會在 TDZ 內；getter 只會在事件真正觸發時才解析）。
+const DIRECTOR_EVENTS = makeDirectorEvents({
+  get G() { return G; }, get W() { return W; }, get H() { return H; },
+  get TILE() { return TILE; }, get DOWN() { return DOWN; }, get Tank() { return Tank; },
+});
 
 // ==================== 集中常數管理 ====================
-const CONFIG = {
-  CANVAS: { W: 520, H: 520, TILE: 26 },
-  BULLET: {
-    PLAYER_COOLDOWN: 14,
-    PLAYER_COOLDOWN_VS: 8,
-    ENEMY_NORMAL: 70,
-    ENEMY_FAST: 60,
-    ENEMY_HEAVY: 70,
-    BOSS: 45,
-    SPEED_PLAYER: 6,
-    SPEED_ENEMY: 3.5,
-    SPEED_BOSS: 4,
-    SIZE: 6,
-  },
-  PARTICLE: {
-    SPARK_COUNT: 6,
-    TANK_DEATH_COUNT: 15,
-    BIG_COUNT: 30,
-    POOL_SIZE: 400,
-  },
-  POOL: {
-    BULLET_INITIAL: 200,
-    BULLET_MAX: 500,
-  },
-  AI: {
-    VISION_RANGE: 26 * 12,
-    CHANGE_INTERVAL: 30,
-    VS_UPDATE_INTERVAL: 12,
-  },
-  GAMEPLAY: {
-    POSITION_PRECISION: 0.5,
-    SHAKE_DECAY: 0.88,
-    PLAYER_RESPAWN_INVUL: 90,
-    PLAYER_HIT_FLASH: 8,
-    MAX_ENEMIES_ON_SCREEN: 4,
-    MAX_ENEMIES_ON_SCREEN_VS: 18,
-    BOSS_LEVEL_INTERVAL: 5,
-    VS_MODE_INTERVAL: 10,
-    UPGRADE_INTERVAL: 3,
-    STARTING_CONTINUES: 3,
-  },
-  GRID: {
-    CELL_SIZE: 26 * 2,
-  },
-  MOBILE: {
-    JOYSTICK_DEADZONE: 0.25,   // 死區百分比
-    JOYSTICK_MAX_RADIUS: 50,   // 搖桿最大半徑(px)
-  }
-};
 
 const W = CONFIG.CANVAS.W, H = CONFIG.CANVAS.H, TILE = CONFIG.CANVAS.TILE;
 const COLS = (W / TILE) | 0, ROWS = (H / TILE) | 0;
@@ -785,104 +750,13 @@ const Perf = {
 // ==================== 分支武器流派系統 ====================
 // 四條武器路線，每條 4 級。玩家可選擇不同流派。
 
-const WEAPON_TREE = {
-  // A 路線：高射速流 - 超高DPS，單發低，剋重甲
-  RAPID: {
-    id: 'RAPID',
-    route: 'A', tier: 1, name: '快速射擊', desc: '雙連發模式，子彈貫穿',
-    next: 'GATLING', color: '#ff6b00', icon: '⚡', basePower: 1.0
-  },
-  GATLING: {
-    id: 'GATLING',
-    route: 'A', tier: 2, name: '格林機槍', desc: '雙管射擊，火力+10%',
-    next: 'CHAINGUN', color: '#ff4400', icon: '🔥', basePower: 1.1
-  },
-  CHAINGUN: {
-    id: 'CHAINGUN',
-    route: 'A', tier: 3, name: '連環炮', desc: '三管齊射，火力+20%',
-    next: 'OVERDRIVE', color: '#cc2200', icon: '💥', basePower: 1.2
-  },
-  OVERDRIVE: {
-    id: 'OVERDRIVE',
-    route: 'A', tier: 4, name: '過載出火', desc: '四管齊射，全螢幕橫掃',
-    next: null, color: '#880000', icon: '💀', basePower: 1.4
-  },
-
-  // B 路線：範圍爆破流 - 清怪神，打王弱，有爆炸連鎖
-  SPREAD: {
-    id: 'SPREAD',
-    route: 'B', tier: 1, name: '散彈核心', desc: '扇形發射 3 發子彈',
-    next: 'CLUSTER', color: '#ffdd00', icon: '💫', basePower: 1.0
-  },
-  CLUSTER: {
-    id: 'CLUSTER',
-    route: 'B', tier: 2, name: '集束彈頭', desc: '命中分裂 5 發小彈',
-    next: 'NAPALM', color: '#ffaa00', icon: '💛', basePower: 1.1
-  },
-  NAPALM: {
-    id: 'NAPALM',
-    route: 'B', tier: 3, name: '凝固汽油彈', desc: '子彈留下燃燒地帶',
-    next: 'APOCALYPSE', color: '#ff6600', icon: '🔥', basePower: 1.2
-  },
-  APOCALYPSE: {
-    id: 'APOCALYPSE',
-    route: 'B', tier: 4, name: '末日轟炸', desc: '5 發散彈 + 每 3 秒全螢幕轟炸',
-    next: null, color: '#ff0000', icon: '☠️', basePower: 1.5
-  },
-
-  // C 路線：雷射科技流 - 貫穿，超遠距，打王強，有過熱
-  PLASMA: {
-    id: 'PLASMA',
-    route: 'C', tier: 1, name: '電漿武器', desc: '高傷貫穿子彈',
-    next: 'D_LASER', color: '#00ddff', icon: '⚡', basePower: 1.2
-  },
-  D_LASER: {
-    id: 'D_LASER',
-    route: 'C', tier: 2, name: '雙光束炮', desc: '雙光束射擊',
-    next: 'T_LASER', color: '#00aaff', icon: '🔷', basePower: 1.3
-  },
-  T_LASER: {
-    id: 'T_LASER',
-    route: 'C', tier: 3, name: '三路光束', desc: '三道光束同時射擊',
-    next: 'OMEGA', color: '#0077ff', icon: '🔶', basePower: 1.4
-  },
-  OMEGA: {
-    id: 'OMEGA',
-    route: 'C', tier: 4, name: '歐米茄射線', desc: '光束掃射，穿透障礙',
-    next: null, color: '#0044cc', icon: '👁️', basePower: 1.6
-  },
-
-  // D 路線：召喚塔防流 - 本體弱，召喚物強，越拖越強
-  SUMMON: {
-    id: 'SUMMON',
-    route: 'D', tier: 1, name: '工程師', desc: '部署 1 個自動砲塔',
-    next: 'DRONE', color: '#44ff88', icon: '🛠️', basePower: 0.8
-  },
-  DRONE: {
-    id: 'DRONE',
-    route: 'D', tier: 2, name: '維修無人機', desc: '砲塔生命與傷害提升',
-    next: 'TURRET', color: '#22cc66', icon: '🤖', basePower: 0.9
-  },
-  TURRET: {
-    id: 'TURRET',
-    route: 'D', tier: 3, name: '自動砲台', desc: '砲塔傷害大幅提升',
-    next: 'FORTRESS', color: '#11aa44', icon: '🏰', basePower: 1.0
-  },
-  FORTRESS: {
-    id: 'FORTRESS',
-    route: 'D', tier: 4, name: '要塞核心', desc: '終極塔防，四座砲台',
-    next: null, color: '#008833', icon: '⚔️', basePower: 1.3
-  }
-};
 
 // 起始武器
-const STARTER_WEAPONS = ['NORMAL', 'RAPID', 'SPREAD', 'PLASMA', 'SUMMON'];
 
 // 狀態常數
 const STATE = { MENU:'menu', PLAYING:'playing', PAUSED:'paused', UPGRADE:'upgrade', SHOP:'shop', GAMEOVER:'gameover', LEVEL_COMPLETE:'levelComplete' };
 
 // 特殊敵人類別查詢加速
-const SPECIAL_ENEMY_TYPES = new Set(['SNIPER','ENGINEER','INTERFERER','GUARD','MINELAYER']);
 
 // Fisher-Yates 洗牌
 function shuffle(arr) {
@@ -910,63 +784,13 @@ function distSq(a, b) {
 }
 
 // 被動技能池
-const PASSIVE_SKILLS = [
-  { id: 'HEAT', name: '熱能反應', desc: '連續射擊越久，攻速越快', icon: '🔥', color: '#ff6600' },
-  { id: 'OVERCHARGE', name: '超載電容', desc: '雷射擊殺敵人會連鎖電擊', icon: '⚡', color: '#00ddff' },
-  { id: 'RAGE', name: '狂暴核心', desc: '生命越低傷害越高', icon: '🩸', color: '#ff0066' },
-  { id: 'BARRIER', name: '反應護盾', desc: '受傷後 2 秒無敵', icon: '🛡️', color: '#8888ff' },
-  { id: 'NUCLEAR', name: '核融合引擎', desc: '移動時持續灼燒周圍', icon: '☢️', color: '#44ff44' },
-  { id: 'WEAKEN', name: '弱點分析', desc: '對 BOSS 額外 +50% 傷害', icon: '🎯', color: '#ffff00' },
-  { id: 'VAMPIRE', name: '吸血光束', desc: '擊殺回血', icon: '🦇', color: '#cc0000' },
-  { id: 'CHAIN', name: '連鎖反應', desc: '子彈會彈跳到附近敵人', icon: '🔗', color: '#aa44ff' }
-];
 
 // 主動技能（CD技）
-const ACTIVE_SKILLS = [
-  { id: 'EMP', name: 'EMP脈衝', desc: '清除附近子彈', cooldown: 20, key: 'Q', icon: '📡' },
-  { id: 'DASH', name: '緊急衝刺', desc: '高速位移', cooldown: 15, key: 'W', icon: '💨' },
-  { id: 'STRIKE', name: '空襲呼叫', desc: '指定區域轟炸', cooldown: 25, key: 'E', icon: '💥' },
-  { id: 'SLOW', name: '時間扭曲', desc: '局部緩速敵人', cooldown: 18, key: 'R', icon: '⏱️' },
-  { id: 'DECOY', name: '誘敵裝置', desc: '吸引敵軍攻擊', cooldown: 22, key: 'A', icon: '👻' },
-  { id: 'BOOST', name: '超頻爆發', desc: '短時攻速翻倍', cooldown: 30, key: 'S', icon: '🚀' }
-];
 
 // 菁英詞綴
-const ELITE_PREFIXES = {
-  BERSERKER: { name: '狂戰士', effect: '移速 x1.8', color: '#ff0000', icon: '🔴' },
-  SHIELDED: { name: '護盾', effect: '免疫前 3 發', color: '#8800ff', icon: '🟣' },
-  EXPLOSIVE: { name: '爆炸', effect: '死亡時爆炸', color: '#000000', icon: '⚫' },
-  FREEZING: { name: '冰凍', effect: '命中玩家減速', color: '#00ddff', icon: '🔵' },
-  REGEN: { name: '再生', effect: '每秒回血', color: '#00ff00', icon: '🟢' },
-  SUMMONER: { name: '召喚', effect: '持續召喚小兵', color: '#ffff00', icon: '🟡' }
-};
 
 // ==================== 武器配置 (Weapon Registry) ====================
 // 基础武器配置：攻击速度、子弹数量、散射角度、伤害、特殊效果
-const WEAPON_REGISTRY = {
-  // NORMAL: 普通发射
-  NORMAL:   { fireRate: 14, count: 1, spread: 0,   power: 1.0,  effect: null },
-  // RAPID: 快速射击链（貫穿）
-  RAPID:    { fireRate: 6,  count: 1, spread: 0,   power: 0.6,  effect: 'PIERCE' },
-  GATLING:  { fireRate: 5,  count: 2, spread: 0,   power: 0.55, effect: 'PIERCE' },
-  CHAINGUN: { fireRate: 4,  count: 3, spread: 0,   power: 0.5,  effect: 'PIERCE' },
-  OVERDRIVE:{ fireRate: 3,  count: 4, spread: 0,   power: 0.45, effect: 'PIERCE' },
-  // SPREAD: 散射
-  SPREAD:   { fireRate: 16, count: 3, spread: 0.25, power: 0.8,  effect: null },
-  CLUSTER:  { fireRate: 14, count: 3, spread: 0.25, power: 0.9,  effect: null },
-  NAPALM:   { fireRate: 12, count: 3, spread: 0.25, power: 0.7,  effect: 'BURN_ZONE' },
-  APOCALYPSE:{ fireRate: 10, count: 5, spread: 0.4, power: 0.8,  effect: 'BOMBARD' },
-  // PLASMA: 激光科技流
-  PLASMA:   { fireRate: 12, count: 1, spread: 0,   power: 1.2,  effect: 'PIERCE' },
-  D_LASER:  { fireRate: 10, count: 2, spread: 0,   power: 1.1,  effect: 'PIERCE' },
-  T_LASER:  { fireRate: 8,  count: 3, spread: 0,   power: 1.0,  effect: 'PIERCE' },
-  OMEGA:    { fireRate: 6,  count: 1, spread: 0,   power: 1.4,  effect: 'LASER_BEAM' },
-  // SUMMON: 召唤塔防流
-  SUMMON:   { fireRate: 20, count: 1, spread: 0,   power: 0.8,  effect: 'SPAWN_TURRET' },
-  DRONE:    { fireRate: 18, count: 1, spread: 0,   power: 0.9,  effect: 'SPAWN_TURRET' },
-  TURRET:   { fireRate: 16, count: 1, spread: 0,   power: 1.0,  effect: 'SPAWN_TURRET' },
-  FORTRESS: { fireRate: 14, count: 1, spread: 0,   power: 1.3,  effect: 'SPAWN_TURRET' }
-};
 
 // ==================== 武器管理器 (Weapon Manager) ====================
 const WeaponManager = {
@@ -1042,6 +866,7 @@ const WeaponManager = {
     b.x = cx - 3; b.y = cy - 3;
     b.dir = baseDir;
     b.isPlayer = tank.isPlayer;
+    b.freezing = !tank.isPlayer && tank.elitePrefix === 'FREEZING';   // FREEZING 精英的子彈會凍緩玩家
     b.vx = vx; b.vy = vy;
     b.speed = tank.isPlayer ? CONFIG.BULLET.SPEED_PLAYER : CONFIG.BULLET.SPEED_ENEMY;
     b.power = power;
@@ -1112,36 +937,10 @@ const WeaponManager = {
   }
 };
 
-const POWER_UPS = {
-  BOMB: { name: '炸彈', desc: '秒殺全屏敵人', icon: '💣', color: '#ff4400', duration: 0 },
-  WALL: { name: '堡壘', desc: '鋼鐵城墙 15 秒', icon: '🧱', color: '#888888', duration: 15 },
-  STAR: { name: '火力', desc: '武器升一級', icon: '⭐', color: '#ffd700', duration: 0 },
-  TIME: { name: '時光', desc: '凍敵 10 秒', icon: '⏱️', color: '#00ffff', duration: 10 },
-  SHIELD: { name: '護盾', desc: '無敵 10 秒', icon: '🛡️', color: '#8800ff', duration: 10 },
-  ONEUP: { name: '+1', desc: '接關次數+1', icon: '❤️', color: '#ff69b4', duration: 0 },
-  RAPID_DROP: { name: '快速射擊', desc: '射速+20% (本關有效)', icon: '⚡', color: '#ff6b00', duration: 0, weaponType: 'RAPID' },
-  SPREAD_DROP: { name: '散彈', desc: '扇形射擊 (本關有效)', icon: '💫', color: '#ffdd00', duration: 0, weaponType: 'SPREAD' },
-  PLASMA_DROP: { name: '電漿炮', desc: '貫穿彈 (本關有效)', icon: '🔷', color: '#00ddff', duration: 0, weaponType: 'PLASMA' },
-  SUMMON_DROP: { name: '工程師', desc: '部署砲塔 (本關有效)', icon: '🛠️', color: '#44ff88', duration: 0, weaponType: 'SUMMON' },
-  GATLING_DROP: { name: '格林機槍', desc: '格林機槍 (本關有效)', icon: '🔥', color: '#ff4400', duration: 0, weaponType: 'GATLING', tier: 2 },
-  CLUSTER_DROP: { name: '集束彈', desc: '集束彈頭 (本關有效)', icon: '💛', color: '#ffaa00', duration: 0, weaponType: 'CLUSTER', tier: 2 },
-  D_LASER_DROP: { name: '雙光束炮', desc: '雙光束炮 (本關有效)', icon: '🔷', color: '#00aaff', duration: 0, weaponType: 'D_LASER', tier: 2 }
-};
 
 // Tier 1 weapons (always available)
-const WEAPON_DROPS_T1 = ['RAPID_DROP', 'SPREAD_DROP', 'PLASMA_DROP', 'SUMMON_DROP'];
 // Tier 2+ weapons (only available when player has higher tier weapons)
-const WEAPON_DROPS_T2 = ['GATLING_DROP', 'CLUSTER_DROP', 'D_LASER_DROP'];
 
-const SHOP_ITEMS = [
-  { id: 'HEALTH_PLUS', name: '生命+1', desc: '最大生命值+1', icon: '❤️', color: '#ff69b4', price: 500, type: 'health' },
-  { id: 'SPEED_BOOST', name: '移動加速', desc: '移動速度+20%', icon: '⚡', color: '#44ff44', price: 800, type: 'speed' },
-  { id: 'PIERCE_AMMO', name: '穿甲彈', desc: '子彈可貫穿敵人', icon: '🎯', color: '#ffaa00', price: 1200, type: 'pierce' },
-  { id: 'RAPID_FIRE', name: '快速射擊', desc: '射速+20%', icon: '🔥', color: '#ff6b00', price: 1000, type: 'rapid' },
-  { id: 'EXTRA_LIFE', name: '額外生命', desc: '接關次數+1', icon: '💖', color: '#ff0000', price: 600, type: 'life' },
-  { id: 'PERM_WALL', name: '堡壘', desc: '鋼鐵城牆 15 秒', icon: '🏰', color: '#888888', price: 2000, type: 'wall' },
-  { id: 'WEAPON_UP', name: '武器升級', desc: '武器升一級', icon: '⭐', color: '#ffd700', price: 1500, type: 'weapon' }
-];
 
 function getShopPrice(basePrice) {
   return Math.floor(basePrice * (1 + (G.level - 1) * 0.15));
@@ -1161,7 +960,7 @@ const G = {
     weapon: 'NORMAL', weaponTier: 0, pierce: false, speedMult: 1,
     maxHp: 3, hp: 3, route: null,
     passives: [], activeSkill: null, activeCooldown: 0,
-    heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0,
+    heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0, slowTimer: 0,
     combo: 0, comboTimer: 0, shopFireRateBonus: 0, weaponDamageBonus: 0
   },
   summonEntities: [],
@@ -1738,7 +1537,7 @@ const particlesPool = new Pool(
 );
 
 const bulletsPool = new Pool(
-  () => ({ x:0, y:0, dir:0, vx:0, vy:0, isPlayer:false, speed:0, size:CONFIG.BULLET.SIZE, alive:false, power:1, pierce:false, hitTanks:[], ignoreTiles:false, _isChild:false, laserLife:0, chainCount:0 }),
+  () => ({ x:0, y:0, dir:0, vx:0, vy:0, isPlayer:false, speed:0, size:CONFIG.BULLET.SIZE, alive:false, power:1, pierce:false, hitTanks:[], ignoreTiles:false, _isChild:false, laserLife:0, chainCount:0, freezing:false }),
   (b) => { 
     b.alive = true; 
     b.size = CONFIG.BULLET.SIZE; 
@@ -1748,6 +1547,7 @@ const bulletsPool = new Pool(
     b._isChild = false;
     b.laserLife = 0;
     b.chainCount = 0;
+    b.freezing = false;
   }, 
   CONFIG.POOL.BULLET_INITIAL,
   CONFIG.POOL.BULLET_MAX
@@ -2523,6 +2323,7 @@ function handleBulletHit(b, t) {
       spawnExplosion(b.x, b.y, 'shield');
       return;
     }
+    if (b.freezing) G.playerStats.slowTimer = 120;   // FREEZING 詞綴：凍緩 2 秒
   }
 
   // 计算伤害倍率
@@ -2762,40 +2563,6 @@ function renderBullets() {
 }
 
 // ==================== Director System（局內事件） ====================
-const DIRECTOR_EVENTS = {
-  SURGE: {
-    name: '⚠️ ENEMY SURGE', duration: 600, desc: '敵軍生成加倍',
-    activate() { G.spawnInterval = Math.max(4, G.spawnInterval / 2); },
-    deactivate() { G.spawnInterval = Math.min(30, G.spawnInterval * 2); }
-  },
-  AIRDROP: {
-    name: '📦 空投來了', duration: 900, desc: '高級物資出現',
-    activate() {
-      G.directorEvents.push({ type: 'airdrop', x: W/2, y: H/2, life: 300, maxLife: 300 });
-    }
-  },
-  MINIBOSS: {
-    name: '💀 BOSS 突襲', duration: 1200, desc: 'Mini Boss 出現',
-    activate() {
-      const e = new Tank(W/2, TILE, DOWN, 'BOSS', false);
-      e.hp = e.maxHp = 8;
-      G.enemies.push(e);
-      G.aliveEnemies++;      // 其他生兵路徑都有計數；少了這行會在牠死亡時讓 aliveEnemies 漂移成負值
-    }
-  },
-  ORBITAL: {
-    name: '🚀 軌道轟炸', duration: 800, desc: '地面出現預警',
-    activate() {
-      G.directorEvents.push({ type: 'orbital', targets: [], stage: 0, timer: 0 });
-    }
-  },
-  TRAIN: {
-    name: '🚂 補給列車', duration: 600, desc: '高速物資列車',
-    activate() {
-      G.directorEvents.push({ type: 'train', x: 0, y: H/2, life: 360 });
-    }
-  }
-};
 
 function updateDirector() {
   if (!G.isVSMode || G.frameCount % 300 !== 0) return;
@@ -2814,7 +2581,22 @@ function updateDirectorEvents() {
     const ev = G.directorEvents[i];
     ev.life--;
 
+    if (ev.life <= 0 && ev.type && DIRECTOR_EVENTS[ev.type] && DIRECTOR_EVENTS[ev.type].deactivate) {
+      // 事件結束時呼叫 deactivate：SURGE 會把 spawnInterval 減半，舊版從來不還原 →
+      // 敵軍生成速率在第一次 SURGE 之後就永久加倍（deactivate 宣告了卻沒有任何呼叫端）。
+      DIRECTOR_EVENTS[ev.type].deactivate();
+    }
+
     if (ev.type === 'airdrop') {
+      // 舊版這裡是空分支：玩家看到「📦 空投來了」卻什麼都沒發生。
+      // 空投箱落地時掉一個道具（用既有的 POWER_UPS 池與掉落清單）。
+      if (ev.life % 30 === 0 && ev.life > 0) {
+        const pool = COMMON_DROPS;
+        const type = pool[(Math.random() * pool.length) | 0];
+        const px = Math.max(TILE, Math.min(W - TILE * 2, ev.x + (Math.random() - 0.5) * TILE * 4));
+        const py = Math.max(TILE, Math.min(H - TILE * 2, ev.y + (Math.random() - 0.5) * TILE * 4));
+        G.powerUps.push({ type, x: px, y: py, life: 600, maxLife: 600, alive: true });
+      }
     } else if (ev.type === 'orbital') {
       ev.timer++;
       if (ev.timer % 60 === 0) {
@@ -2841,14 +2623,6 @@ function updateDirectorEvents() {
 }
 
 // ==================== 地圖事件系統 ====================
-const MAP_EVENTS = [
-  { id: 'DESERT', name: '🏜️ 沙漠', effect: '移速 -30%', color: '#cc8844', duration: 600 },
-  { id: 'ICE', name: '❄️ 冰原', effect: '坦克滑行慣性', color: '#88ccff', duration: 600 },
-  { id: 'VOLCANIC', name: '🌋 火山', effect: '定期噴岩漿', color: '#ff4422', duration: 480 },
-  { id: 'EMP', name: '⚡ EMP區域', effect: '子彈速度減半', color: '#aa44ff', duration: 600 },
-  { id: 'NIGHT', name: '🌙 夜戰', effect: '視野縮小', color: '#222244', duration: 600 },
-  { id: 'TOXIC', name: '☣️ 毒霧', effect: '持續扣血', color: '#44ff44', duration: 480 }
-];
 
 // 地圖事件狀態
 let mapEventState = {
@@ -3115,7 +2889,6 @@ function updateSpecialEnemyAI(e) {
   }
 }
 
-const COMMON_DROPS = ['BOMB', 'WALL', 'STAR', 'TIME', 'SHIELD', 'ONEUP'];
 
 function assignPowerUpDrop(e) {
   if (Math.random() < 0.3) {
@@ -3331,6 +3104,14 @@ function spawnEnemy() {
     if (r < fastChance) type = 'FAST';
     else if (r < fastChance + heavyChance) type = 'HEAVY';
     else if (r < fastChance + heavyChance + suicideChance) type = 'SUICIDE';
+
+    // 特殊敵人（SNIPER / ENGINEER / INTERFERER / GUARD / MINELAYER）：
+    // updateSpecialEnemyAI 早就寫好了 58 行，但生成端從來沒有產生過這些型別 ——
+    // 整段 AI 與 SPECIAL_ENEMY_TYPES 都是死碼。這裡在第 4 關之後以低機率生成。
+    if (G.level >= 4 && Math.random() < 0.07) {
+      const specials = Array.from(SPECIAL_ENEMY_TYPES);
+      type = specials[(Math.random() * specials.length) | 0];
+    }
   }
 
   let elitePrefix = null;
@@ -3445,7 +3226,7 @@ function restartGame() {
     weapon: 'NORMAL', weaponTier: 0, pierce: false, speedMult: 1,
     maxHp: 3, hp: 3, route: null,
     passives: [], activeSkill: null, activeCooldown: 0,
-    heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0,
+    heatStacks: 0, rageMultiplier: 1, invulTimer: 0, barrierTimer: 0, slowTimer: 0,
     combo: 0, comboTimer: 0, boostTimer: 0, weaponDamageBonus: 0, shopFireRateBonus: 0
   };
   updateHUD();
@@ -3546,7 +3327,9 @@ function updateHUD() {
   }
   if (G.playerStats.activeSkill) {
     const cdPct = Math.floor((G.playerStats.activeCooldown / 30) * 100);
-    chips.push(`<span class="power-chip" style="background:#003300;border-color:#00ff00">[Q]${G.playerStats.activeSkill}${cdPct > 0 ? '(' + cdPct + ')' : ''}</span>`);
+    const skillDef = ACTIVE_SKILLS.find((s) => s.id === G.playerStats.activeSkill);
+    const keyLabel = skillDef && skillDef.key ? skillDef.key.replace('Key', '') : 'Q';
+    chips.push(`<span class="power-chip" style="background:#003300;border-color:#00ff00">[${keyLabel}]${G.playerStats.activeSkill}${cdPct > 0 ? '(' + cdPct + ')' : ''}</span>`);
   }
   if (G.playerStats.boostTimer > 0) {
     chips.push(`<span class="power-chip" style="background:#ff0000;border-color:#ff6600">OVERCLOCK</span>`);
@@ -3984,13 +3767,24 @@ function update() {
       spatialGrid.insert(G.enemies[i]);
     }
 
-    if (G.keys['KeyQ'] && !G.keys._qUsed) { G.keys._qUsed = true; triggerActiveSkill(); }
-    if (!G.keys['KeyQ']) G.keys._qUsed = false;
+    // 主動技能的按鍵由 ACTIVE_SKILLS[].key 決定（資料是唯一來源；舊版硬寫 KeyQ，
+    // 但 DASH 的卡片說明寫 [W]，玩家按 W 只會移動）
+    const skillKey = (ACTIVE_SKILLS.find((s) => s.id === G.playerStats.activeSkill) || {}).key || 'KeyQ';
+    if (G.keys[skillKey] && !G.keys._skillUsed) { G.keys._skillUsed = true; triggerActiveSkill(); }
+    if (!G.keys[skillKey]) G.keys._skillUsed = false;
 
     if (G.playerStats.activeCooldown > 0) G.playerStats.activeCooldown--;
     if (G.playerStats.boostTimer > 0) G.playerStats.boostTimer--;
     if (G.playerStats.invulTimer > 0) G.playerStats.invulTimer--;
     if (G.playerStats.barrierTimer > 0) G.playerStats.barrierTimer--;
+    // FREEZING 詞綴：被子彈凍到時減速 50%，持續 slowTimer 個 tick（見 handleBulletHit）
+    if (G.playerStats.slowTimer > 0) {
+      G.playerStats.slowTimer--;
+      if (G.player) { G.player.speed = 2.5 * G.playerStats.speedMult * 0.5; G.player._slowed = true; }
+    } else if (G.player && G.player._slowed) {
+      G.player.speed = 2.5 * G.playerStats.speedMult;
+      G.player._slowed = false;
+    }
     applyPassiveTick();
     updateCombo();
 
@@ -4093,6 +3887,16 @@ function update() {
   updateParticles();
 }
 
+// 環境／召喚物造成的傷害：統一走 handleBulletHit，讓護盾、無敵與死亡判定維持同一條路徑
+// （避免出现「血量變負但沒死」這種雙軌問題）。
+const _hazardBullet = { x: 0, y: 0, size: TILE, power: 1, isPlayer: false, alive: true, hitTanks: [] };
+function damagePlayerFromHazard(x, y, power) {
+  if (!G.player || !G.player.alive) return;
+  _hazardBullet.x = x; _hazardBullet.y = y; _hazardBullet.power = power;
+  _hazardBullet.alive = true; _hazardBullet.hitTanks.length = 0;
+  handleBulletHit(_hazardBullet, G.player);
+}
+
 function updateSummonEntities() {
   for (let i = G.summonEntities.length - 1; i >= 0; i--) {
     const se = G.summonEntities[i];
@@ -4127,6 +3931,28 @@ function updateSummonEntities() {
           spawnBullet(cx, cy, randDir, true, false, se.damage);
         }
         se.cooldown = 25;
+      }
+    }
+
+    // INTERFERER 放的炸彈：到期或玩家靠近就引爆（舊版沒有任何分支，只會倒數後消失）
+    if (se.type === 'bomb') {
+      const near = G.player && G.player.alive &&
+        Math.hypot(G.player.x - se.x, G.player.y - se.y) < TILE;
+      if (se.life <= 0 || near) {
+        spawnExplosion(se.x, se.y, 'big');
+        if (near) damagePlayerFromHazard(se.x, se.y, se.damage || 2);
+        se.alive = false;
+      }
+    }
+
+    // MINELAYER 放的地雷：玩家踩到就爆
+    if (se.type === 'mine') {
+      const near = G.player && G.player.alive &&
+        Math.hypot(G.player.x - se.x, G.player.y - se.y) < TILE * 0.9;
+      if (near) {
+        spawnExplosion(se.x, se.y, 'tank');
+        damagePlayerFromHazard(se.x, se.y, se.damage || 2);
+        se.alive = false;
       }
     }
 
@@ -4351,7 +4177,20 @@ requestAnimationFrame(gameLoop);
   if (p.has('mute') || p.has('bot')) { Sound.enabled = false; Music.enabled = false; Music.stop(); if (Sound.ctx) Sound.ctx.suspend(); }
   if (!p.has('bot')) return;
   /* expose game internals so dynamically-loaded scripts can access them */
-  window.__T = { G: G, STATE: STATE, CONFIG: CONFIG,
+  // 模組化之後這些符號不再是 window 上的全域變數；驗證工具（tools/verify-game.mjs）
+  // 需要它們才能驅動內部狀態，所以在 ?bot 時一併掛出來。
+  window.__T = {
+    // 驗證工具會呼叫的函式
+    applyUpgrade, buyItem, handleBulletHit, updateBullet, drawEagleDirect, eagleSprite,
+    spawnEnemy, updateDirector, updateDirectorEvents, updateSummonEntities, damagePlayerFromHazard,
+    drawParticles, drawPowerUps, drawMapEvent, buildTankSprite, rollMapEvent,
+    // 驗證工具會讀寫的模組層狀態（掛物件本身，屬性讀寫才有效）
+    mapEventState, eagleCache: _eagleCache, tankSpriteCache: _tankSpriteCache, smokeColor: SMOKE_COLOR,
+    ctx, canvas,   // 主畫布與其 2D context（工具用來檢查繪圖狀態，例如 textAlign）
+    // 資料表（工具用來做等價比對與死欄位掃描）
+    WEAPON_REGISTRY, MAP_EVENTS, DIRECTOR_EVENTS, STARTER_WEAPONS, WEAPON_DROPS_T1, WEAPON_DROPS_T2,
+    COMMON_DROPS, SPECIAL_ENEMY_TYPES: Array.from(SPECIAL_ENEMY_TYPES),
+    G: G, STATE: STATE, CONFIG: CONFIG,
     UP: UP, DOWN: DOWN, LEFT: LEFT, RIGHT: RIGHT,
     DX: DX, DY: DY, TILE: TILE, W: W, H: H,
     EMPTY: EMPTY, BRICK: BRICK, STEEL: STEEL, WATER: WATER, FOREST: FOREST, BASE: BASE,

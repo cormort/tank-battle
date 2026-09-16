@@ -110,7 +110,7 @@ const evolved = await page.evaluate(() => {
   const T = window.__T;
   const ps = T.G.playerStats;
   ps.weapon = 'RAPID'; ps.route = 'A'; ps.weaponTier = 1;
-  applyUpgrade({ type: 'weapon', id: T.WEAPON_TREE.RAPID.next });
+  T.applyUpgrade({ type: 'weapon', id: T.WEAPON_TREE.RAPID.next });
   const after1 = { weapon: ps.weapon, tier: ps.weaponTier };
   T.startLevel();                       // 換關（舊版會在下一關把 undefined 退回 NORMAL）
   const afterLevel = ps.weapon;
@@ -127,7 +127,7 @@ const shopResult = await page.evaluate(() => {
   T.G.playerStats.weapon = 'OVERDRIVE';         // A 路線最終階，next = null
   T.G.playerStats.weaponTier = 4;
   const before = T.G.score;
-  buyItem('weapon');
+  T.buyItem('weapon');
   return { before, after: T.G.score, popup: (T.G.scorePopups.slice(-1)[0] || {}).text || '' };
 });
 ok('A2 商店購買已滿級武器時分數不會被扣（舊版先扣 1500 再顯示「已達最大等級!」）',
@@ -141,7 +141,7 @@ const barrier = await page.evaluate(async () => {
   G.playerStats.hp = 3; G.playerStats.maxHp = 3;
   // 模擬被子彈打到兩次：第一次啟動護盾，第二次應該被吸收
   const fakeBullet = { x: G.player.x, y: G.player.y, size: 4, power: 1, alive: true, hitTanks: [] };
-  handleBulletHit(fakeBullet, G.player);
+  T.handleBulletHit(fakeBullet, G.player);
   const armed = G.playerStats.barrierTimer;
   await new Promise((r) => setTimeout(r, 600));    // 約 36 tick
   const afterTicks = G.playerStats.barrierTimer;
@@ -176,7 +176,7 @@ const laserLife = await page.evaluate(async () => {
   const b = bp.acquire();
   b.x = 100; b.y = 100; b.vx = 0; b.vy = 0; b.speed = 0;
   b.ignoreTiles = true; b._isChild = true; b.alive = true; b.laserLife = 5;
-  for (let i = 0; i < 6; i++) updateBullet(b);
+  for (let i = 0; i < 6; i++) T.updateBullet(b);
   const died = b.alive === false;
   bp.sweep();
   return { died, poolAfter: bp.active.length };
@@ -225,6 +225,101 @@ ok('A8 菁英詞綴會套用（1.5 倍血 + eliteEffects 光環，舊版指派�
   elite.eliteHp === Math.ceil(elite.plainHp * 1.5) && elite.effects, JSON.stringify(elite));
 
 ok('A9 驗證期間沒有未捕捉的例外', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | ') || '0 筆');
+
+console.log('\n=== E. 資料接線（M1：宣告的內容真的有作用） ===');
+// E1：SURGE 事件結束時要呼叫 deactivate（舊版 deactivate 宣告了卻沒有任何呼叫端 →
+//     spawnInterval 被減半後永久不還原）
+const surge = await page.evaluate(async () => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;          // 前面的關卡結算測試會把狀態留在 levelComplete
+  G.isVSMode = true;
+  G.spawnInterval = 18;
+  const before = G.spawnInterval;
+  T.DIRECTOR_EVENTS.SURGE.activate();
+  const during = G.spawnInterval;
+  G.directorEvents.length = 0;
+  G.directorEvents.push({ name: 'x', desc: 'x', life: 1, type: 'SURGE' });
+  await new Promise((r) => setTimeout(r, 200));
+  return { before, during, after: G.spawnInterval };
+});
+ok('E1 SURGE 事件結束時會呼叫 deactivate、生成間隔還原（舊版永久減半）',
+  surge.during < surge.before && surge.after === surge.before, JSON.stringify(surge));
+
+// E2：airdrop 事件要真的掉道具（舊版是空分支，玩家只看到「空投來了」）
+const airdrop = await page.evaluate(async () => {
+  const T = window.__T, G = T.G;
+  G.powerUps.length = 0;
+  G.directorEvents.length = 0;
+  T.DIRECTOR_EVENTS.AIRDROP.activate();
+  const pushed = G.directorEvents.length;
+  for (let i = 0; i < 40; i++) T.updateDirectorEvents();
+  const dropped = G.powerUps.length;
+  G.directorEvents.length = 0; G.powerUps.length = 0;
+  return { pushed, dropped };
+});
+ok('E2 空投事件會實際產生道具（舊版 activate 之後什麼都沒發生）',
+  airdrop.pushed > 0 && airdrop.dropped > 0, JSON.stringify(airdrop));
+
+// E3：FREEZING 詞綴的子彈會凍緩玩家（舊版 FREEZING 沒有任何處理）
+const freezing = await page.evaluate(async () => {
+  const T = window.__T, G = T.G;
+  G.playerStats.passives = [];
+  G.playerStats.barrierTimer = 0; G.playerStats.invulTimer = 0;
+  G.playerStats.hp = 3; G.playerStats.maxHp = 3; G.playerStats.slowTimer = 0;
+  G.state = T.STATE.PLAYING;
+  T.handleBulletHit({ x: G.player.x, y: G.player.y, size: 4, power: 0, isPlayer: false,
+    alive: true, hitTanks: [], freezing: true }, G.player);
+  const timer = G.playerStats.slowTimer;
+  await new Promise((r) => setTimeout(r, 150));
+  const speed = G.player.speed;
+  const half = 2.5 * G.playerStats.speedMult * 0.5;
+  G.playerStats.slowTimer = 0;
+  await new Promise((r) => setTimeout(r, 150));
+  const restored = G.player.speed;
+  return { timer, speed: +speed.toFixed(2), half: +half.toFixed(2), restored: +restored.toFixed(2) };
+});
+ok('E3 FREEZING 詞綴會凍緩玩家、時間到恢復速度（舊版完全沒有處理）',
+  freezing.timer > 0 && Math.abs(freezing.speed - freezing.half) < 0.01 && freezing.restored > freezing.half,
+  JSON.stringify(freezing));
+
+// E4：特殊敵人真的會被生成（舊版五種型別都有 AI 但生成端從不產生）
+const specials = await page.evaluate(async () => {
+  const T = window.__T, G = T.G;
+  const seen = new Set();
+  G.isVSMode = false; G.level = 6; G.maxEnemies = 999; G.enemiesSpawned = 0;
+  for (let i = 0; i < 400; i++) {
+    G.spawnTimer = 0; G.enemiesSpawned = 0;
+    G.enemies.length = 0;
+    T.spawnEnemy();
+    const e = G.enemies[0];
+    if (e) seen.add(e.type);
+  }
+  G.enemies.length = 0;
+  return { types: Array.from(seen), wanted: Array.from(T.SPECIAL_ENEMY_TYPES) };
+});
+ok('E4 特殊敵人（SNIPER/ENGINEER/INTERFERER/GUARD/MINELAYER）會被生成',
+  specials.wanted.some((t) => specials.types.includes(t)),
+  `生成過的型別：${specials.types.join('、')}`);
+
+// E5：bomb / mine 召喚物真的會傷害玩家（舊版只倒數然後消失）
+const hazards = await page.evaluate(async () => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  G.playerStats.passives = []; G.playerStats.barrierTimer = 0; G.playerStats.invulTimer = 0;
+  G.playerStats.hp = 3; G.playerStats.maxHp = 3;
+  G.player.hp = 3;                    // 一條命內的耐久（playerStats.hp 是剩餘命數，兩者語意不同）
+  G.player.alive = true;
+  G.player.shieldHits = 0;
+  G.summonEntities.length = 0;
+  G.summonEntities.push({ type: 'mine', x: G.player.x, y: G.player.y, life: 600, maxLife: 600, damage: 2, alive: true });
+  T.updateSummonEntities();
+  const afterMine = G.player.hp;
+  const cleared = G.summonEntities.filter((s) => s.alive).length;
+  G.summonEntities.length = 0;
+  return { before: 3, afterMine, cleared };
+});
+ok('E5 mine／bomb 召喚物會對玩家造成傷害（舊版沒有行為分支）',
+  hazards.afterMine < hazards.before && hazards.cleared === 0, JSON.stringify(hazards));
 
 console.log('\n=== B. 手機與輸入 ===');
 // B1：手機橫向可以開始遊戲
@@ -353,9 +448,9 @@ const eagle = await page.evaluate(() => {
   Object.defineProperty(c, 'fillStyle', {
     set(v) { fillStyles++; desc.set.call(c, v); }, get() { return desc.get.call(c); },
   });
-  drawEagleDirect(c, 0, 0, false);
-  drawEagleDirect(c, 30, 0, true);
-  return { fillRects, fillStyles, drawImages, cached: !!(_eagleCache && _eagleCache.alive) };
+  T.drawEagleDirect(c, 0, 0, false);
+  T.drawEagleDirect(c, 30, 0, true);
+  return { fillRects, fillStyles, drawImages, cached: !!(T.eagleCache && T.eagleCache.alive) };
 });
 ok('C1 基地老鷹改用離屏快取（每次 1 次 drawImage、0 次逐像素 fillRect；舊版每幀 254 次 API 呼叫）',
   eagle.fillRects === 0 && eagle.drawImages === 2 && eagle.cached, JSON.stringify(eagle));
@@ -365,17 +460,17 @@ ok('C1 基地老鷹改用離屏快取（每次 1 次 drawImage、0 次逐像素 
 // 「同一組參數連續 draw 不會呼叫 buildTankSprite、也不會新增快取項」。
 const sprite = await page.evaluate(() => {
   const T = window.__T;
-  const origBuild = window.buildTankSprite;
+  const origBuild = T.buildTankSprite;
   let built = 0;
-  window.buildTankSprite = (...args) => { built++; return origBuild(...args); };
+  T.buildTankSprite = (...args) => { built++; return origBuild(...args); };
   const e = new T.Tank(T.TILE * 3, T.TILE * 3, T.DOWN, 'NORMAL', false);
   e.aimDir = T.DOWN; e.moving = false;
   e.draw();
   const first = e._spr;
-  const sizeAfterFirst = _tankSpriteCache.size;
+  const sizeAfterFirst = T.tankSpriteCache.size;
   for (let i = 0; i < 30; i++) { e.aimDir = T.DOWN; e.moving = false; e.draw(); }
-  window.buildTankSprite = origBuild;
-  return { built, sameInstance: first === e._spr, cacheStable: _tankSpriteCache.size === sizeAfterFirst, cached: !!e._spr };
+  T.buildTankSprite = origBuild;
+  return { built, sameInstance: first === e._spr, cacheStable: T.tankSpriteCache.size === sizeAfterFirst, cached: !!e._spr };
 });
 const guardRegex = /if \(!this\._spr \|\| this\._sprDir !== this\.aimDir[\s\S]{0,80}?const key =/;
 ok('C2 坦克 sprite 快取綁在實例上（同方向連續 30 次 draw 不重建、不新增快取項）',
@@ -400,39 +495,36 @@ const smoke = await page.evaluate(() => {
   // 直接呼叫繪製路徑（drawParticles 會畫整個池，這裡用同樣的邏輯量 fillStyle 次數）
   let smokeSets = 0;
   const beforeSmoke = 0;
-  drawParticles();
-  return { sets, smokeColorConst: typeof SMOKE_COLOR === 'string', beforeSmoke };
+  T.drawParticles();
+  return { sets, smokeColorConst: typeof T.smokeColor === 'string', beforeSmoke };
 });
 ok('C3 煙霧粒子使用固定色 + globalAlpha（不再每顆每幀配 rgba 樣板字串）',
   smoke.smokeColorConst && !source.includes('`rgba(80,80,80,'), JSON.stringify({ smokeColor: smoke.smokeColorConst }));
 
 // C4：NIGHT 漸層會重用（玩家沒動時不重建）
+// 直接驅動真正的 drawMapEvent()，用 patch 過的 createRadialGradient 計數 ——
+// 這樣量到的是實際渲染路徑，而不是重寫一份等價邏輯。
 const night = await page.evaluate(() => {
   const T = window.__T, G = T.G;
-  mapEventState.active = true;
-  mapEventState.type = 'NIGHT';
-  mapEventState.timer = 600;
+  T.mapEventState.active = true;
+  T.mapEventState.type = 'NIGHT';
+  T.mapEventState.timer = 600;
+  G.player.alive = true;
   G.player.x = 100; G.player.y = 100;
-  const cv = document.createElement('canvas'); cv.width = 520; cv.height = 520;
-  const c = cv.getContext('2d');
+  const proto = CanvasRenderingContext2D.prototype;
+  const orig = proto.createRadialGradient;
   let created = 0;
-  c.createRadialGradient = (...a) => { created++; return { addColorStop() {} }; };
-  // drawMapEvent 用的是全域 ctx；這裡改為重複呼叫 render 內的同一段邏輯不易，故直接量快取行為
-  const before = _nightGradient;
-  drawMapEventOn(c);
-  const afterFirst = created;
-  drawMapEventOn(c);
-  return { created, reused: created === afterFirst, hasCache: typeof _nightGradient !== 'undefined' };
-  function drawMapEventOn(target) {
-    const px = G.player.x + T.TILE / 2, py = G.player.y + T.TILE / 2;
-    if (!_nightGradient || Math.abs(px - _nightGradientX) > 8 || Math.abs(py - _nightGradientY) > 8) {
-      _nightGradient = target.createRadialGradient(px, py, 0, px, py, T.TILE * 8);
-      _nightGradientX = px; _nightGradientY = py;
-    }
-  }
+  proto.createRadialGradient = function (...args) { created++; return orig.apply(this, args); };
+  T.drawMapEvent();
+  const first = created;
+  T.drawMapEvent();
+  const second = created;
+  proto.createRadialGradient = orig;
+  T.mapEventState.active = false;
+  return { first, second, reused: second === first };
 });
 ok('C4 NIGHT 漸層會被重用（舊版每幀重建 + 全螢幕漸層填色）',
-  night.created === 1 && night.hasCache, JSON.stringify(night));
+  night.first === 1 && night.reused, JSON.stringify(night));
 
 // C5：熱路徑不再使用 Math.hypot
 const hypotLeft = (source.match(/Math\.hypot\(/g) || []).length;
@@ -459,18 +551,10 @@ const align = await page.evaluate(() => {
   G.powerUps = [{ type: 'STAR', x: 100, y: 100, alive: true, life: 60, maxLife: 60 }];
   const cv = document.createElement('canvas'); cv.width = 520; cv.height = 520;
   const c = cv.getContext('2d');
-  drawPowerUpsOn(c);
-  const result = c.textAlign;
+  T.drawPowerUps();
+  const result = T.ctx.textAlign;    // 模組內的 ctx 才是 drawPowerUps 實際使用的畫布
   G.powerUps = [];
   return { textAlign: result };
-  function drawPowerUpsOn(target) {
-    const info = T.POWER_UPS.STAR;
-    target.fillStyle = info.color;
-    target.font = '10px monospace';
-    target.textAlign = 'center';
-    target.fillText(info.icon, 100, 104);
-    target.textAlign = 'left';
-  }
 });
 ok('C7 道具圖示繪製後 textAlign 不會洩漏（避免後續文字位置偏掉）',
   align.textAlign === 'left' && /ctx\.textAlign = 'left';\s*\/\/ 舊版只還原 globalAlpha/.test(source),

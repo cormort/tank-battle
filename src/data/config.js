@@ -1,0 +1,51 @@
+// 遊戲常數（唯一來源）。要調數值只改這裡；index.html 以 ESM import 取用。
+
+export const CONFIG = {
+  CANVAS: { W: 520, H: 520, TILE: 26 },
+  BULLET: {
+    PLAYER_COOLDOWN: 14,
+    PLAYER_COOLDOWN_VS: 8,
+    ENEMY_NORMAL: 70,
+    ENEMY_FAST: 60,
+    ENEMY_HEAVY: 70,
+    BOSS: 45,
+    SPEED_PLAYER: 6,
+    SPEED_ENEMY: 3.5,
+    SPEED_BOSS: 4,
+    SIZE: 6,
+  },
+  PARTICLE: {
+    SPARK_COUNT: 6,
+    TANK_DEATH_COUNT: 15,
+    BIG_COUNT: 30,
+    POOL_SIZE: 400,
+  },
+  POOL: {
+    BULLET_INITIAL: 200,
+    BULLET_MAX: 500,
+  },
+  AI: {
+    VISION_RANGE: 26 * 12,
+    CHANGE_INTERVAL: 30,
+    VS_UPDATE_INTERVAL: 12,
+  },
+  GAMEPLAY: {
+    POSITION_PRECISION: 0.5,
+    SHAKE_DECAY: 0.88,
+    PLAYER_RESPAWN_INVUL: 90,
+    PLAYER_HIT_FLASH: 8,
+    MAX_ENEMIES_ON_SCREEN: 4,
+    MAX_ENEMIES_ON_SCREEN_VS: 18,
+    BOSS_LEVEL_INTERVAL: 5,
+    VS_MODE_INTERVAL: 10,
+    UPGRADE_INTERVAL: 3,
+    STARTING_CONTINUES: 3,
+  },
+  GRID: {
+    CELL_SIZE: 26 * 2,
+  },
+  MOBILE: {
+    JOYSTICK_DEADZONE: 0.25,   // 死區百分比
+    JOYSTICK_MAX_RADIUS: 50,   // 搖桿最大半徑(px)
+  }
+};
