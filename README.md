@@ -30,7 +30,7 @@ src/ui/             UI 層
   screens.js          畫面流程：標題／暫停／商店／接關／結束／升級三選一（依賴注入 doc／hooks）
 src/platform/       平台層（純函式，Node 可測；不碰遊戲內部狀態）
   input.js            鍵盤／觸控 → intent；放開所有輸入只有一個實作
-  viewport.js         DPR 倍率、觸控裝置判定、canvas backing store
+  viewport.js         DPR 倍率、觸控裝置判定、canvas backing store（離屏畫布貼回時須指定 W×H，否則高 DPR 會被放大兩次）
   audio.js            音效與 BGM（Web Audio）；DOM 與遊戲狀態用 hook／rng 注入
   lifecycle.js        失去焦點／切到背景／回到前景的事件 → 意圖對應（可 unbind）
   touch-ui.js         螢幕搖桿與 FIRE 鍵（依賴注入：touch／getConfig／isMobile／doc／win）
