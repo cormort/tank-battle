@@ -1406,7 +1406,7 @@ function generateMap(level) {
   }
 
   G.basePos = { r: baseR, c: baseC };
-  G.playerSpawnPos = { x: (baseC - 3) * TILE, y: (ROWS - 2) * TILE };
+  G.playerSpawnPos = { x: (baseC - 3) * TILE, y: (ROWS - 1) * TILE };
   map[baseR][baseC] = BASE;
   [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1]].forEach(([dr,dc]) => map[baseR+dr][baseC+dc] = BRICK);
 
