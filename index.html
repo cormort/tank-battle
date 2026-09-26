@@ -3390,7 +3390,7 @@ function render() {
   const isGameplay = G.state === STATE.PLAYING || G.state === STATE.PAUSED || G.state === STATE.GAMEOVER;
 
   if (isGameplay) {
-    ctx.drawImage(staticCanvas, 0, 0);
+    ctx.drawImage(staticCanvas, 0, 0, W, H);
     const phase = ((G.frameCount >> 4) & 1);
     const tiles = G.dynamicTiles;
     for (let i = 0; i < tiles.length; i++) {
@@ -3415,7 +3415,7 @@ function render() {
 
   renderBullets();
 
-  if (isGameplay) ctx.drawImage(forestCanvas, 0, 0);
+  if (isGameplay) ctx.drawImage(forestCanvas, 0, 0, W, H);
 
   drawParticles();
   drawDirectorEvents();
