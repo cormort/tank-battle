@@ -366,6 +366,8 @@ import { makeScreens } from './src/ui/screens.js';
 const _bootParams = new URLSearchParams(location.search);
 const SEED = _bootParams.has('seed') ? hashSeed(_bootParams.get('seed')) : defaultSeed();
 let rnd = makeRng(SEED);
+// 純視覺用的亂數（畫面震動）：render() 的呼叫次數隨幀率變動，若吃 rnd 會讓遊戲狀態依幀率分岔。
+const visualRnd = makeRng(SEED ^ 0x9e3779b9);
 // ?sim：確定性模擬模式。遊戲迴圈不再自己 update()，時間只由 stepTicks() 推進 ——
 // 否則真實時間的 rAF 會與測試的逐步模擬交錯，同樣的 seed 也會得到不同結果（實測 947 vs 940 幀）。
 const DETERMINISTIC = _bootParams.has('sim');
@@ -1887,15 +1889,15 @@ function updateBullet(b) {
 
       // 掃描碰撞檢測：沿子彈軌跡取樣，避免高速穿透
       let hit = false;
-      const steps = Math.max(1, Math.ceil(b.speed / 4)); // 每 4px 取樾
+      const steps = Math.max(1, Math.ceil(b.speed / 4)); // 每 4px 取樣
+      const hitDist = (b.size + t.size) * 0.45, hitDist2 = hitDist * hitDist;
       for (let s = 0; s <= steps; s++) {
         const tLerp = s / steps;
         const bx = prevX + (b.x - prevX) * tLerp;
         const by = prevY + (b.y - prevY) * tLerp;
         const dx = (bx + b.size/2) - (t.x + t.size/2);
         const dy = (by + b.size/2) - (t.y + t.size/2);
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist < (b.size + t.size) * 0.45) {
+        if (dx*dx + dy*dy < hitDist2) {
           hit = true;
           break;
         }
@@ -1912,15 +1914,14 @@ function updateBullet(b) {
       // 掃描碰撞檢測：玩家子弹
       let hit = false;
       const steps = Math.max(1, Math.ceil(b.speed / 4));
+      const hitDist = (b.size + G.player.size) * 0.45, hitDist2 = hitDist * hitDist;
       for (let s = 0; s <= steps; s++) {
         const tLerp = s / steps;
         const bx = prevX + (b.x - prevX) * tLerp;
         const by = prevY + (b.y - prevY) * tLerp;
         const dx = (bx + b.size/2) - (G.player.x + G.player.size/2);
         const dy = (by + b.size/2) - (G.player.y + G.player.size/2);
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        const hitDist = (b.size + G.player.size) * 0.45;
-        if (dist < hitDist) {
+        if (dx*dx + dy*dy < hitDist2) {
           hit = true;
           break;
         }
@@ -3163,8 +3164,10 @@ function update() {
       }
     }
 
-    for (let i = 0; i < G.enemies.length; i++) {
-      if (G.enemies[i].alive && !fx.has('freeze')) updateEnemyAI(G.enemies[i]);
+    if (!fx.has('freeze')) {
+      for (let i = 0; i < G.enemies.length; i++) {
+        if (G.enemies[i].alive) updateEnemyAI(G.enemies[i]);
+      }
     }
 
     const ba = bulletsPool.active;
@@ -3381,7 +3384,7 @@ function render() {
   }
 
   if (G.shakeTimer > 0) {
-    ctx.translate((rnd() - 0.5) * G.shakeIntensity, (rnd() - 0.5) * G.shakeIntensity);
+    ctx.translate((visualRnd() - 0.5) * G.shakeIntensity, (visualRnd() - 0.5) * G.shakeIntensity);
   }
 
   const isGameplay = G.state === STATE.PLAYING || G.state === STATE.PAUSED || G.state === STATE.GAMEOVER;
