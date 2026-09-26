@@ -3074,7 +3074,7 @@ const _queryBuf = [];
 // ==================== 地圖生成 ====================
 function generateMap(level) {
   const map = Array.from({length: ROWS}, () => new Uint8Array(COLS));
-  const baseR = ROWS - 2, baseC = (COLS / 2) | 0;
+  const baseR = ROWS - 1, baseC = (COLS / 2) | 0;
 
   if (G.isVSMode) {
     G.basePos = null;
