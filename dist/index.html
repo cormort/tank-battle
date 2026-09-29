@@ -340,7 +340,7 @@
 
 <script>
 /* 由 tools/build-single-file.mjs 產生 —— 請勿直接編輯；改 src/ 或 index.html 後重新打包。
- * 內含 21 個模組：src/data/config.js、src/data/enemies.js、src/data/events.js、src/data/pickups.js、src/data/shop.js、src/data/upgrades.js、src/data/weapons.js、src/data/index.js、src/core/rng.js、src/core/effects.js、src/platform/viewport.js、src/platform/input.js、src/core/state.js、src/platform/audio.js、src/platform/lifecycle.js、src/platform/touch-ui.js、src/render/tiles.js、src/render/sprites.js、src/render/effects.js、src/ui/hud.js、src/ui/screens.js
+ * 內含 24 個模組：src/data/config.js、src/data/enemies.js、src/data/events.js、src/data/pickups.js、src/data/shop.js、src/data/upgrades.js、src/data/weapons.js、src/data/index.js、src/core/rng.js、src/core/effects.js、src/platform/viewport.js、src/platform/input.js、src/core/state.js、src/vendor/chiptune/rng.js、src/vendor/chiptune/sfx.js、src/vendor/chiptune/music.js、src/platform/audio.js、src/platform/lifecycle.js、src/platform/touch-ui.js、src/render/tiles.js、src/render/sprites.js、src/render/effects.js、src/ui/hud.js、src/ui/screens.js
  */
 // ── src/data/config.js ──
 // 遊戲常數（唯一來源）。要調數值只改這裡；index.html 以 ESM import 取用。
@@ -969,6 +969,188 @@ function makeStateMachine({ initial = STATES.MENU, onChange, onUnexpected } = {}
 
   return machine;
 }
+// ── src/vendor/chiptune/rng.js ──
+// Small seeded PRNG (mulberry32): same seed => same sequence.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// ── src/vendor/chiptune/sfx.js ──
+const SAMPLE_RATE = 44100;
+const WAVE = { SQUARE: 0, SAW: 1, TRIANGLE: 2, NOISE: 3 };
+
+const DEFAULTS = {
+  wave: WAVE.SQUARE,
+  freq: 440,       // Hz
+  slide: 0,        // octaves per second
+  duty: 0.5,       // square pulse width
+  dutySweep: 0,    // duty change per second
+  vibDepth: 0,     // fraction of freq
+  vibRate: 0,      // Hz
+  arpMult: 1,      // frequency multiplier applied at arpTime
+  arpTime: 0,      // seconds; 0 = off
+  bits: 0,         // bit-crush depth; 0 = off
+  attack: 0.005,
+  sustain: 0.1,
+  decay: 0.1,
+  vol: 0.5,
+};
+
+// Render one sound (sfxr-style parameters) to mono Float32Array samples.
+function renderSfx(params = {}) {
+  const p = { ...DEFAULTS, ...params };
+  const n = Math.ceil((p.attack + p.sustain + p.decay) * SAMPLE_RATE);
+  const out = new Float32Array(n);
+  const noise = mulberry32(1);
+  const levels = p.bits > 0 ? 2 ** p.bits : 0;
+  let phase = 0;
+  let nv = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / SAMPLE_RATE;
+    let f = p.freq * 2 ** (p.slide * t);
+    if (p.arpTime && t >= p.arpTime) f *= p.arpMult;
+    if (p.vibDepth) f *= 1 + p.vibDepth * Math.sin(2 * Math.PI * p.vibRate * t);
+    phase += f / SAMPLE_RATE;
+    let wrapped = false;
+    if (phase >= 1) { phase -= Math.floor(phase); wrapped = true; }
+    let v;
+    switch (p.wave) {
+      case WAVE.SAW: v = 2 * phase - 1; break;
+      case WAVE.TRIANGLE: v = 4 * Math.abs(phase - 0.5) - 1; break;
+      case WAVE.NOISE:
+        if (wrapped) nv = noise() * 2 - 1;
+        v = nv;
+        break;
+      default: {
+        const duty = Math.min(0.95, Math.max(0.05, p.duty + p.dutySweep * t));
+        v = phase < duty ? 1 : -1;
+      }
+    }
+    if (levels) v = Math.round(v * levels) / levels;
+    const env = t < p.attack ? t / p.attack
+      : t < p.attack + p.sustain ? 1
+      : Math.max(0, 1 - (t - p.attack - p.sustain) / p.decay);
+    out[i] = v * env * p.vol;
+  }
+  return out;
+}
+
+const SFX_PRESETS = {
+  coin:     { freq: 988, arpMult: 1.5, arpTime: 0.07, sustain: 0.1, decay: 0.15, duty: 0.25 },
+  jump:     { freq: 260, slide: 2.2, sustain: 0.08, decay: 0.15, duty: 0.4 },
+  laser:    { freq: 1400, slide: -4, sustain: 0.05, decay: 0.15, duty: 0.3, dutySweep: -1 },
+  hit:      { wave: WAVE.NOISE, freq: 6000, slide: -1.5, sustain: 0.03, decay: 0.12, bits: 4 },
+  explosion:{ wave: WAVE.NOISE, freq: 2500, slide: -2.5, attack: 0.01, sustain: 0.15, decay: 0.55, vol: 0.7 },
+  powerup:  { freq: 330, slide: 3, vibDepth: 0.03, vibRate: 30, sustain: 0.2, decay: 0.2, duty: 0.5 },
+  select:   { freq: 660, sustain: 0.04, decay: 0.06, duty: 0.5, vol: 0.4 },
+  gameover: { wave: WAVE.TRIANGLE, freq: 400, slide: -1, attack: 0.01, sustain: 0.4, decay: 0.6, vol: 0.6 },
+  win:      { freq: 523, arpMult: 1.5, arpTime: 0.12, sustain: 0.3, decay: 0.4, duty: 0.25, vibDepth: 0.01, vibRate: 8 },
+};
+// ── src/vendor/chiptune/music.js ──
+const SCALES = {
+  major: [0, 2, 4, 5, 7, 9, 11],
+  minor: [0, 2, 3, 5, 7, 8, 10],
+  pentatonic: [0, 2, 4, 7, 9],
+};
+
+// Chord progressions as scale-degree roots (7-note scales).
+const PROGRESSIONS = [[0, 4, 5, 3], [0, 5, 3, 4], [0, 3, 4, 0], [5, 3, 0, 4]];
+
+const MOODS = {
+  happy: { scale: 'major', bpm: 140, duty: 0.5, density: 0.7, root: 60 },
+  calm:  { scale: 'pentatonic', bpm: 96, duty: 0.25, density: 0.4, root: 57 },
+  tense: { scale: 'minor', bpm: 164, duty: 0.125, density: 0.85, root: 57 },
+  sad:   { scale: 'minor', bpm: 72, duty: 0.25, density: 0.35, root: 55 },
+};
+
+const midi = (n) => 440 * 2 ** ((n - 69) / 12);
+const STEPS_PER_BAR = 16;
+
+// Scale note (may be negative / beyond the octave) -> midi number.
+function degreeToMidi(scale, root, degree) {
+  const len = scale.length;
+  const oct = Math.floor(degree / len);
+  return root + oct * 12 + scale[((degree % len) + len) % len];
+}
+
+// Deterministic song description: same options => same song.
+function generateSong({ seed = 1, mood = 'happy', bars = 8 } = {}) {
+  const m = MOODS[mood];
+  if (!m) throw new Error(`Unknown mood: ${mood}`);
+  const rng = mulberry32(seed);
+  const scale = SCALES[m.scale];
+  const prog = PROGRESSIONS[Math.floor(rng() * PROGRESSIONS.length)];
+  const lead = [];
+  const bass = [];
+  let deg = 7 + Math.floor(rng() * 3); // start around the upper octave
+  for (let bar = 0; bar < bars; bar++) {
+    const chordRoot = m.scale === 'pentatonic' ? prog[bar % 4] % scale.length : prog[bar % 4];
+    for (let s = 0; s < STEPS_PER_BAR; s++) {
+      const step = bar * STEPS_PER_BAR + s;
+      if (s % 2 === 0) {
+        bass.push({ step, len: 2, note: degreeToMidi(scale, m.root - 24, chordRoot) });
+      }
+      const onBeat = s % 4 === 0;
+      if (rng() < (onBeat ? Math.min(1, m.density + 0.2) : m.density * 0.6)) {
+        // Stepwise motion, with a pull toward chord tones on strong beats.
+        deg += Math.floor(rng() * 5) - 2;
+        if (onBeat) deg = chordRoot + 7 + 2 * Math.round((deg - chordRoot - 7) / 2);
+        deg = Math.max(0, Math.min(scale.length * 2, deg));
+        lead.push({ step, len: onBeat ? 3 : 2, note: degreeToMidi(scale, m.root, deg) });
+      }
+    }
+  }
+  return { seed, mood, bars, bpm: m.bpm, duty: m.duty, lead, bass };
+}
+
+function mixInto(out, samples, offset) {
+  for (let i = 0; i < samples.length && offset + i < out.length; i++) out[offset + i] += samples[i];
+}
+
+// Render a song to a seamlessly loopable mono Float32Array.
+function renderSong(song) {
+  const stepSec = 60 / song.bpm / 4;
+  const stepSamples = Math.round(stepSec * SAMPLE_RATE);
+  const total = song.bars * STEPS_PER_BAR * stepSamples;
+  const out = new Float32Array(total);
+
+  for (const n of song.lead) {
+    const dur = n.len * stepSec;
+    mixInto(out, renderSfx({
+      wave: WAVE.SQUARE, freq: midi(n.note), duty: song.duty,
+      vibDepth: 0.004, vibRate: 6, attack: 0.005, sustain: dur * 0.5, decay: dur * 0.5, vol: 0.22,
+    }), n.step * stepSamples);
+  }
+  for (const n of song.bass) {
+    const dur = n.len * stepSec;
+    mixInto(out, renderSfx({
+      wave: WAVE.TRIANGLE, freq: midi(n.note), attack: 0.005, sustain: dur * 0.7, decay: dur * 0.3, vol: 0.35,
+    }), n.step * stepSamples);
+  }
+
+  const kick = renderSfx({ wave: WAVE.TRIANGLE, freq: 150, slide: -6, sustain: 0.02, decay: 0.1, vol: 0.5 });
+  const snare = renderSfx({ wave: WAVE.NOISE, freq: 9000, sustain: 0.02, decay: 0.09, vol: 0.2, bits: 4 });
+  const hat = renderSfx({ wave: WAVE.NOISE, freq: 20000, sustain: 0.005, decay: 0.03, vol: 0.08 });
+  for (let step = 0; step < song.bars * STEPS_PER_BAR; step++) {
+    const s = step % STEPS_PER_BAR;
+    const at = step * stepSamples;
+    if (s === 0 || s === 8) mixInto(out, kick, at);
+    if (s === 4 || s === 12) mixInto(out, snare, at);
+    if (s % 2 === 0) mixInto(out, hat, at);
+  }
+
+  // Scale down instead of hard-clipping when voices pile up.
+  let peak = 0;
+  for (let i = 0; i < out.length; i++) peak = Math.max(peak, Math.abs(out[i]));
+  if (peak > 0.9) for (let i = 0; i < out.length; i++) out[i] *= 0.9 / peak;
+  return out;
+}
 // ── src/platform/audio.js ──
 // 平台層：音效（M3）。
 //
@@ -1115,120 +1297,57 @@ function makeSound({ onIconChange, rng = Math.random } = {}) {
 }
 
 /**
- * 背景音樂：程序化編曲（沿用原本的曲目表與排程器）。
- * @param {object} sound makeSound() 的結果（用它的 pulse 發聲）
+ * 背景音樂：chiptune-audio 的種子程序化編曲（src/vendor/chiptune/）。
+ * 每首曲子先整首渲染成可無縫循環的 AudioBuffer 再 loop 播放，所以不佔 SFX 的 8 個發聲名額。
+ * 同一個 (曲目, seed) 永遠產生同一首；關卡用關卡編號當 seed，每關的曲子都不一樣。
+ * 不碰遊戲的 rnd() —— 生成用自己的種子亂數，replay 不受影響。
+ * @param {object} sound makeSound() 的結果（用它的 ctx，並接到它的 master，SFX 靜音時一起靜音）
  * @param {{onIconChange?:Function, isPlaying?:Function}} hooks
  *        isPlaying：遊戲是否在進行中（決定重新開啟時播 LEVEL 還是 MENU 曲目）
  */
 function makeMusic(sound, { onIconChange, isPlaying = () => false } = {}) {
   const music = {
-    _timer: null, _track: null, _beat: 0,
+    _source: null, _gain: null, _track: null, _seed: 1,
     enabled: true,
 
+    // 曲目名稱維持原本的介面；bars 決定循環長度
     TRACKS: {
-      MENU: {
-        bpm: 100,
-        bass: [73.42, 73.42, 98.00, 110.00],
-        melody: [
-          293.66, 349.23, 440.00, 587.33,
-          523.25, 440.00, 349.23, 293.66,
-          392.00, 493.88, 587.33, 659.25,
-          587.33, 523.25, 440.00, 392.00,
-          293.66, 349.23, 440.00, 587.33,
-          523.25, 440.00, 349.23, 293.66,
-          392.00, 440.00, 493.88, 523.25,
-          587.33, 0, 523.25, 0,
-        ]
-      },
-      LEVEL: {
-        bpm: 130,
-        bass: [110.00, 110.00, 146.83, 164.81],
-        melody: [
-          440.00, 523.25, 659.25, 880.00,
-          783.99, 659.25, 523.25, 440.00,
-          523.25, 587.33, 783.99, 587.33,
-          659.25, 523.25, 440.00, 392.00,
-          440.00, 523.25, 659.25, 880.00,
-          783.99, 659.25, 523.25, 440.00,
-          587.33, 659.25, 783.99, 880.00,
-          783.99, 659.25, 523.25, 440.00,
-        ]
-      },
-      BOSS: {
-        bpm: 150,
-        bass: [82.41, 82.41, 110.00, 123.47],
-        melody: [
-          329.63, 369.99, 493.88, 329.63,
-          493.88, 554.37, 659.25, 493.88,
-          329.63, 369.99, 493.88, 329.63,
-          659.25, 554.37, 493.88, 369.99,
-          329.63, 369.99, 493.88, 329.63,
-          493.88, 554.37, 659.25, 493.88,
-          329.63, 369.99, 493.88, 329.63,
-          440.00, 493.88, 554.37, 659.25,
-        ]
-      },
-      VICTORY: {
-        bpm: 120,
-        bass: [130.81, 130.81, 164.81, 196.00],
-        melody: [
-          523.25, 0, 659.25, 0,
-          783.99, 0, 1046.50, 0,
-          783.99, 659.25, 783.99, 1046.50,
-          783.99, 659.25, 523.25, 0,
-          659.25, 0, 783.99, 0,
-          1046.50, 0, 1318.51, 0,
-          1174.66, 1046.50, 783.99, 659.25,
-          523.25, 659.25, 783.99, 1046.50,
-        ]
-      },
-      GAMEOVER: {
-        bpm: 65,
-        bass: [73.42, 65.41, 58.27, 65.41],
-        melody: [
-          293.66, 261.63, 220.00, 196.00,
-          220.00, 261.63, 293.66, 0,
-          261.63, 220.00, 196.00, 174.61,
-          196.00, 220.00, 261.63, 0,
-          196.00, 174.61, 164.81, 146.83,
-          164.81, 174.61, 196.00, 0,
-          220.00, 196.00, 174.61, 164.81,
-          146.83, 164.81, 174.61, 196.00,
-        ]
-      }
+      MENU:     { mood: 'calm',  bars: 8 },
+      LEVEL:    { mood: 'happy', bars: 8 },
+      BOSS:     { mood: 'tense', bars: 8 },
+      VICTORY:  { mood: 'happy', bars: 4 },
+      GAMEOVER: { mood: 'sad',   bars: 4 },
     },
 
-    play(trackName) {
+    play(trackName, seed = 1) {
       this.stop();
       if (!this.enabled || !sound.ready) return;
-      this._track = this.TRACKS[trackName];
-      if (!this._track) return;
-      this._beat = 0;
-      this._tick();
-    },
-
-    _tick() {
-      if (!this._track || !this.enabled) return;
-      const t = this._track;
-      const msPerBeat = 60000 / t.bpm;
-
-      if (this._beat % 2 === 0) {
-        const bFreq = t.bass[(this._beat >> 1) % t.bass.length];
-        if (bFreq > 0) sound.pulse(bFreq, msPerBeat / 1000 * 0.9, 0.1, 'triangle');
-      }
-
-      const mFreq = t.melody[this._beat % t.melody.length];
-      if (mFreq > 0) {
-        const vol = this._beat % 4 === 0 ? 0.14 : 0.09;
-        sound.pulse(mFreq, msPerBeat / 1000 * 0.85, vol, 'square');
-      }
-
-      this._beat++;
-      this._timer = setTimeout(() => this._tick(), msPerBeat);
+      const track = this.TRACKS[trackName];
+      if (!track) return;
+      this._track = track;
+      this._seed = seed;
+      const pcm = renderSong(generateSong({ seed, mood: track.mood, bars: track.bars }));
+      const buf = sound.ctx.createBuffer(1, pcm.length, SAMPLE_RATE);
+      buf.getChannelData(0).set(pcm);
+      const src = sound.ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const gn = sound.ctx.createGain();
+      gn.gain.value = 0.3;        // 渲染峰值 ≤ 0.9，壓到與 SFX 相當的音量
+      src.connect(gn).connect(sound.master);
+      src.start();
+      this._source = src;
+      this._gain = gn;
     },
 
     stop() {
-      if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+      if (this._source) {
+        try { this._source.stop(); } catch (e) { /* 已停止 */ }
+        this._source.disconnect();
+        this._gain.disconnect();
+        this._source = null;
+        this._gain = null;
+      }
       this._track = null;
     },
 
@@ -1239,7 +1358,7 @@ function makeMusic(sound, { onIconChange, isPlaying = () => false } = {}) {
       } else if (!this._track) {
         // 舊版重新開啟時只把 enabled 設回 true，但不重新播放（切回來是一片安靜），
         // 而且 N 鍵那條路徑也不會更新圖示 → 玩家按了沒有回饋。
-        this.play(isPlaying() ? 'LEVEL' : 'MENU');
+        this.play(isPlaying() ? 'LEVEL' : 'MENU', this._seed);
       }
       if (onIconChange) onIconChange();
     }
@@ -4494,7 +4613,7 @@ function startLevel() {
   updateHUD();
   Sound.jingleLevelStart();
   const isBossLevel = !G.isVSMode && G.level % CONFIG.GAMEPLAY.BOSS_LEVEL_INTERVAL === 0;
-  Music.play(G.isVSMode ? 'BOSS' : isBossLevel ? 'BOSS' : 'LEVEL');
+  Music.play(G.isVSMode ? 'BOSS' : isBossLevel ? 'BOSS' : 'LEVEL', G.level);
 }
 
 function restartGame() {

@@ -2811,7 +2811,7 @@ function startLevel() {
   updateHUD();
   Sound.jingleLevelStart();
   const isBossLevel = !G.isVSMode && G.level % CONFIG.GAMEPLAY.BOSS_LEVEL_INTERVAL === 0;
-  Music.play(G.isVSMode ? 'BOSS' : isBossLevel ? 'BOSS' : 'LEVEL');
+  Music.play(G.isVSMode ? 'BOSS' : isBossLevel ? 'BOSS' : 'LEVEL', G.level);
 }
 
 function restartGame() {

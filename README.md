@@ -31,9 +31,10 @@ src/ui/             UI 層
 src/platform/       平台層（純函式，Node 可測；不碰遊戲內部狀態）
   input.js            鍵盤／觸控 → intent；放開所有輸入只有一個實作
   viewport.js         DPR 倍率、觸控裝置判定、canvas backing store（離屏畫布貼回時須指定 W×H，否則高 DPR 會被放大兩次）
-  audio.js            音效與 BGM（Web Audio）；DOM 與遊戲狀態用 hook／rng 注入
+  audio.js            音效與 BGM（Web Audio）；DOM 與遊戲狀態用 hook／rng 注入；BGM 由 vendor/chiptune 程序化生成（關卡編號當 seed）
   lifecycle.js        失去焦點／切到背景／回到前景的事件 → 意圖對應（可 unbind）
   touch-ui.js         螢幕搖桿與 FIRE 鍵（依賴注入：touch／getConfig／isMobile／doc／win）
+src/vendor/chiptune/ 從 cormort/chiptune-audio 複製的合成核心（BGM 用；不要直接改，整批從上游更新）
 src/data/           資料層：唯一來源，這裡改數值就是改遊戲
   config.js           CONFIG（畫布、子彈、粒子、池、AI、玩法）
   weapons.js          四條流派樹、射擊參數、起始武器、掉落池
@@ -73,7 +74,7 @@ detectMobile` 這種碰撞會讓別名指向自己造成無限遞迴 —— 實�
 五支工具，都不需要建置：
 
 ```bash
-node tools/verify-core.mjs    # 核心／平台層／渲染／UI 單元測試（91 項，純 Node、秒級）
+node tools/verify-core.mjs    # 核心／平台層／渲染／UI 單元測試（93 項，純 Node、秒級）
 node tools/verify-data.mjs    # 資料層閘門（5 項，純 Node、秒級）
 node tools/verify-replay.mjs  # 確定性與 replay（12 項）
 #   PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-replay.mjs   # 對正式站驗

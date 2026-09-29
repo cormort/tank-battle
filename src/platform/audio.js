@@ -1,3 +1,6 @@
+import { generateSong, renderSong } from '../vendor/chiptune/music.js';
+import { SAMPLE_RATE } from '../vendor/chiptune/sfx.js';
+
 // 平台層：音效（M3）。
 //
 // 從 index.html 原封搬過來，只做兩件事：
@@ -143,120 +146,57 @@ export function makeSound({ onIconChange, rng = Math.random } = {}) {
 }
 
 /**
- * 背景音樂：程序化編曲（沿用原本的曲目表與排程器）。
- * @param {object} sound makeSound() 的結果（用它的 pulse 發聲）
+ * 背景音樂：chiptune-audio 的種子程序化編曲（src/vendor/chiptune/）。
+ * 每首曲子先整首渲染成可無縫循環的 AudioBuffer 再 loop 播放，所以不佔 SFX 的 8 個發聲名額。
+ * 同一個 (曲目, seed) 永遠產生同一首；關卡用關卡編號當 seed，每關的曲子都不一樣。
+ * 不碰遊戲的 rnd() —— 生成用自己的種子亂數，replay 不受影響。
+ * @param {object} sound makeSound() 的結果（用它的 ctx，並接到它的 master，SFX 靜音時一起靜音）
  * @param {{onIconChange?:Function, isPlaying?:Function}} hooks
  *        isPlaying：遊戲是否在進行中（決定重新開啟時播 LEVEL 還是 MENU 曲目）
  */
 export function makeMusic(sound, { onIconChange, isPlaying = () => false } = {}) {
   const music = {
-    _timer: null, _track: null, _beat: 0,
+    _source: null, _gain: null, _track: null, _seed: 1,
     enabled: true,
 
+    // 曲目名稱維持原本的介面；bars 決定循環長度
     TRACKS: {
-      MENU: {
-        bpm: 100,
-        bass: [73.42, 73.42, 98.00, 110.00],
-        melody: [
-          293.66, 349.23, 440.00, 587.33,
-          523.25, 440.00, 349.23, 293.66,
-          392.00, 493.88, 587.33, 659.25,
-          587.33, 523.25, 440.00, 392.00,
-          293.66, 349.23, 440.00, 587.33,
-          523.25, 440.00, 349.23, 293.66,
-          392.00, 440.00, 493.88, 523.25,
-          587.33, 0, 523.25, 0,
-        ]
-      },
-      LEVEL: {
-        bpm: 130,
-        bass: [110.00, 110.00, 146.83, 164.81],
-        melody: [
-          440.00, 523.25, 659.25, 880.00,
-          783.99, 659.25, 523.25, 440.00,
-          523.25, 587.33, 783.99, 587.33,
-          659.25, 523.25, 440.00, 392.00,
-          440.00, 523.25, 659.25, 880.00,
-          783.99, 659.25, 523.25, 440.00,
-          587.33, 659.25, 783.99, 880.00,
-          783.99, 659.25, 523.25, 440.00,
-        ]
-      },
-      BOSS: {
-        bpm: 150,
-        bass: [82.41, 82.41, 110.00, 123.47],
-        melody: [
-          329.63, 369.99, 493.88, 329.63,
-          493.88, 554.37, 659.25, 493.88,
-          329.63, 369.99, 493.88, 329.63,
-          659.25, 554.37, 493.88, 369.99,
-          329.63, 369.99, 493.88, 329.63,
-          493.88, 554.37, 659.25, 493.88,
-          329.63, 369.99, 493.88, 329.63,
-          440.00, 493.88, 554.37, 659.25,
-        ]
-      },
-      VICTORY: {
-        bpm: 120,
-        bass: [130.81, 130.81, 164.81, 196.00],
-        melody: [
-          523.25, 0, 659.25, 0,
-          783.99, 0, 1046.50, 0,
-          783.99, 659.25, 783.99, 1046.50,
-          783.99, 659.25, 523.25, 0,
-          659.25, 0, 783.99, 0,
-          1046.50, 0, 1318.51, 0,
-          1174.66, 1046.50, 783.99, 659.25,
-          523.25, 659.25, 783.99, 1046.50,
-        ]
-      },
-      GAMEOVER: {
-        bpm: 65,
-        bass: [73.42, 65.41, 58.27, 65.41],
-        melody: [
-          293.66, 261.63, 220.00, 196.00,
-          220.00, 261.63, 293.66, 0,
-          261.63, 220.00, 196.00, 174.61,
-          196.00, 220.00, 261.63, 0,
-          196.00, 174.61, 164.81, 146.83,
-          164.81, 174.61, 196.00, 0,
-          220.00, 196.00, 174.61, 164.81,
-          146.83, 164.81, 174.61, 196.00,
-        ]
-      }
+      MENU:     { mood: 'calm',  bars: 8 },
+      LEVEL:    { mood: 'happy', bars: 8 },
+      BOSS:     { mood: 'tense', bars: 8 },
+      VICTORY:  { mood: 'happy', bars: 4 },
+      GAMEOVER: { mood: 'sad',   bars: 4 },
     },
 
-    play(trackName) {
+    play(trackName, seed = 1) {
       this.stop();
       if (!this.enabled || !sound.ready) return;
-      this._track = this.TRACKS[trackName];
-      if (!this._track) return;
-      this._beat = 0;
-      this._tick();
-    },
-
-    _tick() {
-      if (!this._track || !this.enabled) return;
-      const t = this._track;
-      const msPerBeat = 60000 / t.bpm;
-
-      if (this._beat % 2 === 0) {
-        const bFreq = t.bass[(this._beat >> 1) % t.bass.length];
-        if (bFreq > 0) sound.pulse(bFreq, msPerBeat / 1000 * 0.9, 0.1, 'triangle');
-      }
-
-      const mFreq = t.melody[this._beat % t.melody.length];
-      if (mFreq > 0) {
-        const vol = this._beat % 4 === 0 ? 0.14 : 0.09;
-        sound.pulse(mFreq, msPerBeat / 1000 * 0.85, vol, 'square');
-      }
-
-      this._beat++;
-      this._timer = setTimeout(() => this._tick(), msPerBeat);
+      const track = this.TRACKS[trackName];
+      if (!track) return;
+      this._track = track;
+      this._seed = seed;
+      const pcm = renderSong(generateSong({ seed, mood: track.mood, bars: track.bars }));
+      const buf = sound.ctx.createBuffer(1, pcm.length, SAMPLE_RATE);
+      buf.getChannelData(0).set(pcm);
+      const src = sound.ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const gn = sound.ctx.createGain();
+      gn.gain.value = 0.3;        // 渲染峰值 ≤ 0.9，壓到與 SFX 相當的音量
+      src.connect(gn).connect(sound.master);
+      src.start();
+      this._source = src;
+      this._gain = gn;
     },
 
     stop() {
-      if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+      if (this._source) {
+        try { this._source.stop(); } catch (e) { /* 已停止 */ }
+        this._source.disconnect();
+        this._gain.disconnect();
+        this._source = null;
+        this._gain = null;
+      }
       this._track = null;
     },
 
@@ -267,7 +207,7 @@ export function makeMusic(sound, { onIconChange, isPlaying = () => false } = {})
       } else if (!this._track) {
         // 舊版重新開啟時只把 enabled 設回 true，但不重新播放（切回來是一片安靜），
         // 而且 N 鍵那條路徑也不會更新圖示 → 玩家按了沒有回饋。
-        this.play(isPlaying() ? 'LEVEL' : 'MENU');
+        this.play(isPlaying() ? 'LEVEL' : 'MENU', this._seed);
       }
       if (onIconChange) onIconChange();
     }

@@ -293,13 +293,27 @@ console.log('\n=== A. 音效與 BGM（src/platform/audio.js）===');
   music.enabled = false;
   music.toggle();                       // 重新開啟
   const track = music._track;
-  const scheduled = music._timer !== null;
+  const src = music._source;
+  const looping = !!src && src.loop === true && !!src.buffer;
   music.toggle();                       // 再關閉
-  ok('A6 BGM 重新開啟時會依 isPlaying() 選曲並恢復播放',
-    !!track && track === music.TRACKS.LEVEL && scheduled && music._track === null,
-    `曲目=${track ? 'LEVEL' : 'null'}｜排程器=${scheduled}｜關閉後=${music._track}`);
+  ok('A6 BGM 重新開啟時會依 isPlaying() 選曲並以循環 buffer 恢復播放',
+    !!track && track === music.TRACKS.LEVEL && looping && music._track === null && src.disconnected,
+    `曲目=${track ? track.mood : 'null'}｜loop=${looping}｜關閉後=${music._track}`);
+
+  music.enabled = true;
+  music.play('LEVEL', 3);
+  const a = Array.from(music._source.buffer.getChannelData(0).subarray(0, 4000));
+  music.play('LEVEL', 3);
+  const b = Array.from(music._source.buffer.getChannelData(0).subarray(0, 4000));
+  music.play('LEVEL', 4);
+  const c = Array.from(music._source.buffer.getChannelData(0).subarray(0, 4000));
+  ok('A7 同一 seed 產生同一首、不同關卡 seed 產生不同曲子',
+    a.join() === b.join() && a.join() !== c.join());
+
+  for (const name of Object.keys(music.TRACKS)) music.play(name, 1);
+  ok('A8 所有曲目名稱都能渲染（含 GAMEOVER 的 sad mood）', music._track === music.TRACKS.GAMEOVER);
   music.stop();
-  ok('A7 stop 會清掉計時器與曲目', music._timer === null && music._track === null);
+  ok('A9 stop 會停掉 source 並清掉曲目', music._source === null && music._track === null);
 }
 
 console.log('\n=== L. 生命週期（src/platform/lifecycle.js）===');
