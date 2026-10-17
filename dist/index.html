@@ -109,11 +109,11 @@
   .codex-body { overflow-y: auto; flex: 1; touch-action: pan-y; overscroll-behavior: contain; padding-right: 4px; }
   .codex-body h3 { font-size: 11px; color: #6cc3ff; margin: 10px 0 6px; }
   .codex-sum { font-size: 9px; color: #aaa; margin: 2px 0 6px; }
-  .codex-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; }
+  .codex-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; }
   .codex-card { background: linear-gradient(180deg, #1e1e28, #111); border: 1px solid #3a3a45; border-radius: 6px; padding: 6px 4px; text-align: center; font-family: inherit; color: inherit; }
-  .codex-card img { width: 64px; height: 64px; object-fit: contain; display: block; margin: 0 auto 4px; }
+  .codex-card img { width: 96px; height: 96px; object-fit: contain; display: block; margin: 0 auto 4px; }
   .codex-card img.locked { filter: brightness(0) drop-shadow(0 0 1px #6a6a88); opacity: 0.8; }
-  .codex-card .noimg { width: 64px; height: 64px; margin: 0 auto 4px; display: grid; place-items: center; color: #444; }
+  .codex-card .noimg { width: 96px; height: 96px; margin: 0 auto 4px; display: grid; place-items: center; color: #444; }
   .codex-name { font-size: 9px; color: #fff; line-height: 1.4; min-height: 2.8em; }
   .codex-meta { font-size: 8px; color: #8a8a99; margin-top: 2px; }
   .codex-bar { height: 3px; background: #2a2a35; margin-top: 4px; border-radius: 2px; overflow: hidden; }
@@ -2073,8 +2073,11 @@ function makeCodexScreen({ doc, progress, entries, skins, achievements, artData 
   let open = false;
   const root = () => doc.getElementById('codexUI');
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  // 先載 assets/codex/ 的高解析圖（tools/wh40k-process.py 產生）；單檔打包版旁邊沒有這個資料夾，
+  // 載入失敗就退回遊戲內嵌的小圖（render() 裡掛 onerror）。
   const img = (id, locked) => artData[id]
-    ? `<img src="${artData[id]}" alt="" class="${locked ? 'locked' : ''}" loading="lazy">` : '<div class="noimg">?</div>';
+    ? `<img src="assets/codex/${esc(id)}.webp" data-art="${esc(id)}" alt="" class="${locked ? 'locked' : ''}" loading="lazy">`
+    : '<div class="noimg">?</div>';
 
   function codexHtml() {
     const groups = [...new Set(entries.map((e) => e.group))];
@@ -2118,6 +2121,9 @@ function makeCodexScreen({ doc, progress, entries, skins, achievements, artData 
       <div class="codex-tabs" role="tablist">${TABS.map(([id, label]) =>
         `<button role="tab" data-tab="${id}" aria-selected="${id === tab}" class="${id === tab ? 'on' : ''}">${label}</button>`).join('')}</div>
       <div class="codex-body">${body}</div>`;
+    el.querySelectorAll('img[data-art]').forEach((im) => {
+      im.onerror = () => { im.onerror = null; im.src = artData[im.dataset.art]; };
+    });
     el.querySelector('#codexClose').onclick = close;
     el.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { tab = b.dataset.tab; render(); }; });
     el.querySelectorAll('[data-skin]').forEach((b) => { b.onclick = () => { if (progress.selectSkin(b.dataset.skin)) render(); }; });

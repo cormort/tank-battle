@@ -12,8 +12,11 @@ export function makeCodexScreen({ doc, progress, entries, skins, achievements, a
   let open = false;
   const root = () => doc.getElementById('codexUI');
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  // 先載 assets/codex/ 的高解析圖（tools/wh40k-process.py 產生）；單檔打包版旁邊沒有這個資料夾，
+  // 載入失敗就退回遊戲內嵌的小圖（render() 裡掛 onerror）。
   const img = (id, locked) => artData[id]
-    ? `<img src="${artData[id]}" alt="" class="${locked ? 'locked' : ''}" loading="lazy">` : '<div class="noimg">?</div>';
+    ? `<img src="assets/codex/${esc(id)}.webp" data-art="${esc(id)}" alt="" class="${locked ? 'locked' : ''}" loading="lazy">`
+    : '<div class="noimg">?</div>';
 
   function codexHtml() {
     const groups = [...new Set(entries.map((e) => e.group))];
@@ -57,6 +60,9 @@ export function makeCodexScreen({ doc, progress, entries, skins, achievements, a
       <div class="codex-tabs" role="tablist">${TABS.map(([id, label]) =>
         `<button role="tab" data-tab="${id}" aria-selected="${id === tab}" class="${id === tab ? 'on' : ''}">${label}</button>`).join('')}</div>
       <div class="codex-body">${body}</div>`;
+    el.querySelectorAll('img[data-art]').forEach((im) => {
+      im.onerror = () => { im.onerror = null; im.src = artData[im.dataset.art]; };
+    });
     el.querySelector('#codexClose').onclick = close;
     el.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { tab = b.dataset.tab; render(); }; });
     el.querySelectorAll('[data-skin]').forEach((b) => { b.onclick = () => { if (progress.selectSkin(b.dataset.skin)) render(); }; });
