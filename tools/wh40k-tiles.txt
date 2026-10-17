@@ -1,0 +1,5 @@
+tile_brick|ruined gothic imperial masonry wall block, cracked dark stone bricks with skull carvings, battle damage
+tile_steel|adamantium armoured bulkhead plate, riveted dark steel with yellow-black hazard stripe corners, indestructible
+tile_forest|dense alien deathworld jungle canopy viewed from above, dark green and toxic teal foliage, twisted vines
+tile_water|bubbling toxic green promethium sludge pool viewed from above, glowing chemical liquid
+tile_ground|scorched war-torn battlefield ground viewed from above, dark ash grey dirt, shell craters, scattered bones and debris, muted desaturated

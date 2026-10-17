@@ -8,8 +8,35 @@
  * @param {{ctx:object, particlesPool:object, bulletsPool:object, getGame:Function,
  *          smokeColor?:string, dirs?:{UP:number,DOWN:number,LEFT:number}}} deps
  */
-export function makeEffectRenderer({ ctx, particlesPool, bulletsPool, getGame, smokeColor = '#505050', dirs = { UP: 0, DOWN: 2, LEFT: 3 } }) {
+import { drawRotated } from './wh40k-art.js';
+
+export function makeEffectRenderer({ ctx, particlesPool, bulletsPool, getGame, smokeColor = '#505050', dirs = { UP: 0, DOWN: 2, LEFT: 3 }, art = () => null }) {
+  // WH40K 素材版：火花／煙霧改成貼圖（alpha 隨壽命淡出）。素材未載入時走下面的原始畫法。
+  function drawParticlesArt(sparkImg, smokeImg) {
+    const arr = particlesPool.active;
+    ctx.save();
+    for (let i = 0; i < arr.length; i++) {
+      const p = arr[i];
+      if (!p.alive || p.type !== 'smoke') continue;
+      const sz = p.size * 1.6;
+      ctx.globalAlpha = Math.max(0, p.life / p.maxLife) * 0.6;
+      ctx.drawImage(smokeImg, p.x - sz / 2, p.y - sz / 2, sz, sz);
+    }
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < arr.length; i++) {
+      const p = arr[i];
+      if (!p.alive || p.type !== 'spark') continue;
+      const t = p.life / p.maxLife;
+      const sz = p.size * (p.color === '#5cd8ff' ? 2 : 3) * (0.6 + t * 0.6);
+      ctx.globalAlpha = Math.min(1, t * 1.4);
+      ctx.drawImage(sparkImg, p.x - sz / 2, p.y - sz / 2, sz, sz);
+    }
+    ctx.restore();
+  }
+
   function drawParticles() {
+    const sparkImg = art('spark'), smokeImg = art('smoke');
+    if (sparkImg && smokeImg) { drawParticlesArt(sparkImg, smokeImg); return; }
     const arr = particlesPool.active;
     ctx.save();
     // 顏色只在「真的變了」的時候才指派：指派 fillStyle 要解析字串（實測 800 顆火花
@@ -41,6 +68,16 @@ export function makeEffectRenderer({ ctx, particlesPool, bulletsPool, getGame, s
   }
 
   function drawNESSpawnEffect(x, y, size, life, maxLife) {
+    const warp = art('warp');
+    if (warp) {
+      const t = life / maxLife;                       // 1 → 0：裂隙張開後收束
+      const sz = size * 1.6 * Math.sin(Math.PI * Math.min(1, (1 - t) * 1.2 + 0.1));
+      ctx.save();
+      ctx.globalAlpha = 0.9;
+      drawRotated(ctx, warp, x + size / 2, y + size / 2, sz, sz, (maxLife - life) * 0.25);
+      ctx.restore();
+      return;
+    }
     ctx.save();
     const frame = (((maxLife - life) >> 2) % 4);
     const cx = x + size / 2;
@@ -87,12 +124,22 @@ export function makeEffectRenderer({ ctx, particlesPool, bulletsPool, getGame, s
     const bullets = bulletsPool.active;
     if (bullets.length === 0) return;
 
+    const shellImg = art('shell'), pImg = art('bullet_player'), eImg = art('bullet_enemy');
     ctx.save();
     for (let i = 0; i < bullets.length; i++) {
       const b = bullets[i];
       if (!b.alive) continue;
       const cx = (b.x + b.size / 2) | 0;
       const cy = (b.y + b.size / 2) | 0;
+      const img = b.shell ? shellImg : (b.isPlayer ? pImg : eImg);
+      if (img) {
+        // 素材朝上；方向取速度向量（散彈有斜向），速度為 0 的光束段退回 dir
+        const ang = (b.vx || b.vy) ? Math.atan2(b.vy, b.vx) + Math.PI / 2
+          : [0, Math.PI / 2, Math.PI, -Math.PI / 2][b.dir] || 0;
+        const sz = b.shell ? 18 : 13;
+        drawRotated(ctx, img, cx, cy, sz, sz, ang);
+        continue;
+      }
 
       // BOSS 砲彈（攻城核心）：比一般子彈大、橘紅色外框 + 引信閃爍，讓玩家有時間離開落點。
       // 一般子彈是 6×6 的 NES 小點，砲彈必須一眼就分得出來（否則「範圍傷害」完全來不及反應）。

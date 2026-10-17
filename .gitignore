@@ -2,3 +2,6 @@
 
 # 驗證工具（Playwright）的相依套件，不入版控
 node_modules/
+
+# WH40K 素材原圖（1024² PNG，約 57 MB）：只留在本機，處理後的成品在 src/render/wh40k-data.js
+assets/wh40k/raw/

@@ -833,7 +833,8 @@ const eagle = await page.evaluate(() => {
   return { fillRects, fillStyles, drawImages, cached: !!(T.eagleCache && T.eagleCache.alive) };
 });
 ok('C1 基地老鷹改用離屏快取（每次 1 次 drawImage、0 次逐像素 fillRect；舊版每幀 254 次 API 呼叫）',
-  eagle.fillRects === 0 && eagle.drawImages === 2 && eagle.cached, JSON.stringify(eagle));
+  // WH40K 素材載入後直接貼素材圖（同樣 1 次 drawImage、0 次 fillRect），程序化快取不會被建
+  eagle.fillRects === 0 && eagle.drawImages === 2 && (eagle.cached || eagle.fillStyles === 0), JSON.stringify(eagle));
 
 // C2：坦克 sprite 快取在實例上（同一方向/相位連續繪製不再重建 key）
 // 注意：敵人轉向時 sprite 本來就該換（換的是快取裡另一個物件），所以斷言放在
@@ -936,8 +937,9 @@ const align = await page.evaluate(() => {
   G.powerUps = [];
   return { textAlign: result };
 });
+// 素材版不設 textAlign（維持預設 start），只要不是 center 就沒洩漏
 ok('C7 道具圖示繪製後 textAlign 不會洩漏（避免後續文字位置偏掉）',
-  align.textAlign === 'left' && /ctx\.textAlign = 'left';\s*\/\/ 舊版只還原 globalAlpha/.test(source),
+  align.textAlign !== 'center' && /ctx\.textAlign = 'left';\s*\/\/ 舊版只還原 globalAlpha/.test(source),
   JSON.stringify(align));
 
 // C8：F3 面板量的是整幀（含 render）且顯示池峰值

@@ -39,10 +39,13 @@ export const EAGLE_DEAD_SPRITE = [
 /**
  * @param {{TILE:number, renderScale?:number, doc?:object}} deps
  */
-export function makeTileRenderer({ TILE, renderScale = 1, doc = globalThis.document } = {}) {
+export function makeTileRenderer({ TILE, renderScale = 1, doc = globalThis.document, art = () => null } = {}) {
   const _eagleCache = { alive: null, dead: null, scale: 0 };
+  let _waterFlip = null;   // 水面第二幀：同一張圖水平翻轉（建一次）
 
   function drawBrickNES(cx2d, x, y, size) {
+    const img = art('tile_brick');
+    if (img) { cx2d.drawImage(img, x, y, size, size); return; }
     const half = size / 2;
     cx2d.fillStyle = '#7a7a7a';
     cx2d.fillRect(x, y, size, size);
@@ -61,6 +64,8 @@ export function makeTileRenderer({ TILE, renderScale = 1, doc = globalThis.docum
   }
 
   function drawSteelNES(cx2d, x, y, size) {
+    const img = art('tile_steel');
+    if (img) { cx2d.drawImage(img, x, y, size, size); return; }
     const half = size / 2;
     for (let qy = 0; qy < 2; qy++) {
       for (let qx = 0; qx < 2; qx++) {
@@ -79,6 +84,8 @@ export function makeTileRenderer({ TILE, renderScale = 1, doc = globalThis.docum
   }
 
   function drawForestNES(cx2d, x, y, size) {
+    const img = art('tile_forest');
+    if (img) { cx2d.drawImage(img, x, y, size, size); return; }
     cx2d.fillStyle = '#0a4a0a';
     cx2d.fillRect(x, y, size, size);
     cx2d.fillStyle = '#1f7a1f';
@@ -99,6 +106,17 @@ export function makeTileRenderer({ TILE, renderScale = 1, doc = globalThis.docum
   }
 
   function drawWaterDirect(cx2d, x, y, phase) {
+    const img = art('tile_water');
+    if (img) {
+      if (phase && !_waterFlip) {
+        _waterFlip = doc.createElement('canvas');
+        _waterFlip.width = img.width; _waterFlip.height = img.height;
+        const w = _waterFlip.getContext('2d');
+        w.translate(img.width, 0); w.scale(-1, 1); w.drawImage(img, 0, 0);
+      }
+      cx2d.drawImage(phase ? _waterFlip : img, x, y, TILE, TILE);
+      return;
+    }
     cx2d.fillStyle = '#1c4ca8';
     cx2d.fillRect(x, y, TILE, TILE);
     cx2d.fillStyle = '#74c0fc';
@@ -149,6 +167,8 @@ export function makeTileRenderer({ TILE, renderScale = 1, doc = globalThis.docum
   }
 
   function drawEagleDirect(cx2d, x, y, dead) {
+    const img = art(dead ? 'eagle_dead' : 'eagle_alive');
+    if (img) { cx2d.drawImage(img, x, y, TILE, TILE); return; }
     cx2d.drawImage(eagleSprite(dead), x, y, TILE, TILE);
   }
 

@@ -1,0 +1,35 @@
+tank_player|Imperial Fists Space Marine Predator battle tank, bright yellow-gold armour with black and red trim, gold aquila, turret autocannon barrel pointing straight UP toward the top edge, tracks on left and right sides
+tank_normal|Chaos Space Marine Rhino armoured transport with a top-mounted cannon, gunmetal black armour with brass spikes and eight-pointed chaos star, barrel pointing straight UP toward the top edge, tracks left and right
+tank_fast|Aeldari Falcon grav tank, sleek curved bone-white and jade wraithbone hull, hovering anti-grav, pulse laser pointing straight UP toward the top edge, elegant alien design
+tank_heavy|Thousand Sons Chaos Land Raider super heavy tank, deep blue and gold armour, ornate sorcerous sigils, twin lascannon sponsons, main cannon pointing straight UP toward the top edge, very bulky
+tank_suicide|Ork Boomwagon buggy packed with explosive barrels and rokkits, crude red and orange scrap-metal, glyphs, skulls, front pointing straight UP toward the top edge
+boss_siege|Ork Stompa / Gorkanaut style siege war machine viewed from above, massive bronze-orange rusted scrap armour, huge belly cannon pointing straight UP toward the top edge, enormous and menacing
+boss_hunter|Chaos Defiler daemon engine viewed from above, crab-like with spider legs and claws, Slaanesh purple and pink with gold, battle cannon pointing straight UP toward the top edge, menacing
+boss_swarmer|Death Guard Nurgle Plagueburst Crawler tank viewed from above, rotting sickly green armour, rust, pustules, flies, plague mortar pointing straight UP toward the top edge, bloated
+turret|Imperial Tarantula sentry gun turret on a small square armoured base, olive drab, twin heavy bolters pointing straight UP toward the top edge
+mine|Imperial frag land mine, round dark metal disc with blinking red light and hazard stripes
+bullet_player|single glowing bolter round projectile, brass shell casing with bright blue-white rocket flame trail, flying straight UP, small object centered
+bullet_enemy|single glowing chaos plasma bolt projectile, crimson red and orange fireball with tail, flying straight UP, small object centered
+shell|heavy artillery shell bomb, dark iron with orange glowing fuse and hazard markings, pointing UP
+spark|single bright fireball explosion burst, orange yellow flame, round, soft edges
+smoke|single round puff of dark grey smoke, soft edges
+warp|swirling warp rift portal, purple and teal daemonic energy vortex, glowing ring, round
+shield|round glowing void shield energy bubble, translucent electric blue hexagon pattern ring, hollow centre
+eagle_alive|Imperial Aquila shrine relic, golden double-headed eagle statue on a gothic stone plinth with candles and purity seals, square composition
+eagle_dead|destroyed Imperial Aquila shrine, shattered broken golden double-headed eagle rubble, burning debris, blackened, square composition
+airdrop|Imperial drop pod supply crate, armoured grey container with aquila and yellow hazard stripes
+train|armoured Imperial Guard supply train locomotive, long gothic iron engine, horizontal facing RIGHT, very wide 3:1 object centered
+orbital|red targeting reticle crosshair circle of an orbital lance strike, glowing red hud ring, hollow center
+pu_BOMB|power-up icon: Imperial melta bomb with skull, glowing orange
+pu_WALL|power-up icon: small gothic fortress wall bastion with aquila, grey stone
+pu_STAR|power-up icon: golden Imperial star rank badge with laurel, glowing
+pu_TIME|power-up icon: ornate gothic hourglass with stasis field, cyan glow
+pu_SHIELD|power-up icon: Space Marine shield emblem with Rosarius, glowing purple
+pu_ONEUP|power-up icon: red glowing heart reliquary with gold frame and skull
+pu_RAPID_DROP|power-up icon: Imperial assault cannon rotary barrel with lightning bolt, orange
+pu_SPREAD_DROP|power-up icon: Imperial storm bolter with fan of yellow tracer shots
+pu_PLASMA_DROP|power-up icon: Imperial plasma gun glowing cyan coils
+pu_SUMMON_DROP|power-up icon: Adeptus Mechanicus cog skull emblem, green glow
+pu_GATLING_DROP|power-up icon: heavy rotary assault cannon with fire, red orange
+pu_CLUSTER_DROP|power-up icon: cluster of frag grenades, amber glow
+pu_D_LASER_DROP|power-up icon: twin-linked lascannon with blue beams
