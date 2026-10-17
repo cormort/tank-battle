@@ -131,6 +131,22 @@ export function makeEffectRenderer({ ctx, particlesPool, bulletsPool, getGame, s
       if (!b.alive) continue;
       const cx = (b.x + b.size / 2) | 0;
       const cy = (b.y + b.size / 2) | 0;
+      // OMEGA 光束：一排靜止的段（每 15px 一顆、壽命 15 tick）。逐顆貼子彈圖會變成一串彈殼，
+      // 這裡每段畫成剛好 15px 的光柱（首尾相接成一條；重疊的話 lighter 會在接縫疊出亮線），外層藍光＋白色核心，隨壽命淡出。
+      if (b.laserLife > 0) {
+        const a = Math.min(1, b.laserLife / 10);
+        const horiz = b.dir !== dirs.UP && b.dir !== dirs.DOWN;
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = a * 0.45;
+        ctx.fillStyle = '#2a6cff';
+        if (horiz) ctx.fillRect(cx - 7.5, cy - 5, 15, 10); else ctx.fillRect(cx - 5, cy - 7.5, 10, 15);
+        ctx.globalAlpha = a;
+        ctx.fillStyle = '#d8f2ff';
+        if (horiz) ctx.fillRect(cx - 7.5, cy - 1.5, 15, 3); else ctx.fillRect(cx - 1.5, cy - 7.5, 3, 15);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'source-over';
+        continue;
+      }
       const img = b.shell ? shellImg : (b.isPlayer ? pImg : eImg);
       if (img) {
         // 素材朝上；方向取速度向量（散彈有斜向），速度為 0 的光束段退回 dir

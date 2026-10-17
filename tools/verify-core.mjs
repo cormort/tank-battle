@@ -850,5 +850,36 @@ console.log('\n=== Y. 靜態掃描：寫了卻沒有讀取的欄位 ===');
     orphans.length ? orphans.slice(0, 8).join('；') : `0 個孤兒欄位（另有 ${ALLOWED.size} 項註明理由的例外）`);
 }
 
+// ── P：跨局進度（src/core/progress.js）──
+{
+  console.log('\n=== P. 跨局進度（圖鑑／坦克／成就） ===');
+  const { makeProgress, memoryStorage } = await import('../src/core/progress.js');
+  const { CODEX_ENTRIES, SKINS, ACHIEVEMENTS } = await import('../src/data/codex.js');
+  const storage = memoryStorage();
+  const unlocks = [];
+  const mk = () => makeProgress({ storage, entries: CODEX_ENTRIES, skins: SKINS, achievements: ACHIEVEMENTS,
+    onUnlock: (kind, item) => unlocks.push(`${kind}:${item.id}`) });
+  const pr = mk();
+  for (let i = 0; i < 9; i++) pr.recordKill('ork_normal');
+  const before = pr.entryUnlocked('ork_normal');
+  pr.recordKill('ork_normal');
+  ok('P1 擊殺數達門檻才解鎖圖鑑，且只通知一次',
+    !before && pr.entryUnlocked('ork_normal') && unlocks.filter((u) => u === 'codex:ork_normal').length === 1, unlocks.join(','));
+  ok('P2 成就跟著解鎖（初次擊殺）', pr.achievementUnlocked('first_blood') && unlocks.includes('achievement:first_blood'));
+  const lockedPick = pr.selectSkin('ork_normal');
+  pr.recordLevel(3);
+  ok('P3 坦克依最高關卡解鎖；未解鎖不能選、解鎖後可選',
+    !lockedPick && unlocks.includes('skin:ork_normal') && pr.selectSkin('ork_normal') && pr.skin() === 'ork_normal', unlocks.join(','));
+  const again = mk();
+  ok('P4 進度會存檔，重新載入後還在', again.entryKills('ork_normal') === 10 && again.skin() === 'ork_normal' && again.snapshot().bestLevel === 3);
+  const ids = new Set(CODEX_ENTRIES.map((e) => e.id));
+  ok('P5 圖鑑 id 不重複、每輛可換坦克都有對應條目（或是預設坦克）',
+    ids.size === CODEX_ENTRIES.length && SKINS.every((k) => k.id === 'tank_player' || ids.has(k.id)), `${ids.size} 條目 / ${SKINS.length} 坦克`);
+  const broken = makeProgress({ storage: { getItem: () => '{bad json', setItem: () => { throw new Error('quota'); } },
+    entries: CODEX_ENTRIES, skins: SKINS, achievements: ACHIEVEMENTS });
+  broken.recordKill('ork_normal');
+  ok('P6 壞存檔／存不了也不會丟例外', broken.entryKills('ork_normal') === 1);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

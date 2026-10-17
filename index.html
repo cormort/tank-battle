@@ -94,6 +94,47 @@
   #overlay h2 { font-size: 24px; color: #ff5050; margin-bottom: 14px; text-shadow: 2px 2px 0 #500; text-align: center; }
   #overlay p { font-size: 10px; color: #aaa; margin: 6px 0; line-height: 1.8; text-align: center; }
   
+  .codex-btn { margin-top: 10px; font-size: 11px; background: linear-gradient(180deg, #2a2236, #17121f); border-color: #8a6a2a; }
+  #codexUI {
+    position: absolute; inset: 0; z-index: 20; background: rgba(6,6,10,0.96); color: #ddd;
+    display: flex; flex-direction: column; padding: 10px 12px; overflow: hidden;
+  }
+  #codexUI.hidden { display: none !important; }
+  .codex-head { display: flex; justify-content: space-between; align-items: center; }
+  .codex-head h2 { font-size: 18px; color: #ffd700; text-shadow: 2px 2px 0 #8b0000; margin: 0; }
+  .codex-close { background: none; border: 1px solid #3a3a45; color: #ffd700; font-family: inherit; font-size: 12px; padding: 4px 8px; cursor: pointer; border-radius: 4px; }
+  .codex-tabs { display: flex; gap: 6px; margin: 8px 0; }
+  .codex-tabs button { flex: 1; background: #14141c; border: 1px solid #3a3a45; color: #888; font-family: inherit; font-size: 10px; padding: 7px 4px; cursor: pointer; border-radius: 4px; }
+  .codex-tabs button.on { color: #ffd700; border-color: #ffd700; background: #221c10; }
+  .codex-body { overflow-y: auto; flex: 1; touch-action: pan-y; overscroll-behavior: contain; padding-right: 4px; }
+  .codex-body h3 { font-size: 11px; color: #6cc3ff; margin: 10px 0 6px; }
+  .codex-sum { font-size: 9px; color: #aaa; margin: 2px 0 6px; }
+  .codex-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; }
+  .codex-card { background: linear-gradient(180deg, #1e1e28, #111); border: 1px solid #3a3a45; border-radius: 6px; padding: 6px 4px; text-align: center; font-family: inherit; color: inherit; }
+  .codex-card img { width: 64px; height: 64px; object-fit: contain; display: block; margin: 0 auto 4px; }
+  .codex-card img.locked { filter: brightness(0) drop-shadow(0 0 1px #6a6a88); opacity: 0.8; }
+  .codex-card .noimg { width: 64px; height: 64px; margin: 0 auto 4px; display: grid; place-items: center; color: #444; }
+  .codex-name { font-size: 9px; color: #fff; line-height: 1.4; min-height: 2.8em; }
+  .codex-meta { font-size: 8px; color: #8a8a99; margin-top: 2px; }
+  .codex-bar { height: 3px; background: #2a2a35; margin-top: 4px; border-radius: 2px; overflow: hidden; }
+  .codex-bar i { display: block; height: 100%; background: #ffaa00; }
+  .codex-card.skin { cursor: pointer; }
+  .codex-card.skin:not(:disabled):hover, .codex-card.skin:focus-visible { border-color: #ffd700; outline: none; }
+  .codex-card.skin:disabled { cursor: default; }
+  .codex-card.is-current { border-color: #4dff6a; box-shadow: 0 0 10px rgba(77,255,106,0.35); }
+  .codex-card.is-current .codex-meta { color: #4dff6a; }
+  .ach-list { display: flex; flex-direction: column; gap: 6px; }
+  .ach { display: grid; grid-template-columns: 22px 1fr; column-gap: 8px; align-items: center; background: #14141c; border: 1px solid #2a2a35; border-radius: 4px; padding: 6px 8px; opacity: 0.6; }
+  .ach span { grid-row: span 2; font-size: 14px; }
+  .ach b { font-size: 10px; color: #fff; font-weight: normal; }
+  .ach em { font-size: 8px; color: #888; font-style: normal; }
+  .ach.is-done { opacity: 1; border-color: #8a6a2a; }
+  .ach.is-done b { color: #ffd700; }
+  #toasts { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 400; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
+  .toast { background: rgba(20,16,8,0.94); border: 1px solid #ffd700; color: #ffe680; font-size: 10px; padding: 7px 14px; border-radius: 4px; box-shadow: 0 0 16px rgba(255,215,0,0.35); animation: toastIn 2.8s ease forwards; white-space: nowrap; }
+  @keyframes toastIn { 0% { opacity: 0; transform: translateY(-8px); } 8%, 85% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+
   .card-container { display: flex; gap: 15px; margin-top: 25px; flex-wrap: wrap; justify-content: center; max-width: 480px; }
   .upgrade-card {
     background: linear-gradient(180deg, #1e1e28, #111); border: 2px solid #3a3a45; padding: 20px 15px; width: 140px;
@@ -308,7 +349,10 @@
     <p style="margin-top:12px; color:#ffd700;" class="touch-hint" hidden>左搖桿 <b>移動</b></p>
     <p style="color:#ffd700;" class="touch-hint" hidden>右按鈕 <b>射擊</b></p>
     <button class="start-btn" id="startBtn">START GAME</button>
+    <button class="start-btn codex-btn" id="codexBtn">📖 圖鑑 · 坦克 · 成就</button>
   </div>
+  <div id="codexUI" class="hidden"></div>
+  <div id="toasts" aria-live="polite"></div>
 
   <div id="upgradeUI" class="hidden">
     <h1>LEVEL CLEAR</h1>
@@ -360,6 +404,9 @@ import { makeTileRenderer } from './src/render/tiles.js';
 import { makeGlowCanvas } from './src/render/sprites.js';
 import { makeArt, drawRotated } from './src/render/wh40k-art.js';
 import { WH40K_ART_DATA } from './src/render/wh40k-data.js';
+import { makeProgress, memoryStorage } from './src/core/progress.js';
+import { CODEX_ENTRIES, SKINS, ACHIEVEMENTS } from './src/data/codex.js';
+import { makeCodexScreen } from './src/ui/codex.js';
 import { makeEffectRenderer } from './src/render/effects.js';
 import { makeHud } from './src/ui/hud.js';
 import { makeScreens } from './src/ui/screens.js';
@@ -455,6 +502,41 @@ const art = makeArt({ data: WH40K_ART_DATA, doc: document, onReady: () => {
   for (const c of [ctx, staticCtx, forestCtx]) { c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high'; }
   if (G.map && G.map.length === ROWS) cacheStaticMap();
 } });
+
+// 跨局進度（圖鑑／可換坦克／成就）。?bot 驗證模式用記憶體版，不碰玩家的 localStorage。
+function progressStorage() {
+  if (new URLSearchParams(location.search).has('bot')) return memoryStorage();
+  try { return window.localStorage || memoryStorage(); } catch { return memoryStorage(); }
+}
+const UNLOCK_LABEL = { codex: '📖 圖鑑解鎖', skin: '🚜 新坦克', achievement: '🏆 成就達成' };
+const progress = makeProgress({
+  storage: progressStorage(), entries: CODEX_ENTRIES, skins: SKINS, achievements: ACHIEVEMENTS,
+  onUnlock: (kind, item) => showToast(`${UNLOCK_LABEL[kind]}：${item.name}`),
+});
+const codexScreen = makeCodexScreen({ doc: document, progress, entries: CODEX_ENTRIES, skins: SKINS, achievements: ACHIEVEMENTS, artData: WH40K_ART_DATA });
+
+/** 畫面上方的解鎖通知：最多同時 3 則，超過的併成一則「還有 N 項」（一次跳很多關會同時解鎖一大串）。 */
+let _toastOverflow = null, _toastOverflowN = 0;
+function showToast(text) {
+  const box = document.getElementById('toasts');
+  if (!box) return;
+  if (box.querySelectorAll('.toast:not(.more)').length >= 3) {
+    if (!_toastOverflow || !_toastOverflow.isConnected) {
+      _toastOverflowN = 0;
+      _toastOverflow = document.createElement('div');
+      _toastOverflow.className = 'toast more';
+      box.appendChild(_toastOverflow);
+      setTimeout(() => _toastOverflow && _toastOverflow.remove(), 2800);
+    }
+    _toastOverflow.textContent = `…還有 ${++_toastOverflowN} 項解鎖（到圖鑑查看）`;
+    return;
+  }
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = text;
+  box.appendChild(el);
+  setTimeout(() => el.remove(), 2800);
+}
 
 // ==================== 音效系統 (Web Audio API NES 合成) ====================
 
@@ -685,8 +767,9 @@ const WeaponManager = {
       b.laserLife = 15;
       for (let i = 1; i < 30; i++) {
         const lb = bulletsPool.acquire();
-        lb.x = tank.x + i * 15 * DX[baseDir];
-        lb.y = tank.y + i * 15 * DY[baseDir];
+        // 從砲口中心往外排（舊版從坦克左上角起算，整條光束偏離砲管約半個車身）
+        lb.x = b.x + i * 15 * DX[baseDir];
+        lb.y = b.y + i * 15 * DY[baseDir];
         lb.dir = baseDir;
         lb.isPlayer = true;
         lb.vx = 0; lb.vy = 0;
@@ -981,6 +1064,7 @@ function applyPassiveTick() {
           spawnExplosion(e.x + e.size/2, e.y + e.size/2, e.type === 'BOSS' ? 'big' : 'tank');
           Sound.explode();
           if (G.aliveEnemies > 0) G.aliveEnemies--;
+          progress.recordKill(tankArtKey(e));
           const pts = e.type === 'BOSS' ? 1000 : 100;
           G.score += pts;
           addScorePopup(e.x, e.y, `+${pts}`);
@@ -1068,6 +1152,7 @@ function callAirStrike() {
               e.alive = false; 
               G.score += e.type === 'BOSS' ? 500 : 50; 
               if (G.aliveEnemies > 0) G.aliveEnemies--;
+              progress.recordKill(tankArtKey(e));
             }
           }
         }
@@ -1111,6 +1196,7 @@ function activatePowerUp(type) {
           spawnExplosion(e.x + e.size/2, e.y + e.size/2, 'big');
           G.score += e.type === 'BOSS' ? 500 : 50;
           if (G.aliveEnemies > 0) G.aliveEnemies--;
+          progress.recordKill(tankArtKey(e));
           addCombo(true);
         }
       }
@@ -1803,18 +1889,21 @@ function enemyFaction() {
   const n = lvl - Math.floor(lvl / CONFIG.GAMEPLAY.BOSS_LEVEL_INTERVAL);
   return ENEMY_FACTIONS[(n - 1) % ENEMY_FACTIONS.length];
 }
-function tankArt(t) {
-  if (t.isPlayer) return art('tank_player');
-  if (t.type === 'BOSS') return art('boss_' + String(t.bossType || 'SIEGE').toLowerCase());
-  if (SPECIAL_ART[t.type]) return art(SPECIAL_ART[t.type]) || art('tank_normal');
+/** 這輛坦克畫哪張素材（也是圖鑑 id：擊殺時用它計數）。 */
+function tankArtKey(t) {
+  if (t.isPlayer) return progress.skin();
+  if (t.type === 'BOSS') return 'boss_' + String(t.bossType || 'SIEGE').toLowerCase();
+  if (SPECIAL_ART[t.type]) return SPECIAL_ART[t.type];
   const faction = enemyFaction();
   if (isUprightArt(t)) {
     const list = FACTION_INFANTRY[faction];
-    const img = art(list[((t.visualIdx / 3) | 0) % list.length]);
-    if (img) return img;
+    return list[((t.visualIdx / 3) | 0) % list.length];
   }
   const role = (t.type === 'FAST' || t.type === 'HEAVY' || t.type === 'SUICIDE') ? t.type.toLowerCase() : 'normal';
-  return art(faction + '_' + role) || art('tank_' + role);   // 該勢力缺圖就用原本的通用造型
+  return (faction + '_' + role) in WH40K_ART_DATA ? faction + '_' + role : 'tank_' + role;   // 該勢力缺圖就用通用造型
+}
+function tankArt(t) {
+  return art(tankArtKey(t)) || (t.isPlayer ? art('tank_player') : art('tank_normal'));
 }
 
 function buildTankSprite(type, aimDir, phase, s) {
@@ -2195,6 +2284,7 @@ function handleBulletHit(b, t) {
       }
     } else {
       if (G.aliveEnemies > 0) G.aliveEnemies--;
+      progress.recordKill(tankArtKey(t));
       const pts = t.type === 'BOSS' ? 1000 : (t.type === 'SUICIDE' ? 50 : (t.elitePrefix ? 150 : 100));
       G.score += pts;
       addScorePopup(t.x, t.y, `+${pts}`);
@@ -2545,6 +2635,7 @@ function drawMapEvent() {
 function addCombo(kill = true) {
   if (!kill) return;
   G.playerStats.combo++;
+  progress.recordCombo(G.playerStats.combo);
   fx.set('combo', 120);
 
   const bonus = Math.min(G.playerStats.combo, 10) * 0.1;
@@ -3083,6 +3174,7 @@ function effectiveSpawnInterval() {
 }
 
 function startLevel() {
+  progress.recordLevel(G.level);
   G.isVSMode = (G.level % CONFIG.GAMEPLAY.VS_MODE_INTERVAL === 0);
 
   G.bossSpawned = false;      // 每關重新等待 BOSS 出生（見 checkLevelComplete）
@@ -3212,7 +3304,8 @@ document.addEventListener('keydown', e => {
       openShop(); 
     }
     else if (e.code === 'Escape' && G.state === STATE.SHOP) { e.preventDefault(); closeShop(); }
-    else if ((e.code === 'Enter' || e.code === 'Space') && G.state === STATE.MENU) {
+    else if (e.code === 'Escape' && codexScreen.isOpen()) { e.preventDefault(); codexScreen.close(); }
+    else if ((e.code === 'Enter' || e.code === 'Space') && G.state === STATE.MENU && !codexScreen.isOpen()) {
       e.preventDefault();
       const startBtn = document.getElementById('startBtn');
       if (startBtn) startBtn.click();
@@ -3247,6 +3340,7 @@ bindLifecycle({
   onLeave: () => { releaseAllInput(); autoPauseIfPlaying(); },
   onReturn: resumeAudioIfNeeded,
 });
+document.getElementById('codexBtn').addEventListener('click', () => codexScreen.open());
 document.getElementById('startBtn').addEventListener('click', () => {
   Sound.init(); Sound.resume();
   Music.play('MENU');
@@ -3978,7 +4072,7 @@ requestAnimationFrame(gameLoop);
     // 驗證工具會呼叫的函式
     applyUpgrade, generateUpgradeOptions, buyItem, handleBulletHit, updateBullet, drawEagleDirect, eagleSprite,
     spawnEnemy, updateDirector, updateDirectorEvents, updateSummonEntities, damagePlayerFromHazard,
-    stepTicks, gameChecksum, seed: SEED, deterministic: DETERMINISTIC, fx, CAM_ZOOM,
+    stepTicks, gameChecksum, seed: SEED, deterministic: DETERMINISTIC, fx, CAM_ZOOM, progress,
     // update／render 分開掛出來：headless 的 rAF 不可靠（實測空頁面只有 8.8 fps），
     // 效能工具必須能自行同步呼叫，才能把「模擬」與「繪製」的成本分開量。
     update, render, effectiveSpawnInterval, cacheStaticMap,
