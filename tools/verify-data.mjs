@@ -86,11 +86,64 @@ const INTENTIONAL = {
   },
 };
 
+// 精簡（不是漂移）：刻意「刪掉」的內容。基準快照仍然是抽離當時的值，所以刪除也必須
+// 明確列在這裡 —— 沒列到的任何差異（包括多刪、少刪、改到留下的條目）都會讓 A 組紅。
+// 每一項要通過：刪掉的 key 剛好是 listed、留下的 key 除 changedFields 外逐值不變、
+// changedFields 的新值符合結構規則（next 指向存在的條目或 null、tier 遞增）。
+const SIMPLIFIED = {
+  WEAPON_TREE: {
+    reason: '武器系統精簡：四條流派各 3 級（16 → 12 把），刪掉「只是子彈變多」的中間階。'
+      + '成長路徑因此短一階，其餘數值不動（終形提早一關拿到）。',
+    removed: ['CHAINGUN', 'NAPALM', 'T_LASER', 'TURRET'],
+    changedFields: ['next', 'tier'],
+  },
+  WEAPON_REGISTRY: {
+    reason: '同上：射擊參數只保留 12 把武器（＋NORMAL）',
+    removed: ['CHAINGUN', 'NAPALM', 'T_LASER', 'TURRET'],
+    changedFields: [],
+  },
+};
+
+/** 檢查一張「精簡過」的表是否只是「刪掉 listed 的條目」。回傳問題清單。 */
+function checkSimplified(name, expected, actual, spec) {
+  const problems = [];
+  const expKeys = Object.keys(expected);
+  const actKeys = Object.keys(actual);
+  const leftover = spec.removed.filter((k) => actKeys.includes(k));
+  if (leftover.length) problems.push(`${name} 還留著應該刪掉的 ${leftover.join('、')}`);
+  const missingExtra = expKeys
+    .filter((k) => !spec.removed.includes(k))
+    .filter((k) => !actKeys.includes(k));
+  if (missingExtra.length) problems.push(`${name} 少了沒列在 removed 的 ${missingExtra.join('、')}`);
+  const added = actKeys.filter((k) => !expKeys.includes(k));
+  if (added.length) problems.push(`${name} 多了基準快照沒有的 ${added.join('、')}`);
+
+  for (const key of actKeys) {
+    if (!expKeys.includes(key)) continue;
+    const a = actual[key], e = expected[key];
+    for (const field of Object.keys({ ...e, ...a })) {
+      if (spec.changedFields.includes(field)) continue;
+      if (JSON.stringify(a[field]) !== JSON.stringify(e[field])) {
+        problems.push(`${name}.${key}.${field} 改了（不在 changedFields 內）`);
+      }
+    }
+  }
+  if (name === 'WEAPON_TREE') {
+    for (const key of actKeys) {
+      const row = actual[key];
+      if (![1, 2, 3].includes(row.tier)) problems.push(`WEAPON_TREE.${key}.tier 必須是 1~3`);
+      if (row.next !== null && !actKeys.includes(row.next)) problems.push(`WEAPON_TREE.${key}.next 指向不存在的 ${row.next}`);
+    }
+  }
+  return problems;
+}
+
 console.log('=== A. 與抽離前的基準逐值等價 ===');
 {
   const norm = (v) => JSON.parse(JSON.stringify(v));
   const diffs = [];
   const intentionalHits = [];
+  const simplifiedHits = [];
   for (const [key, expected] of Object.entries(baseline)) {
     if (CODE_ONLY.has(key)) continue;
     const actual = tables[key];      // tables 已包含工廠產物（DIRECTOR_EVENTS）
@@ -98,6 +151,14 @@ console.log('=== A. 與抽離前的基準逐值等價 ===');
     const a = JSON.stringify(norm(actual instanceof Set ? Array.from(actual) : actual));
     const b = JSON.stringify(norm(expected));
     if (a === b) continue;
+
+    const simplified = SIMPLIFIED[key];
+    if (simplified) {
+      const problems = checkSimplified(key, expected, actual, simplified);
+      if (problems.length === 0) { simplifiedHits.push(key); continue; }
+      diffs.push(...problems);
+      continue;
+    }
 
     const intentional = INTENTIONAL[key];
     if (intentional && Array.isArray(actual) && Array.isArray(expected) && actual.length === expected.length) {
@@ -113,14 +174,19 @@ console.log('=== A. 與抽離前的基準逐值等價 ===');
     diffs.push(`${key} 內容不同`);
   }
   const compared = Object.keys(baseline).filter((k) => !CODE_ONLY.has(k));
-  const note = intentionalHits.length
-    ? `完全一致，另有 ${intentionalHits.length} 項刻意修正（${intentionalHits.join('、')}）`
-    : '完全一致';
+  const notes = [];
+  if (intentionalHits.length) notes.push(`${intentionalHits.length} 項刻意修正（${intentionalHits.join('、')}）`);
+  if (simplifiedHits.length) notes.push(`${simplifiedHits.length} 項精簡（${simplifiedHits.join('、')}）`);
+  const note = notes.length ? `完全一致，另有 ${notes.join('、')}` : '完全一致';
   ok(`抽離後 ${compared.length} 張表與基準快照逐值相同（共 ${JSON.stringify(baseline).length} 字元）`,
     diffs.length === 0, diffs.length ? diffs.join('、') : note);
   Object.entries(INTENTIONAL).forEach(([table, spec]) => {
     ok(`刻意修正 ${table}.${spec.field} 的理由已記錄且逐列驗證`,
       intentionalHits.includes(`${table}.${spec.field}`), spec.reason.slice(0, 60) + '…');
+  });
+  Object.entries(SIMPLIFIED).forEach(([table, spec]) => {
+    ok(`精簡 ${table}：只刪掉 listed 的 ${spec.removed.length} 個條目（${spec.removed.join('、')}），其餘逐值不變`,
+      simplifiedHits.includes(table), spec.reason.slice(0, 50) + '…');
   });
 }
 

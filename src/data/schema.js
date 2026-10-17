@@ -26,7 +26,7 @@ export function validateData(T) {
     add('CONFIG.GAMEPLAY.BOSS_LEVEL_INTERVAL 必須是 >= 1 的數字');
   }
 
-  // ── WEAPON_TREE：id 必填且等於 key、四條路線都要能從 tier1 走到 tier4 ──
+  // ── WEAPON_TREE：id 必填且等於 key、四條路線都要能從 tier1 走到 tier3 ──
   const tree = T.WEAPON_TREE || {};
   const treeKeys = Object.keys(tree);
   treeKeys.forEach((key) => {
@@ -34,7 +34,7 @@ export function validateData(T) {
     // 這一條就是當初「四條武器流派完全不可玩」的根因：升級卡讀 next.id，缺 id 就變 undefined
     if (w.id !== key) add(`WEAPON_TREE.${key}.id 必須等於 key（實際 ${JSON.stringify(w.id)}）`);
     if (!['A', 'B', 'C', 'D'].includes(w.route)) add(`WEAPON_TREE.${key}.route 必須是 A/B/C/D`);
-    if (![1, 2, 3, 4].includes(w.tier)) add(`WEAPON_TREE.${key}.tier 必須是 1~4`);
+    if (![1, 2, 3].includes(w.tier)) add(`WEAPON_TREE.${key}.tier 必須是 1~3`);
     ['name', 'desc', 'color', 'icon'].forEach((f) => { if (!isStr(w[f])) add(`WEAPON_TREE.${key}.${f} 必須是非空字串`); });
     if (!isNum(w.basePower) || w.basePower <= 0) add(`WEAPON_TREE.${key}.basePower 必須是 > 0 的數字`);
     if (w.next !== null && !tree[w.next]) add(`WEAPON_TREE.${key}.next 指向不存在的 ${JSON.stringify(w.next)}`);
@@ -45,7 +45,7 @@ export function validateData(T) {
     if (!routes[r]) { add(`路線 ${r} 沒有 tier1 的起始武器`); return; }
     let cur = routes[r]; const chain = [cur];
     while (tree[cur] && tree[cur].next) { cur = tree[cur].next; chain.push(cur); }
-    if (chain.length !== 4) add(`路線 ${r} 的進化鏈長度是 ${chain.length}，應該是 4（${chain.join('→')}）`);
+    if (chain.length !== 3) add(`路線 ${r} 的進化鏈長度是 ${chain.length}，應該是 3（${chain.join('→')}）`);
   });
 
   // ── WEAPON_REGISTRY：每把武器（含 NORMAL）都要有射擊參數 ──

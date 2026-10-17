@@ -101,10 +101,61 @@ const chains = await page.evaluate(() => {
   }
   return out;
 });
-const badChains = Object.entries(chains).filter(([, c]) => c.length !== 4 || c.includes('(無id)'));
-ok('A1b 四條武器流派都能從 tier1 走到 tier4，且每一步都有合法 id',
+const badChains = Object.entries(chains).filter(([, c]) => c.length !== 3 || c.includes('(無id)'));
+ok('A1b 四條武器流派都能從 tier1 走到 tier3（精簡後每條 3 級），且每一步都有合法 id',
   Object.keys(chains).length === 4 && badChains.length === 0,
   Object.entries(chains).map(([r, c]) => `${r}:${c.join('→')}`).join(' | '));
+
+// A1d：第一次升級（還在 NORMAL、沒有路線）→ 一次給 4 張流派卡，讓玩家選路線
+const firstCards = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  const ps = G.playerStats;
+  const backup = { weapon: ps.weapon, route: ps.route, tier: ps.weaponTier, passives: ps.passives.slice(), active: ps.activeSkill };
+  ps.weapon = 'NORMAL'; ps.route = null; ps.weaponTier = 0; ps.passives = []; ps.activeSkill = null;
+  const cards = T.generateUpgradeOptions();
+  Object.assign(ps, backup);
+  return {
+    cards: cards.map((c) => `${c.type}:${c.id}`),
+    routes: [...new Set(cards.map((c) => T.WEAPON_TREE[c.id] && T.WEAPON_TREE[c.id].route))].sort().join(''),
+  };
+});
+ok('A1d 第一次升級會給 4 張流派卡（四條路線各一張，選完才固定路線）',
+  firstCards.cards.length === 4
+  && firstCards.cards.every((c) => c.startsWith('starter:'))
+  && firstCards.routes === 'ABCD',
+  JSON.stringify(firstCards));
+
+// A1e：之後每次升級，第一張固定是「下一階武器」—— 舊版把它和其他卡一起洗牌，常常洗掉
+const evoCard = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  const ps = G.playerStats;
+  const backup = { weapon: ps.weapon, route: ps.route, tier: ps.weaponTier };
+  const out = [];
+  for (const w of ['RAPID', 'GATLING', 'SPREAD', 'CLUSTER', 'PLASMA', 'D_LASER', 'SUMMON', 'DRONE']) {
+    ps.weapon = w; ps.route = T.WEAPON_TREE[w].route; ps.weaponTier = T.WEAPON_TREE[w].tier;
+    const cards = T.generateUpgradeOptions();
+    const next = T.WEAPON_TREE[w].next;
+    out.push({ weapon: w, first: cards[0] && `${cards[0].type}:${cards[0].id}`, expect: `weapon:${next}`, n: cards.length });
+  }
+  Object.assign(ps, backup);
+  return out;
+});
+ok('A1e 每次升級的第一張卡固定是下一階武器（不會被洗掉），而且總共 3 張',
+  evoCard.every((r) => r.first === r.expect && r.n === 3),
+  JSON.stringify(evoCard.map((r) => `${r.weapon}→${r.first}`)));
+
+// A1f：終形（沒有 next）不再給武器卡，但仍然給滿 3 張
+const maxedCards = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  const ps = G.playerStats;
+  const backup = { weapon: ps.weapon, route: ps.route };
+  ps.weapon = 'FORTRESS'; ps.route = 'D';
+  const cards = T.generateUpgradeOptions();
+  Object.assign(ps, backup);
+  return { n: cards.length, hasWeapon: cards.some((c) => c.type === 'weapon') };
+});
+ok('A1f 武器已達終形時不再出武器卡，但還是給滿 3 張',
+  maxedCards.n === 3 && maxedCards.hasWeapon === false, JSON.stringify(maxedCards));
 
 // A1c：進化真的會更新 ps.weapon（模擬升級卡套用）
 const evolved = await page.evaluate(() => {
@@ -1083,14 +1134,15 @@ const hunterFight = await page.evaluate(() => {
   const fill = (r0, r1, c0, c1, v) => {
     for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) G.map[r][c] = v;
   };
-  // 走廊：col 2~4、row 1~17 清空；底部 row 17 鋪鋼板（衝到那裡才會被擋住）
-  fill(1, 17, 2, 4, T.EMPTY);
-  fill(17, 17, 2, 4, T.STEEL);
+  // 走廊：col 2~4、row 1~12 清空；底部 row 12 鋪鋼板（衝到那裡才會被擋住）
+  fill(1, 12, 2, 4, T.EMPTY);
+  fill(12, 12, 2, 4, T.STEEL);
   // 走廊中間放一堵磚牆：驗「衝刺會把磚牆撞碎」
-  const brickR = 9;
+  const brickR = 6;
   fill(brickR, brickR, 2, 3, T.BRICK);
 
   const boss = new T.Tank(T.TILE * 2, T.TILE * 3, T.DOWN, 'BOSS', false);
+  boss.aiChangeTimer = 1e9;      // 蓄力期間不要重新擲骰：讓「往南衝」這件事不依賴全域亂數流
   G.enemies.push(boss); G.aliveEnemies = 1;
   G.player.x = T.TILE * 2; G.player.y = T.TILE * 15;
 

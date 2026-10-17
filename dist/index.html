@@ -609,6 +609,10 @@ const ACTIVE_SKILLS = [
 // 武器資料：四條流派樹、射擊參數、起始武器、掉落池。
 
 const WEAPON_TREE = {
+  // 四條流派、各 3 級：入門（tier1）→ 強化（tier2）→ 終形（tier3）。
+  // 精簡前是各 4 級（16 把），中間那階只是「子彈變多、數字變大」，玩家在升級卡上分不出
+  // 差別，卻要多記 4 個名字；現在刪掉那一階，其餘數值不動（等於提早一關拿到終形）。
+
   // A 路線：高射速流 - 超高DPS，單發低，剋重甲
   RAPID: {
     id: 'RAPID',
@@ -618,20 +622,15 @@ const WEAPON_TREE = {
   GATLING: {
     id: 'GATLING',
     route: 'A', tier: 2, name: '格林機槍', desc: '雙管射擊，火力+10%',
-    next: 'CHAINGUN', color: '#ff4400', icon: '🔥', basePower: 1.1
-  },
-  CHAINGUN: {
-    id: 'CHAINGUN',
-    route: 'A', tier: 3, name: '連環炮', desc: '三管齊射，火力+20%',
-    next: 'OVERDRIVE', color: '#cc2200', icon: '💥', basePower: 1.2
+    next: 'OVERDRIVE', color: '#ff4400', icon: '🔥', basePower: 1.1
   },
   OVERDRIVE: {
     id: 'OVERDRIVE',
-    route: 'A', tier: 4, name: '過載出火', desc: '四管齊射，全螢幕橫掃',
+    route: 'A', tier: 3, name: '過載出火', desc: '四管齊射，全螢幕橫掃',
     next: null, color: '#880000', icon: '💀', basePower: 1.4
   },
 
-  // B 路線：範圍爆破流 - 清怪神，打王弱，有爆炸連鎖
+  // B 路線：範圍爆破流 - 清怪神，打王弱，命中分裂
   SPREAD: {
     id: 'SPREAD',
     route: 'B', tier: 1, name: '散彈核心', desc: '扇形發射 3 發子彈',
@@ -640,20 +639,15 @@ const WEAPON_TREE = {
   CLUSTER: {
     id: 'CLUSTER',
     route: 'B', tier: 2, name: '集束彈頭', desc: '命中分裂 5 發小彈',
-    next: 'NAPALM', color: '#ffaa00', icon: '💛', basePower: 1.1
-  },
-  NAPALM: {
-    id: 'NAPALM',
-    route: 'B', tier: 3, name: '凝固汽油彈', desc: '子彈留下燃燒地帶',
-    next: 'APOCALYPSE', color: '#ff6600', icon: '🔥', basePower: 1.2
+    next: 'APOCALYPSE', color: '#ffaa00', icon: '💛', basePower: 1.1
   },
   APOCALYPSE: {
     id: 'APOCALYPSE',
-    route: 'B', tier: 4, name: '末日轟炸', desc: '5 發散彈 + 每 3 秒全螢幕轟炸',
+    route: 'B', tier: 3, name: '末日轟炸', desc: '5 發散彈 + 每 3 秒全螢幕轟炸',
     next: null, color: '#ff0000', icon: '☠️', basePower: 1.5
   },
 
-  // C 路線：雷射科技流 - 貫穿，超遠距，打王強，有過熱
+  // C 路線：雷射科技流 - 貫穿，超遠距，打王強
   PLASMA: {
     id: 'PLASMA',
     route: 'C', tier: 1, name: '電漿武器', desc: '高傷貫穿子彈',
@@ -662,20 +656,15 @@ const WEAPON_TREE = {
   D_LASER: {
     id: 'D_LASER',
     route: 'C', tier: 2, name: '雙光束炮', desc: '雙光束射擊',
-    next: 'T_LASER', color: '#00aaff', icon: '🔷', basePower: 1.3
-  },
-  T_LASER: {
-    id: 'T_LASER',
-    route: 'C', tier: 3, name: '三路光束', desc: '三道光束同時射擊',
-    next: 'OMEGA', color: '#0077ff', icon: '🔶', basePower: 1.4
+    next: 'OMEGA', color: '#00aaff', icon: '🔷', basePower: 1.3
   },
   OMEGA: {
     id: 'OMEGA',
-    route: 'C', tier: 4, name: '歐米茄射線', desc: '光束掃射，穿透障礙',
+    route: 'C', tier: 3, name: '歐米茄射線', desc: '光束掃射，穿透障礙',
     next: null, color: '#0044cc', icon: '👁️', basePower: 1.6
   },
 
-  // D 路線：召喚塔防流 - 本體弱，召喚物強，越拖越強
+  // D 路線：召喚塔防流 - 本體弱，召喚物強
   SUMMON: {
     id: 'SUMMON',
     route: 'D', tier: 1, name: '工程師', desc: '部署 1 個自動砲塔',
@@ -684,16 +673,11 @@ const WEAPON_TREE = {
   DRONE: {
     id: 'DRONE',
     route: 'D', tier: 2, name: '維修無人機', desc: '砲塔生命與傷害提升',
-    next: 'TURRET', color: '#22cc66', icon: '🤖', basePower: 0.9
-  },
-  TURRET: {
-    id: 'TURRET',
-    route: 'D', tier: 3, name: '自動砲台', desc: '砲塔傷害大幅提升',
-    next: 'FORTRESS', color: '#11aa44', icon: '🏰', basePower: 1.0
+    next: 'FORTRESS', color: '#22cc66', icon: '🤖', basePower: 0.9
   },
   FORTRESS: {
     id: 'FORTRESS',
-    route: 'D', tier: 4, name: '要塞核心', desc: '終極塔防，四座砲台',
+    route: 'D', tier: 3, name: '要塞核心', desc: '終極塔防，四座砲台',
     next: null, color: '#008833', icon: '⚔️', basePower: 1.3
   }
 };
@@ -706,22 +690,18 @@ const WEAPON_REGISTRY = {
   // RAPID: 快速射击链（貫穿）
   RAPID:    { fireRate: 6,  count: 1, spread: 0,   power: 0.6,  effect: 'PIERCE' },
   GATLING:  { fireRate: 5,  count: 2, spread: 0,   power: 0.55, effect: 'PIERCE' },
-  CHAINGUN: { fireRate: 4,  count: 3, spread: 0,   power: 0.5,  effect: 'PIERCE' },
   OVERDRIVE:{ fireRate: 3,  count: 4, spread: 0,   power: 0.45, effect: 'PIERCE' },
   // SPREAD: 散射
   SPREAD:   { fireRate: 16, count: 3, spread: 0.25, power: 0.8,  effect: null },
   CLUSTER:  { fireRate: 14, count: 3, spread: 0.25, power: 0.9,  effect: null },
-  NAPALM:   { fireRate: 12, count: 3, spread: 0.25, power: 0.7,  effect: 'BURN_ZONE' },
   APOCALYPSE:{ fireRate: 10, count: 5, spread: 0.4, power: 0.8,  effect: 'BOMBARD' },
   // PLASMA: 激光科技流
   PLASMA:   { fireRate: 12, count: 1, spread: 0,   power: 1.2,  effect: 'PIERCE' },
   D_LASER:  { fireRate: 10, count: 2, spread: 0,   power: 1.1,  effect: 'PIERCE' },
-  T_LASER:  { fireRate: 8,  count: 3, spread: 0,   power: 1.0,  effect: 'PIERCE' },
   OMEGA:    { fireRate: 6,  count: 1, spread: 0,   power: 1.4,  effect: 'LASER_BEAM' },
   // SUMMON: 召唤塔防流
   SUMMON:   { fireRate: 20, count: 1, spread: 0,   power: 0.8,  effect: 'SPAWN_TURRET' },
   DRONE:    { fireRate: 18, count: 1, spread: 0,   power: 0.9,  effect: 'SPAWN_TURRET' },
-  TURRET:   { fireRate: 16, count: 1, spread: 0,   power: 1.0,  effect: 'SPAWN_TURRET' },
   FORTRESS: { fireRate: 14, count: 1, spread: 0,   power: 1.3,  effect: 'SPAWN_TURRET' }
 };
 
@@ -2427,7 +2407,6 @@ const WeaponManager = {
     }
 
     // 触发特殊效果
-    if (config.effect === 'BURN_ZONE') this.triggerBurnEffect(tank, finalPower);
     if (config.effect === 'BOMBARD') this.triggerBombard();
     if (config.effect === 'SPAWN_TURRET') this.spawnTurret(tank);
 
@@ -2476,18 +2455,6 @@ const WeaponManager = {
         lb.hitTanks.length = 0;
       }
     }
-  },
-
-  triggerBurnEffect(tank, power) {
-    G.summonEntities.push({
-      type: 'fire',
-      x: tank.x + DX[tank.aimDir] * TILE,
-      y: tank.y + DY[tank.aimDir] * TILE,
-      life: 120,
-      maxLife: 120,
-      damage: power * 0.5,
-      alive: true
-    });
   },
 
   triggerBombard() {
@@ -2589,86 +2556,70 @@ function refreshActiveSkillKey() {
 // ==================== 升級卡系統（分支流派） ====================
 // 每局提供 3 張升級卡：武器路線進化、被動技能、主動技能
 
+function upgradeCard(type, data, titlePrefix = '') {
+  return {
+    type,
+    id: data.id,
+    title: `${titlePrefix}${data.name}`,
+    desc: data.desc,
+    icon: data.icon,
+    color: data.color,
+  };
+}
+
+// ==================== 升級卡系統（簡化：武器進化「一定」出現） ====================
+// 規則只有兩條：
+//   1. 還沒選流派 → 一次給 4 張流派卡（就這一次，不跟其他卡混著抽）
+//   2. 之後每 3 關 → 第 1 張固定是「下一階武器」，另外 2 張從被動／主動／通用裡抽
+//
+// 舊版是把武器卡和其他卡一起洗牌後取 3 張 ——「升級畫面裡沒有武器卡」是常態，
+// 玩家看得到一堆被動技能卻不知道自己的武器要怎麼長大。這是「武器系統很複雜」的主因：
+// 不是武器太多，而是**成長路徑是隨機的**。
 function generateUpgradeOptions() {
-  const options = [];
   const ps = G.playerStats;
-
-  // 1. 武器進化（如果可以）
   const weapon = ps.weapon || 'NORMAL';
-  const currentWeapon = WEAPON_TREE[weapon];
-  if (currentWeapon && currentWeapon.next) {
-    const next = WEAPON_TREE[currentWeapon.next];
-    options.push({
-      type: 'weapon',
-      id: next.id,
-      title: `[${next.route}路線] ${next.name}`,
-      desc: next.desc,
-      icon: next.icon,
-      color: next.color
-    });
-  }
+  const current = WEAPON_TREE[weapon];
 
-  // 2. 初始武器選擇（如果還沒選路線）
+  // 1. 第一次升級：直接讓玩家選流派（四條路線各一張，選完就固定了）
   if (!ps.route && weapon === 'NORMAL') {
-    const starters = ['RAPID', 'SPREAD', 'PLASMA', 'SUMMON'];
-    for (const w of starters) {
-      const wp = WEAPON_TREE[w];
-      options.push({
-        type: 'starter',
-        id: w,
-        title: wp.name,
-        desc: wp.desc,
-        icon: wp.icon,
-        color: wp.color
-      });
-    }
+    return STARTER_WEAPONS
+      .filter((id) => WEAPON_TREE[id])
+      .map((id) => upgradeCard('starter', WEAPON_TREE[id]));
   }
 
-  // 3. 被動技能（最多 3 個）
-  const availablePassives = PASSIVE_SKILLS.filter(p => !ps.passives.includes(p.id));
-  shuffle(availablePassives);
-  const shuffledPassives = availablePassives.slice(0, 2);
-  for (const p of shuffledPassives) {
-    options.push({
-      type: 'passive',
-      id: p.id,
-      title: p.name,
-      desc: p.desc,
-      icon: p.icon,
-      color: p.color
-    });
+  const options = [];
+
+  // 2. 武器進化：固定第一張（不用抽，抽不到是設計缺陷）
+  if (current && current.next && WEAPON_TREE[current.next]) {
+    const next = WEAPON_TREE[current.next];
+    options.push(upgradeCard('weapon', next, `[${next.route} 路線] `));
   }
 
-  // 4. 主動技能
+  // 3. 補到 3 張：被動技能（沒拿過的）＋ 主動技能（還沒有才給）＋ 通用升級
+  const extras = [];
+  const passives = shuffle(PASSIVE_SKILLS.filter((p) => !ps.passives.includes(p.id)));
+  for (const p of passives.slice(0, 2)) {
+    extras.push({ type: 'passive', id: p.id, title: p.name, desc: p.desc, icon: p.icon, color: p.color });
+  }
   if (!ps.activeSkill && ACTIVE_SKILLS.length > 0) {
-    const shuffledActive = shuffle([...ACTIVE_SKILLS]).slice(0, 1);
-    for (const a of shuffledActive) {
-      options.push({
-        type: 'active',
-        id: a.id,
-        title: a.name,
-        desc: `${a.desc} [${a.key}]`,
-        icon: a.icon,
-        color: '#ffd700'
-      });
-    }
+    const a = ACTIVE_SKILLS[(rnd() * ACTIVE_SKILLS.length) | 0];
+    extras.push({ type: 'active', id: a.id, title: a.name, desc: `${a.desc} [${a.key}]`, icon: a.icon, color: '#ffd700' });
   }
-
-  // 5. 通用升級（如果武器卡不夠 3 張）
-  const generalUpgrades = [
+  const general = [
     { id: 'SPEED', title: '引擎增壓', desc: '移動速度 +20%', icon: '⚡', color: '#44ff44' },
     { id: 'HEAL', title: '裝甲修復', desc: '最大生命 +1', icon: '💚', color: '#ff44ff' },
-    { id: 'PIERCE', title: '穿甲彈頭', desc: '子彈可貫穿', icon: '🎯', color: '#ffaa00' }
+    { id: 'PIERCE', title: '穿甲彈頭', desc: '子彈可貫穿', icon: '🎯', color: '#ffaa00' },
   ];
-  shuffle(generalUpgrades);
-  const shuffledGeneral = generalUpgrades.slice(0, 1);
-  for (const g of shuffledGeneral) {
-    options.push(g);
-  }
+  shuffle(general);
+  extras.push(general[0]);
 
-  // 只保留 3 張，隨機
-  shuffle(options);
-  return options.slice(0, 3);
+  // 打亂補位卡，但武器卡永遠留在第一張（玩家一眼就知道「這次能進化」）
+  shuffle(extras);
+  for (const e of extras) {
+    if (options.length >= 3) break;
+    options.push(e);
+  }
+  return options;
 }
 
 function showUpgradeScreen() {
@@ -5340,14 +5291,6 @@ function updateSummonEntities() {
       }
     }
 
-    if (se.type === 'fire') {
-      for (const e of G.enemies) {
-        if (e.alive && Math.hypot(e.x - se.x, e.y - se.y) < TILE * 1.5) {
-          e.hp -= se.damage;
-        }
-      }
-    }
-
     if (se.life <= 0) se.alive = false;
   }
 
@@ -5381,12 +5324,6 @@ function drawSummonEntities() {
     } else if (se.type === 'decoy') {
       ctx.fillStyle = `rgba(255,200,200,${se.life / se.maxLife * 0.5})`;
       ctx.fillRect(se.x, se.y, TILE, TILE);
-    } else if (se.type === 'fire') {
-      const alpha = se.life / se.maxLife * 0.4;
-      ctx.fillStyle = `rgba(255,100,0,${alpha})`;
-      ctx.beginPath();
-      ctx.arc(se.x + TILE/2, se.y + TILE/2, TILE * 1.5, 0, Math.PI * 2);
-      ctx.fill();
     }
   }
 }
@@ -5621,7 +5558,7 @@ requestAnimationFrame(gameLoop);
   // 需要它們才能驅動內部狀態，所以在 ?bot 時一併掛出來。
   window.__T = {
     // 驗證工具會呼叫的函式
-    applyUpgrade, buyItem, handleBulletHit, updateBullet, drawEagleDirect, eagleSprite,
+    applyUpgrade, generateUpgradeOptions, buyItem, handleBulletHit, updateBullet, drawEagleDirect, eagleSprite,
     spawnEnemy, updateDirector, updateDirectorEvents, updateSummonEntities, damagePlayerFromHazard,
     stepTicks, gameChecksum, seed: SEED, deterministic: DETERMINISTIC, fx,
     // update／render 分開掛出來：headless 的 rAF 不可靠（實測空頁面只有 8.8 fps），

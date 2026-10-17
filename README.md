@@ -10,7 +10,9 @@
 - 主動技能：`Q`　暫停：`P`　商店：`B`　音樂：`N`（或 HUD 按鈕）
 - 效能面板：`F3`
 
-每 3 關可選一次升級模組（武器進化／被動／主動技能），每 5 關打一隻 BOSS
+武器系統：**四條流派 × 3 級**（快速射擊／散射爆破／雷射貫穿／召喚塔防），第一次升級選流派、
+之後每 3 關固定拿到「下一階武器」＋ 2 張補位卡（被動／主動／通用）。
+每 5 關打一隻 BOSS
 （**三型輪替**：攻城核心／獵殺者／蜂巢母艦，打法完全不同），每 10 關進入生存割草模式。
 連續擊殺會累積 COMBO，**每 10 連擊**給額外分數 + 一個道具（見〈連擊獎勵〉）。
 
@@ -38,7 +40,7 @@ src/platform/       平台層（純函式，Node 可測；不碰遊戲內部狀�
   touch-ui.js         螢幕搖桿與 FIRE 鍵（依賴注入：touch／getConfig／isMobile／doc／win）
 src/data/           資料層：唯一來源，這裡改數值就是改遊戲
   config.js           CONFIG（畫布、子彈、粒子、池、AI、玩法）
-  weapons.js          四條流派樹、射擊參數、起始武器、掉落池
+  weapons.js          四條流派樹（各 3 級）、射擊參數、起始武器、掉落池
   upgrades.js         被動／主動技能
   pickups.js          道具與掉落池
   enemies.js          菁英詞綴、特殊敵人類型
@@ -49,10 +51,10 @@ src/data/           資料層：唯一來源，這裡改數值就是改遊戲
   schema.js           必填欄位、型別、進度鏈、可達性規則
 tools/              驗證與量測工具（Node + Playwright）
   verify-core.mjs     核心／平台層／渲染／UI 單元測試（91 項，純 Node）
-  verify-data.mjs     資料層閘門（等價／schema／可達性／死欄位／BOSS 輪替，10 項，純 Node）
+  verify-data.mjs     資料層閘門（等價／精簡／schema／可達性／死欄位／BOSS 輪替，12 項，純 Node）
   verify-replay.mjs   確定性與 replay（seed + 輸入 → checksum，14 項）
   verify-bundle.mjs   打包版與模組版行為等價（8 項）
-  verify-game.mjs     遊戲行為與平台細節（53 項）
+  verify-game.mjs     遊戲行為與平台細節（56 項）
   profile.mjs         效能：update／issue／光柵分開量 + draw call 次數 + CPU hot
   render-hash.mjs     畫面指紋：渲染改動前後是否逐像素相同（A/B 用，不是 CI 基準）
 ```
@@ -85,12 +87,12 @@ detectMobile` 這種碰撞會讓別名指向自己造成無限遞迴 —— 實�
 
 ```bash
 node tools/verify-core.mjs    # 核心／平台層／渲染／UI 單元測試（91 項，純 Node、秒級）
-node tools/verify-data.mjs    # 資料層閘門（10 項，純 Node、秒級）
+node tools/verify-data.mjs    # 資料層閘門（12 項，純 Node、秒級）
 node tools/verify-replay.mjs  # 確定性與 replay（14 項，含 BOSS 關 replay）
 #   PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-replay.mjs   # 對正式站驗
 node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay
 node tools/verify-bundle.mjs  # 打包版與模組版行為等價（8 項，Playwright）
-node tools/verify-game.mjs    # 遊戲行為與平台細節（53 項，Playwright）
+node tools/verify-game.mjs    # 遊戲行為與平台細節（56 項，Playwright）
 #   PW_MODULE=/path/to/playwright/index.js node tools/verify-game.mjs
 #   PROBE_URL=https://cormort.github.io/tank-battle/ node tools/verify-game.mjs   # 打遠端
 
@@ -112,6 +114,7 @@ node tools/render-hash.mjs    # 畫面指紋：渲染改動前後是不是「逐
 | C 可達性 | 每個詞綴／事件／商店類型／道具／特殊敵人都有處理與生成路徑 | `'SUMMON'` 與 `'SUMMONER'` 拼字不符、五種特殊敵人有 AI 卻沒有生成端 |
 | D 死欄位 | 資料表每個葉節點都要有讀取端 | `POWER_UPS.duration`、`MAP_EVENTS.effect`、`STARTER_WEAPONS`、`SURGE.deactivate` 這些「宣告了卻沒接線」 |
 | E BOSS／連擊 | `BOSS_ORDER` 覆蓋每一隻王且不重複、`bossTypeForLevel` 對任何關卡都回傳合法 id、相鄰 BOSS 不同型、`COMBO_REWARDS.pool` 的道具都存在於 `POWER_UPS` | 王永遠只出某一型、連擊獎勵掉出 `undefined` 道具 |
+| E2 精簡 | 被精簡的表只能「剛好刪掉列出的條目」，留下的條目除 `changedFields` 外逐值不變 | 以「精簡」為名順手改掉數值、刪錯條目 |
 
 > 新表（`BOSS_TYPES`／`BOSS_ORDER`／`COMBO_REWARDS`）刻意**不進**基準快照：快照的角色是
 > 「偵測既有內容的非預期漂移」，新內容的正確性交給 B／C／D／E 四組（schema：pattern 專屬
@@ -169,7 +172,7 @@ fx.clearAll();                                      // restartGame() 內，重�
 兩支工具都支援 `PROBE_URL`，可以直接對生產環境跑：
 
 ```bash
-PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-game.mjs    # 53 項行為與平台檢查
+PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-game.mjs    # 56 項行為與平台檢查
 PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-replay.mjs  # seed + 輸入 → checksum 等價
 ```
 
@@ -222,7 +225,7 @@ BOSS 關的 replay `4234719609`，B3b 另外驗一次 —— 王的程式碼在 
 
 ### `verify-game.mjs`（行為與平台）
 
-53 項：A 主玩法（武器進化鏈、商店扣分時機、BARRIER 時效、BOOST 方向、子彈壽命回收、
+56 項：A 主玩法（武器進化鏈、升級卡規則、商店扣分時機、BARRIER 時效、BOOST 方向、子彈壽命回收、
 關卡結算與 BOSS 出生閘門、菁英詞綴）、B 行動裝置與輸入（手機橫向可玩、DPR、觸控目標、
 失焦放開輸入與自動暫停、Space 對聚焦按鈕有效、例外不凍結遊戲）、
 C 效能（老鷹離屏快取、sprite 實例快取、粒子批次、NIGHT 漸層重用、音效發聲上限、F3 面板、
@@ -235,6 +238,34 @@ H4 蜂巢母艦召喚、H5 每 10 連擊加分 + 掉道具）。
 > B7／F6 是「例外不凍結遊戲」與「發光敵人畫得出來」這兩條。它們原本用真實時間等 rAF，
 > 在慢主機上會變成假紅（實測空頁面 rAF 只有 8.8 fps），現在改成**同步呼叫 `update()`／
 > `render()`**：一次 render 一定扣一次 `glowTimer`，`frameCount` 有沒有前進也不再取決於主機速度。
+
+### 武器系統（精簡後：四條流派 × 3 級）
+
+精簡前是每條流派 4 級（16 把），而中間那一階只是「子彈變多、數字變大」（CHAINGUN／NAPALM／
+T_LASER／TURRET）——升級卡上分不出差別，卻要多記 4 個名字。現在：
+
+| 路線 | 玩法 | 1 → 2 → 3 |
+| :--- | :--- | :--- |
+| ⚡ A 高射速 | 高 DPS、貫穿、單發低 | 快速射擊 → 格林機槍 → 過載出火（1→2→4 管） |
+| 💫 B 散射爆破 | 清怪、命中分裂、每 3 秒全螢幕轟炸 | 散彈核心 → 集束彈頭 → 末日轟炸 |
+| 🔷 C 雷射貫穿 | 打王、超遠距、穿透障礙 | 電漿武器 → 雙光束炮 → 歐米茄射線 |
+| 🛠️ D 召喚塔防 | 本體弱、砲塔越疊越強 | 工程師 → 維修無人機 → 要塞核心（4 座砲台） |
+
+數值沒有動 —— 刪掉的是中間階，所以終形會提早一關拿到。
+
+**升級卡規則也一起簡化了**（這才是「複雜」的真正來源）：
+
+1. **第一次升級 = 選流派**：固定給 4 張流派卡，選完就固定路線（舊版是 4 張流派卡和其他卡一起
+   洗牌後抽 3 張，玩家可能連自己有幾條路線都看不到）。
+2. **之後每 3 關 = 第 1 張固定是「下一階武器」**，另外 2 張從被動／主動／通用裡抽。
+   舊版把武器卡和其他卡一起洗牌再取 3 張 → **升級畫面裡沒有武器卡是常態**，玩家看得到一堆
+   被動技能卻不知道自己的武器要怎麼長大。
+3. 武器到終形（沒有 `next`）就不再出武器卡，但仍然給滿 3 張。
+
+「刪掉」這件事也進閘門：`tools/verify-data.mjs` 的 `SIMPLIFIED` 表要求「只能剛好刪掉列出的
+條目、留下的條目逐值不變」，所以不會出現「以精簡為名、順手改數值」的漂移；基準快照本身
+沒有被覆寫，歷史值仍然留在 git 裡。順帶刪掉的死碼：`BURN_ZONE`（凝固汽油彈的效果）與
+`summonEntities` 的 `fire` 型別 —— 唯一會產生它們的武器已經不在了。
 
 ### 遊戲性：BOSS 三型（每 5 關輪替）
 
