@@ -18,6 +18,7 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const T_TILE_FOR_TEST = () => 26;   // CONFIG.CANVAS.TILE，只給 Node 端的斷言用（evaluate 內用 T.TILE）
 const PORT = Number(process.env.PROBE_PORT || 8941);
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -360,7 +361,9 @@ const stateFlow = await page.evaluate(async () => {
   G.state = T.STATES.PLAYING;
   G.isVSMode = false; G.level = 2; G.bossSpawned = true;
   G.maxEnemies = 12; G.enemiesSpawned = 12; G.aliveEnemies = 0; G.enemies.length = 0;
-  await wait(120);                       // → levelComplete（由每 tick 的 checkLevelComplete）
+  // 用 stepTicks 同步推進，不要靠 rAF：headless 的 rAF 可能只有 8 fps，等 120ms 有時連一幀都沒有
+  // （這一條就因此紅過）。checkLevelComplete 是每 tick 檢查的，跑 3 個 tick 足夠。
+  T.stepTicks(3);                        // → levelComplete（由每 tick 的 checkLevelComplete）
   const afterLevel = G.state;
   T.showGameOver();                      // → gameover
   const afterGameOver = G.state;
@@ -986,6 +989,188 @@ const pausedPlayer = await page.evaluate(() => {
 ok('C12 暫停時玩家坦克仍會畫出來（舊版按 P 之後自己的坦克當場消失）',
   pausedPlayer.playing > 0 && pausedPlayer.paused > 0 && !pausedPlayer.gameover,
   JSON.stringify(pausedPlayer));
+
+console.log('\n=== H. BOSS 原型與連擊獎勵（遊戲性）===');
+// H1：三種 BOSS 原型輪替，數值真的從資料表來（舊版每隻王都是同一個紅坦克）
+const bossArch = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  const out = [];
+  for (const level of [5, 10, 15, 20]) {
+    G.level = level;
+    const e = new T.Tank(T.TILE * 5, T.TILE * 3, T.DOWN, 'BOSS', false);
+    const arch = T.BOSS_TYPES[e.bossType];
+    out.push({
+      level, bossType: e.bossType,
+      hpOK: e.maxHp === Math.round((15 + level * 5) * arch.hpMult),
+      sizeOK: Math.abs(e.size - T.TILE * arch.sizeMult) < 1e-9,
+      speedOK: Math.abs(e.speed - 0.6 * arch.speedMult) < 1e-9,
+      pattern: arch.pattern,
+    });
+  }
+  return out;
+});
+ok('H1 第 5／10／15 關是三種不同原型，血量／體型／速度都依資料表計算',
+  bossArch[0].bossType === 'SIEGE' && bossArch[1].bossType === 'HUNTER' && bossArch[2].bossType === 'SWARMER'
+  && bossArch[3].bossType === 'SIEGE'
+  && bossArch.every((b) => b.hpOK && b.sizeOK && b.speedOK),
+  JSON.stringify(bossArch.map((b) => `${b.level}:${b.bossType}/${b.pattern}`)));
+
+// H2：攻城核心會炮擊（砲彈是真的在飛的子彈），砲彈爆炸會傷到落點附近的玩家
+const siegeFight = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  G.isVSMode = false; G.maxEnemies = 1e9; G.enemiesSpawned = 0; G.spawnTimer = 1e9;
+  G.enemies.length = 0; G.aliveEnemies = 0;
+  T.bulletsPool.clear(); T.particlesPool.clear();
+  T.fx.clearAll();
+  G.playerStats.hp = 9; G.player.hp = 9; G.player.alive = true;
+  G.player.x = T.TILE * 9; G.player.y = T.TILE * 14;
+  G.level = 5;
+  const boss = new T.Tank(T.TILE, T.TILE * 2, T.DOWN, 'BOSS', false);
+  G.enemies.push(boss); G.aliveEnemies = 1;
+
+  let seenShells = 0;
+  for (let i = 0; i < 130; i++) {
+    T.update();
+    const n = T.bulletsPool.active.filter((b) => b.shell).length;
+    if (n > seenShells) seenShells = n;
+  }
+  const shellCount = T.bulletsPool.active.filter((b) => b.shell).length;
+
+  // 爆炸傷害：把一顆砲彈放在玩家旁邊引爆（引信到期）
+  const hpBefore = G.player.hp;
+  T.bulletsPool.clear();
+  const mkShell = (fuse) => {
+    const sh = T.bulletsPool.acquire();
+    sh.shell = true; sh.shellBoss = 'SIEGE'; sh.fuse = fuse;
+    sh.vx = 0; sh.vy = 0; sh.speed = 0; sh.isPlayer = false;
+    sh.x = G.player.x + 4; sh.y = G.player.y + 4;
+    return sh;
+  };
+  mkShell(1);
+  T.update();
+  const hpAfter = G.player.hp;
+
+  // 直接撞到玩家也是「爆炸」，不是普通子彈命中（同一條傷害路徑，護盾／無敵判定只有一份）
+  G.player.flashTimer = 0;
+  G.player.hp = 9;
+  T.bulletsPool.clear();
+  mkShell(100);
+  T.update();
+  const hpContact = G.player.hp;
+  const shellsLeft = T.bulletsPool.active.filter((b) => b.shell && b.alive).length;
+  T.bulletsPool.clear();
+  return { seenShells, shellCount, hpBefore, hpAfter, hpContact, shellsLeft };
+});
+ok('H2 攻城核心會發射砲彈（子彈池裡出現 shell）；引信到期與直接命中都會引爆並傷到玩家',
+  siegeFight.seenShells > 0
+  && siegeFight.hpAfter === siegeFight.hpBefore - 1
+  && siegeFight.hpContact === 8 && siegeFight.shellsLeft === 0,
+  JSON.stringify(siegeFight));
+
+// H3：獵殺者會蓄力→高速衝刺→撞碎磚牆 →撞到鋼板才硬直（硬直期間完全不能動）
+//     場地自己鋪：把一條縱向走廊清空、底部放鋼板，這樣測試不受「上一條測試留下的地圖」影響。
+const hunterFight = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  G.isVSMode = false; G.maxEnemies = 1e9; G.enemiesSpawned = 0; G.spawnTimer = 1e9;
+  G.enemies.length = 0; G.aliveEnemies = 0;
+  T.bulletsPool.clear(); T.fx.clearAll();
+  G.playerStats.hp = 9; G.player.hp = 9; G.player.alive = true;
+  G.level = 10;
+
+  const COLS = G.map[0].length;
+  const fill = (r0, r1, c0, c1, v) => {
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) G.map[r][c] = v;
+  };
+  // 走廊：col 2~4、row 1~17 清空；底部 row 17 鋪鋼板（衝到那裡才會被擋住）
+  fill(1, 17, 2, 4, T.EMPTY);
+  fill(17, 17, 2, 4, T.STEEL);
+  // 走廊中間放一堵磚牆：驗「衝刺會把磚牆撞碎」
+  const brickR = 9;
+  fill(brickR, brickR, 2, 3, T.BRICK);
+
+  const boss = new T.Tank(T.TILE * 2, T.TILE * 3, T.DOWN, 'BOSS', false);
+  G.enemies.push(boss); G.aliveEnemies = 1;
+  G.player.x = T.TILE * 2; G.player.y = T.TILE * 15;
+
+  let chargeTicks = 0, dashDist = 0, stunTicks = 0, stunMoved = 0, stunEpisodes = 0, wasStunned = false;
+  let brickBefore = 0;
+  for (let r = brickR; r <= brickR; r++) for (let c = 2; c <= 3; c++) if (G.map[r][c] === T.BRICK) brickBefore++;
+
+  for (let i = 0; i < 600; i++) {
+    const x0 = boss.x, y0 = boss.y;
+    T.update();
+    const step = Math.abs(boss.x - x0) + Math.abs(boss.y - y0);
+    if (boss.chargeTicks > 0) { chargeTicks++; dashDist += step; }
+    if (boss.stunTicks > 0) {
+      stunTicks++;
+      if (!wasStunned) stunEpisodes++;      // 新的一段硬直：只累計「硬直期間」的位移
+      else stunMoved += step;
+    }
+    wasStunned = boss.stunTicks > 0;
+  }
+
+  let brickAfter = 0;
+  for (let r = brickR; r <= brickR; r++) for (let c = 2; c <= 3; c++) if (G.map[r][c] === T.BRICK) brickAfter++;
+  return {
+    chargeTicks, dashDist: +dashDist.toFixed(1), stunTicks, stunMoved: +stunMoved.toFixed(1), stunEpisodes,
+    bricksBroken: brickBefore - brickAfter, brickBefore, bossY: +boss.y.toFixed(0),
+  };
+});
+ok('H3 獵殺者會衝刺（位移 > 2 格）→ 撞碎磚牆 → 撞到鋼板才硬直（硬直期間不動）',
+  hunterFight.chargeTicks > 0 && hunterFight.dashDist > T_TILE_FOR_TEST() * 2
+  && hunterFight.bricksBroken > 0
+  && hunterFight.stunEpisodes > 0 && hunterFight.stunMoved < 8,
+  JSON.stringify(hunterFight));
+
+// H4：蜂巢母艦會依 spawnCooldown 生出小兵
+const swarmerFight = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  G.isVSMode = false; G.maxEnemies = 1e9; G.enemiesSpawned = 0; G.spawnTimer = 1e9;
+  G.enemies.length = 0; G.aliveEnemies = 0;
+  T.bulletsPool.clear(); T.fx.clearAll();
+  G.playerStats.hp = 9; G.player.hp = 9; G.player.alive = true;
+  G.level = 15;
+  const arch = T.BOSS_TYPES.SWARMER;
+  const boss = new T.Tank(T.TILE, T.TILE * 2, T.DOWN, 'BOSS', false);
+  G.enemies.push(boss); G.aliveEnemies = 1;
+  const before = G.enemiesSpawned;
+  for (let i = 0; i < arch.spawnCooldown + 5; i++) T.update();
+  return { delta: G.enemiesSpawned - before, expect: arch.spawnCount, enemies: G.enemies.length };
+});
+ok('H4 蜂巢母艦會在冷卻後召喚 spawnCount 隻小兵',
+  swarmerFight.delta === swarmerFight.expect && swarmerFight.enemies >= 2,
+  JSON.stringify(swarmerFight));
+
+// H5：連擊里程碑（每 every 連擊）會加分並掉一個道具
+const comboReward = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  G.isVSMode = false;
+  G.powerUps.length = 0;
+  G.playerStats.combo = 0;
+  G.player.alive = true;
+  const score0 = G.score;
+  const steps = [];
+  for (let i = 0; i < 10; i++) {
+    T.addCombo(true);
+    steps.push({ combo: G.playerStats.combo, score: G.score, drops: G.powerUps.length });
+  }
+  const at9 = steps[8], at10 = steps[9];
+  return {
+    expectEvery: T.COMBO_REWARDS.every,
+    scoreJump: at10.score - at9.score,
+    dropsAt10: at10.drops,
+    dropType: G.powerUps[0] && G.powerUps[0].type,
+    poolHas: T.COMBO_REWARDS.pool.includes(G.powerUps[0] && G.powerUps[0].type),
+    totalGain: G.score - score0,
+  };
+});
+ok('H5 每 10 連擊會額外加分並掉一個 COMBO_REWARDS.pool 內的道具',
+  comboReward.expectEvery === 10 && comboReward.dropsAt10 === 1
+  && comboReward.totalGain >= 100 && comboReward.dropType && comboReward.poolHas,
+  JSON.stringify(comboReward));
 
 console.log(`\n${passed} passed, ${failed} failed  (pageerror: ${pageErrors.length})`);
 await browser.close();

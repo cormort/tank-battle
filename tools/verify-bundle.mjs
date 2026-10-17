@@ -116,9 +116,15 @@ ok('B4 ?bot 除錯介面齊全（replay 與測試都靠它）',
   debugSurface.hasG && debugSurface.stepTicks === 'function' && debugSurface.checksum === 'function' && debugSurface.states && debugSurface.fx,
   JSON.stringify(debugSurface));
 
-const result = await page.evaluate(({ ticks, events }) => {
+const result = await page.evaluate(({ ticks, events, level }) => {
   const T = window.__T, G = T.G;
   G.state = T.STATE.PLAYING;
+  if (level && level > 1) {
+    // 與 verify-replay 相同的「直接開在 BOSS 關」規則，讓打包版也走過王的路徑
+    G.level = level;
+    T.startLevel();
+    if (level % 5 === 0) G.enemiesSpawned = G.maxEnemies - 1;
+  }
   const byTick = new Map();
   for (const ev of events || []) {
     if (!byTick.has(ev.tick)) byTick.set(ev.tick, []);
@@ -136,6 +142,36 @@ const result = await page.evaluate(({ ticks, events }) => {
 ok('B3 打包版跑同一份 replay，checksum 與模組版一致（行為等價）',
   result.checksum === replay.checksum,
   `打包版 ${result.checksum} vs 模組版 ${replay.checksum}｜score ${result.score}｜${result.frames} ticks`);
+
+// B3b：BOSS 關的 replay 也要等價（王的炮擊／衝撞／召喚都在 src/ 模組裡，打包最容易壞在這）
+const bossReplayPath = join(ROOT, 'tools', 'replays', 'boss.json');
+if (existsSync(bossReplayPath)) {
+  const bossReplay = JSON.parse(readFileSync(bossReplayPath, 'utf8'));
+  await page.goto(`http://127.0.0.1:${PORT}/index.html?bot&sim&seed=${encodeURIComponent(bossReplay.seed)}`, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => window.__T && window.__T.G, undefined, { timeout: 30000 });
+  await page.getByRole('button', { name: 'START GAME' }).click();
+  await page.waitForTimeout(250);
+  const bossResult = await page.evaluate(({ ticks, events, level }) => {
+    const T = window.__T, G = T.G;
+    G.state = T.STATE.PLAYING;
+    if (level && level > 1) { G.level = level; T.startLevel(); if (level % 5 === 0) G.enemiesSpawned = G.maxEnemies - 1; }
+    const byTick = new Map();
+    for (const ev of events || []) {
+      if (!byTick.has(ev.tick)) byTick.set(ev.tick, []);
+      byTick.get(ev.tick).push(ev);
+    }
+    for (let i = 0; i < ticks; i++) {
+      for (const ev of byTick.get(i) || []) {
+        document.dispatchEvent(new KeyboardEvent(ev.down ? 'keydown' : 'keyup', { code: ev.code, bubbles: true }));
+      }
+      T.stepTicks(1);
+    }
+    return { checksum: T.gameChecksum(), frames: G.frameCount, bossType: (G.enemies.find((e) => e.type === 'BOSS') || {}).bossType || null };
+  }, bossReplay);
+  ok('B3b 打包版跑 BOSS 關 replay，checksum 與模組版一致（王的原型與攻擊模式也等價）',
+    bossResult.checksum === bossReplay.checksum,
+    `打包版 ${bossResult.checksum} vs 模組版 ${bossReplay.checksum}｜${bossResult.frames} ticks`);
+}
 
 // bot.js / data-collector.js 是 ?bot 模式會嘗試載入的「選用」除錯腳本（repo 內不存在，
 // 載不到也不影響遊戲）—— 這兩個不算單檔自足的破口。

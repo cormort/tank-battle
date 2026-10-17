@@ -10,7 +10,9 @@
 - 主動技能：`Q`　暫停：`P`　商店：`B`　音樂：`N`（或 HUD 按鈕）
 - 效能面板：`F3`
 
-每 3 關可選一次升級模組（武器進化／被動／主動技能），每 10 關進入生存割草模式。
+每 3 關可選一次升級模組（武器進化／被動／主動技能），每 5 關打一隻 BOSS
+（**三型輪替**：攻城核心／獵殺者／蜂巢母艦，打法完全不同），每 10 關進入生存割草模式。
+連續擊殺會累積 COMBO，**每 10 連擊**給額外分數 + 一個道具（見〈連擊獎勵〉）。
 
 ## 專案結構
 
@@ -40,15 +42,17 @@ src/data/           資料層：唯一來源，這裡改數值就是改遊戲
   upgrades.js         被動／主動技能
   pickups.js          道具與掉落池
   enemies.js          菁英詞綴、特殊敵人類型
+  bosses.js           BOSS 三型（血量／速度／體型倍率 + 攻擊模式）與關卡→原型的輪替
+  rewards.js          連擊獎勵（每 N 連擊的分數與道具池）
   shop.js             商店品項
   events.js           Director 事件（工廠 + 注入 ctx）與地圖事件
   schema.js           必填欄位、型別、進度鏈、可達性規則
 tools/              驗證與量測工具（Node + Playwright）
   verify-core.mjs     核心／平台層／渲染／UI 單元測試（91 項，純 Node）
-  verify-data.mjs     資料層閘門（等價／schema／可達性／死欄位，5 項，純 Node）
-  verify-replay.mjs   確定性與 replay（seed + 輸入 → checksum，12 項）
-  verify-bundle.mjs   打包版與模組版行為等價（7 項）
-  verify-game.mjs     遊戲行為與平台細節（48 項）
+  verify-data.mjs     資料層閘門（等價／schema／可達性／死欄位／BOSS 輪替，10 項，純 Node）
+  verify-replay.mjs   確定性與 replay（seed + 輸入 → checksum，14 項）
+  verify-bundle.mjs   打包版與模組版行為等價（8 項）
+  verify-game.mjs     遊戲行為與平台細節（53 項）
   profile.mjs         效能：update／issue／光柵分開量 + draw call 次數 + CPU hot
   render-hash.mjs     畫面指紋：渲染改動前後是否逐像素相同（A/B 用，不是 CI 基準）
 ```
@@ -81,12 +85,12 @@ detectMobile` 這種碰撞會讓別名指向自己造成無限遞迴 —— 實�
 
 ```bash
 node tools/verify-core.mjs    # 核心／平台層／渲染／UI 單元測試（91 項，純 Node、秒級）
-node tools/verify-data.mjs    # 資料層閘門（5 項，純 Node、秒級）
-node tools/verify-replay.mjs  # 確定性與 replay（12 項）
+node tools/verify-data.mjs    # 資料層閘門（10 項，純 Node、秒級）
+node tools/verify-replay.mjs  # 確定性與 replay（14 項，含 BOSS 關 replay）
 #   PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-replay.mjs   # 對正式站驗
 node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay
-node tools/verify-bundle.mjs  # 打包版與模組版行為等價（7 項，Playwright）
-node tools/verify-game.mjs    # 遊戲行為與平台細節（48 項，Playwright）
+node tools/verify-bundle.mjs  # 打包版與模組版行為等價（8 項，Playwright）
+node tools/verify-game.mjs    # 遊戲行為與平台細節（53 項，Playwright）
 #   PW_MODULE=/path/to/playwright/index.js node tools/verify-game.mjs
 #   PROBE_URL=https://cormort.github.io/tank-battle/ node tools/verify-game.mjs   # 打遠端
 
@@ -107,6 +111,11 @@ node tools/render-hash.mjs    # 畫面指紋：渲染改動前後是不是「逐
 | B schema | 必填欄位／型別、`WEAPON_TREE.id === key`、四條進化鏈長度 4、商店價格 > 0… | 16 個武器條目缺 `id` 導致四條流派不可玩 |
 | C 可達性 | 每個詞綴／事件／商店類型／道具／特殊敵人都有處理與生成路徑 | `'SUMMON'` 與 `'SUMMONER'` 拼字不符、五種特殊敵人有 AI 卻沒有生成端 |
 | D 死欄位 | 資料表每個葉節點都要有讀取端 | `POWER_UPS.duration`、`MAP_EVENTS.effect`、`STARTER_WEAPONS`、`SURGE.deactivate` 這些「宣告了卻沒接線」 |
+| E BOSS／連擊 | `BOSS_ORDER` 覆蓋每一隻王且不重複、`bossTypeForLevel` 對任何關卡都回傳合法 id、相鄰 BOSS 不同型、`COMBO_REWARDS.pool` 的道具都存在於 `POWER_UPS` | 王永遠只出某一型、連擊獎勵掉出 `undefined` 道具 |
+
+> 新表（`BOSS_TYPES`／`BOSS_ORDER`／`COMBO_REWARDS`）刻意**不進**基準快照：快照的角色是
+> 「偵測既有內容的非預期漂移」，新內容的正確性交給 B／C／D／E 四組（schema：pattern 專屬
+> 欄位齊全、可達性：每個 pattern 在程式碼裡真的有分支、死欄位：每個葉節點都有讀取端）。
 
 > **D 的已知限制**：掃描是「以欄位名找讀取端」，同名欄位在別處被讀取就會算通過
 > （例如新增一個道具的 `duration` 會被 `MAP_EVENTS.duration` 的讀取掩蓋）。
@@ -160,17 +169,21 @@ fx.clearAll();                                      // restartGame() 內，重�
 兩支工具都支援 `PROBE_URL`，可以直接對生產環境跑：
 
 ```bash
-PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-game.mjs    # 48 項行為與平台檢查
+PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-game.mjs    # 53 項行為與平台檢查
 PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-replay.mjs  # seed + 輸入 → checksum 等價
 ```
 
 replay 那條是「行為等價」最強的證據：正式站跑同一份 replay 得到的 checksum 必須與
 `tools/replays/smoke.json` 相同（目前 `4108668566`）—— 也就是說，重寫前後的**遊戲行為逐位相同**。
+另有一份 `tools/replays/boss.json`（直接開在第 5 關、900 tick，checksum `4234719609`）：
+BOSS 原型／砲擊／爆炸只在那條路徑上，只有 smoke 的話「王相關的改動」在 replay 這道閘門
+是隱形的（實測：改完王，smoke 的 checksum 一個字都沒變）。
 
 ### `verify-bundle.mjs`（打包驗證）
 
 打包最容易出的錯是「打出來的檔案能開、但行為不一樣」。所以核心檢查是：
-**用同一份 replay 跑打包版，checksum 必須與模組版完全相同**（目前皆為 `4108668566`）。
+**用同一份 replay 跑打包版，checksum 必須與模組版完全相同**（smoke `4108668566`；
+BOSS 關的 replay `4234719609`，B3b 另外驗一次 —— 王的程式碼在 `src/` 模組裡，打包最容易壞在這）。
 另外檢查打包檔自足（沒有模組語法、沒有相對匯入、載入時不請求任何本地 `.js`）、
 不含工具鏈程式碼、`?bot` 除錯介面齊全。
 
@@ -182,6 +195,10 @@ replay 那條是「行為等價」最強的證據：正式站跑同一份 replay
 
 - R1 同一份 replay 跑兩次 → checksum 相同（沒有隱藏的隨機或時間依賴）
 - R2 重播結果與 `tools/replays/smoke.json` 記錄一致 → **玩法改動會讓這條紅**（相當於「玩一局」進 CI）
+- R7/R8 `tools/replays/boss.json`（第 5 關）：同一份 replay 跑兩次一致、與檔案記錄一致，
+  而且 `R8` 額外要求「這一局真的有遇到 BOSS」—— 否則那份 replay 會在王被改壞時安靜地繼續綠
+  （replay 檔可以帶 `level` 欄位，harness 會 `startLevel()` 到那一關，並把 `enemiesSpawned`
+  推到王的出生點之前，讓王一定會出現）
 - R3/R4 換 seed、換輸入都要得到不同結果（否則 replay 是假的）
 - S1–S4 原始碼層級：沒有 `Math.random()`、沒有與全域 `rnd` 同名的區域變數（會 TDZ）
 - X1／X2 **靜態掃描「呼叫了但沒有定義的裸函式」** —— 這是為了抓一個實際上線過的 bug：
@@ -205,17 +222,57 @@ replay 那條是「行為等價」最強的證據：正式站跑同一份 replay
 
 ### `verify-game.mjs`（行為與平台）
 
-48 項：A 主玩法（武器進化鏈、商店扣分時機、BARRIER 時效、BOOST 方向、子彈壽命回收、
+53 項：A 主玩法（武器進化鏈、商店扣分時機、BARRIER 時效、BOOST 方向、子彈壽命回收、
 關卡結算與 BOSS 出生閘門、菁英詞綴）、B 行動裝置與輸入（手機橫向可玩、DPR、觸控目標、
 失焦放開輸入與自動暫停、Space 對聚焦按鈕有效、例外不凍結遊戲）、
 C 效能（老鷹離屏快取、sprite 實例快取、粒子批次、NIGHT 漸層重用、音效發聲上限、F3 面板、
 沒有全螢幕填色、樹林逐格貼、暫停不重畫、暫停時玩家不消失）、
 E 資料接線（SURGE deactivate、空投真的掉寶、FREEZING 凍緩、特殊敵人生成、bomb/mine 傷害）、
-F 狀態機與輸入意圖、G 地圖事件（見下）。
+F 狀態機與輸入意圖、G 地圖事件（見下）、H BOSS 三型與連擊獎勵
+（H1 三型輪替與數值來源、H2 攻城核心的砲彈與爆炸傷害、H3 獵殺者衝刺→撞碎磚牆→撞鋼板才硬直、
+H4 蜂巢母艦召喚、H5 每 10 連擊加分 + 掉道具）。
 
 > B7／F6 是「例外不凍結遊戲」與「發光敵人畫得出來」這兩條。它們原本用真實時間等 rAF，
 > 在慢主機上會變成假紅（實測空頁面 rAF 只有 8.8 fps），現在改成**同步呼叫 `update()`／
 > `render()`**：一次 render 一定扣一次 `glowTimer`，`frameCount` 有沒有前進也不再取決於主機速度。
+
+### 遊戲性：BOSS 三型（每 5 關輪替）
+
+舊版每一隻 BOSS 都是同一個東西 —— 血很多的紅色大坦克、只會發散彈，打法完全一樣：
+玩到第 20 關的王跟第 5 關是同一個沙包，只是血變多。現在「王長什麼樣、怎麼攻擊」是資料
+（`src/data/bosses.js`），行為在 `index.html` 依 `pattern` 分派（`updateBossPattern`）：
+
+| 原型 | pattern | 威脅類型 | 數值／行為 | 對玩家的要求 |
+| :--- | :--- | :--- | :--- | :--- |
+| 💣 攻城核心 | `ARTILLERY` | 遠程範圍 | 血 ×1.2、慢、每 100 tick 一輪 3 發慢速砲彈，撞到地形或引信到期（150 tick）就炸，爆炸半徑 34px | 不能站樁：砲彈是「逼你離開落點」，不是慢慢飛過來 |
+| 🗡️ 獵殺者 | `CHARGE` | 貼身突進 | 血 ×0.85、快、蓄力 45 tick（紅圈警示）→ 衝刺 4.2 速度 × 28 tick，**會撞碎磚牆**（鋼板與邊界才擋得住） | 預判 + 抓牠撞牆後的 55 tick 硬直反打 |
+| 🐝 蜂巢母艦 | `SPAWN` | 持續增援 | 血 ×0.8、每 300 tick 召喚 2 隻小兵 | 清場壓力：不處理小兵會被淹掉 |
+
+- 輪替由 `bossTypeForLevel(level, interval)` 決定（第 5／10／15 關分別是攻城→獵殺→蜂巢，
+  第 20 關回到攻城），**相鄰兩隻王一定不同型**。
+- 舊有的階段升級（血量 75% 加速、50% 召喚 5 隻、25% 震動）三型都保留。
+- 畫面上分得出來：原型色外框 + 上方圖示 + 出場時彈出「💣 攻城核心」的文字；砲彈是 10×10
+  的橘紅閃爍方塊（不是一般 6×6 的白點），蓄力時有紅色擴散圈。
+- 兩個實作細節是「踩過才知道」的：**(1)** 王的體型是 2×2 格，衝刺撞牆時只撞中心那一格的話
+  磚牆永遠撞不開（每一輪都立刻暈眩、貼不到玩家）→ 改成撞碎「往前一步之後身體覆蓋到的所有
+  磚牆」；**(2)** 只有真的衝出去過（累積位移 ≥ 1 格）撞到東西才暈眩，否則貼著鋼板時每一輪
+  都暈眩，看起來像卡在牆邊發呆。
+
+### 遊戲性：連擊獎勵（每 10 連擊）
+
+舊版連擊只是「殺得多、分數高一點」：10 連擊時彈一行 `🔥 COMBO x10!`，沒有任何實質回饋，
+連擊窗口（120 tick）斷掉也無感。現在 `addCombo()` 每到 `COMBO_REWARDS.every`（10）連擊：
+
+1. 額外分數 `scorePerTier × min(檔次, maxTier)`（100／200／300…，上限 5 檔）；
+2. 掉一個 `COMBO_REWARDS.pool` 內的道具（⭐火力／🛡️護盾／⏱️時光／❤️+1／🧱堡壘）在玩家腳邊，
+   下一 tick 就會被拾取；
+3. 畫面震動 + 音效 + `🔥 COMBO x20! +200` 的文字。
+
+左下角的 `N COMBO` 下面有一條進度條（距離下一個里程碑還差多少）—— 沒有這條，玩家不會知道
+「再 3 次就會掉東西」，獎勵機制等於不存在。
+
+掉落池**刻意排除 BOMB**（一鍵清全場）：那會讓「連擊 → 更多連擊」變成滾雪球，在高密度關卡
+直接洗分。道具池的 id 由 `verify-data` 的 E 組檢查（打錯字會變成掉出 undefined 道具）。
 
 ### 效能：怎麼量、量到什麼（`tools/profile.mjs` + `tools/render-hash.mjs`）
 
@@ -260,10 +317,12 @@ F 狀態機與輸入意圖、G 地圖事件（見下）。
    而分色批次化省下的時間（≈ 0.1 ms）不值得失去「逐像素相同」這個性質。
    （同樣用量的子彈也試過改成 sprite `drawImage`：實測 0.28 → 0.58 ms，**更慢**，所以沒有採用。）
 
-渲染改動怎麼驗證「畫面沒變」：`tools/render-hash.mjs` 把 6 個固定場景（normal／+combo／vs／
-night／paused／menu）畫出來，對 `getImageData` 的每個像素算 FNV 指紋。這 6 個場景在改動前後
-**指紋全部相同**（唯一的例外是 `paused`：順手修掉「按 P 暫停後自己的坦克當場消失」—— 舊版
-`render()` 只在 `PLAYING` 畫玩家，而每一幀都會重畫整片戰場，所以那一格不會被保留下來）：
+渲染改動怎麼驗證「畫面沒變」：`tools/render-hash.mjs` 把固定場景畫出來（現在 8 個：
+normal／+combo／vs／night／paused／menu／boss_siege／boss_charge），對 `getImageData` 的
+每個像素算 FNV 指紋。渲染最佳化那一輪的 6 個場景在改動前後**指紋全部相同**（唯一的例外是
+`paused`：順手修掉「按 P 暫停後自己的坦克當場消失」—— 舊版 `render()` 只在 `PLAYING` 畫玩家，
+而每一幀都會重畫整片戰場，所以那一格不會被保留下來）；`boss_siege`／`boss_charge` 是這一輪
+新增遊戲性時加進來的場景，指紋自然與舊基準不同（王的外框、圖示、砲彈、蓄力圈都是新的）：
 
 ```bash
 node tools/render-hash.mjs --save /tmp/before.json   # 改之前

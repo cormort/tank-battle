@@ -102,6 +102,24 @@ const hashes = await page.evaluate(() => {
     G.player.alive = true; G.player.flashTimer = 0; G.player.moving = true;
     G.player.x = T.TILE * 5 + 3; G.player.y = T.TILE * 6;
 
+    // BOSS 原型（第 5／10 關）：讓 BOSS 的外框、圖示、砲彈、蓄力圈都進到指紋裡
+    if (kind === 'boss' || kind === 'boss_charge') {
+      G.level = kind === 'boss' ? 5 : 10;
+      const arch = T.BOSS_TYPES[kind === 'boss' ? 'SIEGE' : 'HUNTER'];
+      const b = new T.Tank(T.TILE * 3, T.TILE * 3, T.DOWN, 'BOSS', false);
+      b.hp = b.maxHp = 40;
+      b.patternTimer = kind === 'boss' ? 10 : Math.floor(arch.chargeWindup * 0.6);   // 讓蓄力圈畫得出來
+      G.enemies.push(b);
+      if (kind === 'boss') {
+        // 一顆正在飛的砲彈（攻城核心的視覺：10×10、橘紅、引信閃爍）
+        const sh = T.bulletsPool.acquire();
+        sh.shell = true; sh.shellBoss = 'SIEGE'; sh.fuse = 7;
+        sh.x = T.TILE * 6; sh.y = T.TILE * 7; sh.vx = 0; sh.vy = 1; sh.speed = 0; sh.isPlayer = false;
+      }
+    } else {
+      G.level = kind === 'normal' ? 1 : 10;
+    }
+
     const types = ['NORMAL', 'FAST', 'HEAVY', 'SUICIDE'];
     for (let i = 0; i < 6; i++) {
       const e = new T.Tank(T.TILE * (2 + i), T.TILE * (2 + (i % 3)), i % 4, types[i % 4], false);
@@ -111,9 +129,11 @@ const hashes = await page.evaluate(() => {
       if (i === 3) { e.glowTimer = 30; }
       G.enemies.push(e);
     }
-    const boss = new T.Tank(T.TILE * 12, T.TILE * 4, T.DOWN, 'BOSS', false);
-    boss.hp = boss.maxHp = 20;
-    G.enemies.push(boss);
+    if (kind !== 'boss' && kind !== 'boss_charge') {
+      const boss = new T.Tank(T.TILE * 12, T.TILE * 4, T.DOWN, 'BOSS', false);
+      boss.hp = boss.maxHp = 20;
+      G.enemies.push(boss);
+    }
     G.aliveEnemies = G.enemies.length;
 
     for (let i = 0; i < 24; i++) {
@@ -153,6 +173,8 @@ const hashes = await page.evaluate(() => {
   shoot('vs', 'vs');
   shoot('night', 'normal', { night: true });
   shoot('paused', 'normal', { paused: true });
+  shoot('boss_siege', 'boss');            // 攻城核心：外框／圖示／砲彈
+  shoot('boss_charge', 'boss_charge');    // 獵殺者：蓄力警示圈
 
   // menu：不在遊戲中（isGameplay=false）時畫的是一層純黑
   G.state = T.STATE.MENU;

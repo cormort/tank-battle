@@ -92,6 +92,56 @@ export function validateData(T) {
     ['name', 'color', 'icon'].forEach((f) => { if (!isStr(v[f])) add(`POWER_UPS.${k}.${f} 必須是非空字串`); });
   });
 
+  // ── BOSS_TYPES：三型的欄位齊全、pattern 是已知值、分數與體型倍率合理 ──
+  const bossTypes = T.BOSS_TYPES || {};
+  const bossKeys = Object.keys(bossTypes);
+  if (bossKeys.length === 0) add('BOSS_TYPES 是空的（王會全部退回 SIEGE）');
+  const KNOWN_PATTERNS = ['ARTILLERY', 'CHARGE', 'SPAWN'];
+  bossKeys.forEach((k) => {
+    const b = bossTypes[k];
+    if (b.id !== k) add(`BOSS_TYPES.${k}.id 必須等於 key（實際 ${JSON.stringify(b.id)}）`);
+    if (!KNOWN_PATTERNS.includes(b.pattern)) add(`BOSS_TYPES.${k}.pattern=${JSON.stringify(b.pattern)} 沒有對應的行為分支`);
+    ['name', 'color', 'icon'].forEach((f) => { if (!isStr(b[f])) add(`BOSS_TYPES.${k}.${f} 必須是非空字串`); });
+    ['hpMult', 'speedMult', 'sizeMult'].forEach((f) => { if (!isNum(b[f]) || b[f] <= 0) add(`BOSS_TYPES.${k}.${f} 必須 > 0`); });
+    if (!isNum(b.hpMult) || b.hpMult < 0.5 || b.hpMult > 3) add(`BOSS_TYPES.${k}.hpMult 應該在 0.5~3 之間`);
+    // pattern 專屬欄位：宣告了就必須有值，否則行為分支會拿 undefined 去算（NaN 座標的來源）
+    if (b.pattern === 'ARTILLERY') {
+      ['volleyCooldown', 'volleyCount', 'shellSpeed', 'shellFuse', 'blastRadius', 'blastPower']
+        .forEach((f) => { if (!isNum(b[f]) || b[f] <= 0) add(`BOSS_TYPES.${k}.${f}（ARTILLERY 必要）必須 > 0`); });
+    }
+    if (b.pattern === 'CHARGE') {
+      ['chargeWindup', 'chargeTicks', 'chargeSpeed', 'recoverTicks']
+        .forEach((f) => { if (!isNum(b[f]) || b[f] <= 0) add(`BOSS_TYPES.${k}.${f}（CHARGE 必要）必須 > 0`); });
+    }
+    if (b.pattern === 'SPAWN') {
+      ['spawnCooldown', 'spawnCount']
+        .forEach((f) => { if (!isNum(b[f]) || b[f] <= 0) add(`BOSS_TYPES.${k}.${f}（SPAWN 必要）必須 > 0`); });
+    }
+  });
+  // 輪替順序：每個 BOSS_TYPES 的 id 都要被排進去，而且不能重複（漏排會讓某隻王永遠不出現）
+  const order = Array.isArray(T.BOSS_ORDER) ? T.BOSS_ORDER : null;
+  if (!order || order.length !== bossKeys.length) {
+    add(`BOSS_ORDER 必須列出全部 ${bossKeys.length} 隻王（實際 ${JSON.stringify(order)}）`);
+  } else {
+    if (new Set(order).size !== order.length) add('BOSS_ORDER 有重複的 id');
+    order.forEach((id) => { if (!bossTypes[id]) add(`BOSS_ORDER 指向不存在的 BOSS_TYPES.${id}`); });
+    bossKeys.forEach((id) => { if (!order.includes(id)) add(`BOSS_TYPES.${id} 沒有排進 BOSS_ORDER（永遠不會出現）`); });
+  }
+
+  // ── COMBO_REWARDS：連擊獎勵的道具必須真的存在，否則會掉出 undefined ──
+  const cr = T.COMBO_REWARDS;
+  if (!isObj(cr)) {
+    add('COMBO_REWARDS 缺少或不是物件');
+  } else {
+    if (!isNum(cr.every) || cr.every < 1) add('COMBO_REWARDS.every 必須 >= 1');
+    if (!isNum(cr.scorePerTier) || cr.scorePerTier < 0) add('COMBO_REWARDS.scorePerTier 必須 >= 0');
+    if (!isNum(cr.maxTier) || cr.maxTier < 1) add('COMBO_REWARDS.maxTier 必須 >= 1');
+    if (!Array.isArray(cr.pool) || cr.pool.length === 0) add('COMBO_REWARDS.pool 必須是非空陣列');
+    (cr.pool || []).forEach((id) => {
+      if (!T.POWER_UPS || !T.POWER_UPS[id]) add(`COMBO_REWARDS.pool 的 ${JSON.stringify(id)} 不是 POWER_UPS 的 id（會掉出 undefined 道具）`);
+    });
+  }
+
   // ── ELITE_PREFIXES / DIRECTOR_EVENTS ──
   Object.entries(T.ELITE_PREFIXES || {}).forEach(([k, v]) => {
     ['name', 'color'].forEach((f) => { if (!isStr(v[f])) add(`ELITE_PREFIXES.${k}.${f} 必須是非空字串`); });
@@ -153,5 +203,17 @@ export function validateReachability(T, gameSource) {
   specials.forEach((type) => {
     if (!has(`'${type}'`)) p.push(`SPECIAL_ENEMY_TYPES 的 ${type} 沒有 AI 處理分支`);
   });
+  // BOSS 原型：每個 pattern 都要有分派分支，而且整張表要真的被生成端用到
+  const bossTypes = T.BOSS_TYPES || {};
+  Object.keys(bossTypes).forEach((k) => {
+    const pattern = bossTypes[k].pattern;
+    if (!has(`'${pattern}'`)) p.push(`BOSS_TYPES.${k}.pattern='${pattern}' 在程式碼裡沒有分支（這隻王只會站著）`);
+  });
+  if (Object.keys(bossTypes).length && !has('bossTypeForLevel')) {
+    p.push('BOSS_TYPES 沒有任何生成端使用（每隻王都會退回同一型）');
+  }
+  if (T.COMBO_REWARDS && !has('COMBO_REWARDS')) {
+    p.push('COMBO_REWARDS 沒有任何地方使用（連擊里程碑不會有獎勵）');
+  }
   return p;
 }

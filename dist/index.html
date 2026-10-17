@@ -340,8 +340,79 @@
 
 <script>
 /* 由 tools/build-single-file.mjs 產生 —— 請勿直接編輯；改 src/ 或 index.html 後重新打包。
- * 內含 21 個模組：src/data/config.js、src/data/enemies.js、src/data/events.js、src/data/pickups.js、src/data/shop.js、src/data/upgrades.js、src/data/weapons.js、src/data/index.js、src/core/rng.js、src/core/effects.js、src/platform/viewport.js、src/platform/input.js、src/core/state.js、src/platform/audio.js、src/platform/lifecycle.js、src/platform/touch-ui.js、src/render/tiles.js、src/render/sprites.js、src/render/effects.js、src/ui/hud.js、src/ui/screens.js
+ * 內含 23 個模組：src/data/bosses.js、src/data/config.js、src/data/enemies.js、src/data/events.js、src/data/pickups.js、src/data/rewards.js、src/data/shop.js、src/data/upgrades.js、src/data/weapons.js、src/data/index.js、src/core/rng.js、src/core/effects.js、src/platform/viewport.js、src/platform/input.js、src/core/state.js、src/platform/audio.js、src/platform/lifecycle.js、src/platform/touch-ui.js、src/render/tiles.js、src/render/sprites.js、src/render/effects.js、src/ui/hud.js、src/ui/screens.js
  */
+// ── src/data/bosses.js ──
+// BOSS 原型：每 5 關一隻，三型輪替。
+//
+// 為什麼要有這個：舊版每一隻 BOSS 都是同一個東西 —— 血很多的紅色大坦克、只會發散彈、
+// 血量到 75% / 50% / 25% 時加速／召喚／抖一下，打法完全一樣。玩到第 20 關的王跟第 5 關的王
+// 是同一個沙包，只是血變多。這裡把「王長什麼樣、怎麼攻擊」抽成資料表，行為在 index.html 依
+// `pattern` 分派（ARTILLERY／CHARGE／SPAWN），所以新增一隻王＝加一筆資料 + 一個 pattern 分支。
+//
+// 數值刻意讓三型的「威脅類型」不同（不是同一組數值換皮）：
+//   SIEGE   血厚、慢、遠程炮擊 → 逼玩家移動，不能站樁輸出
+//   HUNTER  血薄、快、貼身衝撞 → 逼玩家預判，抓牠衝撞後的硬直反打
+//   SWARMER 血最薄、持續召喚    → 逼玩家清場，否則小兵會把場地淹掉
+
+const BOSS_TYPES = {
+  SIEGE: {
+    id: 'SIEGE',
+    name: '攻城核心',
+    pattern: 'ARTILLERY',
+    color: '#b06000',
+    icon: '💣',
+    hpMult: 1.2,          // 血最厚：站樁打不死，要靠走位躲炮
+    speedMult: 0.7,
+    sizeMult: 1.7,
+    volleyCooldown: 100,  // 每 100 tick 一輪炮擊
+    volleyCount: 3,       // 一輪 3 發
+    shellSpeed: 2.2,
+    shellFuse: 150,       // 砲彈最多飛 150 tick（≈330px），沒打到東西也會炸
+    blastRadius: 34,      // 爆炸半徑（px）
+    blastPower: 1,
+  },
+  HUNTER: {
+    id: 'HUNTER',
+    name: '獵殺者',
+    pattern: 'CHARGE',
+    color: '#a020a0',
+    icon: '🗡️',
+    hpMult: 0.85,
+    speedMult: 1.1,
+    sizeMult: 1.4,
+    chargeWindup: 45,     // 蓄力 45 tick（畫面有警示圈）
+    chargeTicks: 28,      // 衝刺 28 tick
+    chargeSpeed: 4.2,
+    recoverTicks: 55,     // 撞牆後硬直（這段時間是輸出窗口）
+  },
+  SWARMER: {
+    id: 'SWARMER',
+    name: '蜂巢母艦',
+    pattern: 'SPAWN',
+    color: '#1f7a1f',
+    icon: '🐝',
+    hpMult: 0.8,
+    speedMult: 0.85,
+    sizeMult: 1.5,
+    spawnCooldown: 300,   // 每 300 tick 生一批
+    spawnCount: 2,
+  },
+};
+
+/** 三型的固定輪替順序（讓相鄰兩隻王不會是同型）。 */
+const BOSS_ORDER = ['SIEGE', 'HUNTER', 'SWARMER'];
+
+/**
+ * 第 level 關要用哪一隻王。`level` 必須是 BOSS 關（level % interval === 0），
+ * 但這裡對任意 level 都給得出答案（取 floor(level/interval)），確保呼叫端不會拿到 undefined。
+ * @param {number} level
+ * @param {number} interval 幾關一隻王（呼叫端傳 CONFIG.GAMEPLAY.BOSS_LEVEL_INTERVAL）
+ */
+function bossTypeForLevel(level, interval = 5) {
+  const stage = Math.max(1, Math.floor((Number(level) || interval) / interval));
+  return BOSS_ORDER[(stage - 1) % BOSS_ORDER.length];
+}
 // ── src/data/config.js ──
 // 遊戲常數（唯一來源）。要調數值只改這裡；index.html 以 ESM import 取用。
 
@@ -484,6 +555,22 @@ const POWER_UPS = {
 };
 
 const COMMON_DROPS = ['BOMB', 'WALL', 'STAR', 'TIME', 'SHIELD', 'ONEUP'];
+// ── src/data/rewards.js ──
+// 連擊獎勵：每 N 連擊的額外分數與一個道具。
+//
+// 為什麼要有這個：舊版連擊只是「殺得多分數高一點」——`addCombo()` 在 10 連擊時只彈一行
+// 文字（`🔥 COMBO x10!`），沒有任何實質回饋，連擊窗口一旦斷掉（120 tick）也沒有損失感。
+// 現在每 10 連擊給一次「額外分數 + 一個道具」，把「連續擊殺」變成值得主動維持的目標。
+//
+// 掉落池刻意排除 BOMB（一鍵清全場）：那會讓「連擊 → 更多連擊」變成滾雪球，
+// 在高密度關卡裡直接洗分。這裡只給「強化自己」類的道具。
+
+const COMBO_REWARDS = {
+  every: 10,            // 每 10 連擊一次里程碑
+  scorePerTier: 100,    // 第 n 個里程碑給 n × 這個值
+  maxTier: 5,           // 分數上限（第 5 個里程碑之後不再加乘，道具照給）
+  pool: ['STAR', 'SHIELD', 'TIME', 'ONEUP', 'WALL'],
+};
 // ── src/data/shop.js ──
 // 商店品項。
 
@@ -1773,6 +1860,19 @@ function makeEffectRenderer({ ctx, particlesPool, bulletsPool, getGame, smokeCol
       if (!b.alive) continue;
       const cx = (b.x + b.size / 2) | 0;
       const cy = (b.y + b.size / 2) | 0;
+
+      // BOSS 砲彈（攻城核心）：比一般子彈大、橘紅色外框 + 引信閃爍，讓玩家有時間離開落點。
+      // 一般子彈是 6×6 的 NES 小點，砲彈必須一眼就分得出來（否則「範圍傷害」完全來不及反應）。
+      if (b.shell) {
+        const blink = (b.fuse >> 2) & 1;
+        ctx.fillStyle = '#000';
+        ctx.fillRect(cx - 5, cy - 5, 10, 10);
+        ctx.fillStyle = blink ? '#ffcc33' : '#ff4422';
+        ctx.fillRect(cx - 4, cy - 4, 8, 8);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(cx - 2, cy - 2, 2, 2);
+        continue;
+      }
       ctx.fillStyle = '#000';
       ctx.fillRect(cx - 3, cy - 3, 6, 6);
       ctx.fillStyle = '#ffffff';
@@ -3023,7 +3123,7 @@ const particlesPool = new Pool(
 );
 
 const bulletsPool = new Pool(
-  () => ({ x:0, y:0, dir:0, vx:0, vy:0, isPlayer:false, speed:0, size:CONFIG.BULLET.SIZE, alive:false, power:1, pierce:false, hitTanks:[], ignoreTiles:false, _isChild:false, laserLife:0, freezing:false }),
+  () => ({ x:0, y:0, dir:0, vx:0, vy:0, isPlayer:false, speed:0, size:CONFIG.BULLET.SIZE, alive:false, power:1, pierce:false, hitTanks:[], ignoreTiles:false, _isChild:false, laserLife:0, freezing:false, shell:false, fuse:0, shellBoss:null }),
   (b) => { 
     b.alive = true; 
     b.size = CONFIG.BULLET.SIZE; 
@@ -3033,6 +3133,9 @@ const bulletsPool = new Pool(
     b._isChild = false;
     b.laserLife = 0;
     b.freezing = false;
+    b.shell = false;          // 攻城核心的砲彈：命中地形／引信到期都會爆炸
+    b.fuse = 0;
+    b.shellBoss = null;
   }, 
   CONFIG.POOL.BULLET_INITIAL,
   CONFIG.POOL.BULLET_MAX
@@ -3248,12 +3351,23 @@ class Tank {
       else if (this.type === 'HEAVY') { this.speed = 0.8; this.color = '#38a'; this.hp = this.maxHp = 4; this.bulletCooldown = CONFIG.BULLET.ENEMY_HEAVY; }
       else if (this.type === 'SUICIDE') { this.speed = 2.0; this.color = '#f50'; this.hp = this.maxHp = 1; this.bulletCooldown = 999; }
       else if (this.type === 'BOSS') {
-        this.speed = 0.6; this.color = '#800';
-        this.hp = this.maxHp = 15 + G.level*5;
-        this.size = TILE * 1.5; this.weapon = 'SPREAD';
+        // BOSS 原型（每 5 關輪替）：血量／速度／體型／顏色都從資料表來，
+        // 行為（ARTILLERY／CHARGE／SPAWN）由 updateBossPattern 分派。
+        const archId = bossTypeForLevel(G.level, CONFIG.GAMEPLAY.BOSS_LEVEL_INTERVAL);
+        const arch = BOSS_TYPES[archId] || BOSS_TYPES.SIEGE;
+        this.bossType = arch.id;
+        this.speed = 0.6 * arch.speedMult;
+        this.color = arch.color;
+        this.hp = this.maxHp = Math.round((15 + G.level * 5) * arch.hpMult);
+        this.size = TILE * arch.sizeMult; this.weapon = 'SPREAD';
         this.bulletCooldown = CONFIG.BULLET.BOSS;
         this.bossPhase = 1;
         this.bossPhaseTimer = 0;
+        this.patternTimer = 0;     // 每個 pattern 自己的節拍器（+1 計數型）
+        this.chargeTicks = 0;      // CHARGE：剩餘衝刺 tick（遞減型）
+        this.chargeTravel = 0;     // CHARGE：這一輪衝刺累積的位移（決定撞牆是否暈眩）
+        this.chargeDir = DOWN;
+        this.stunTicks = 0;        // CHARGE：撞牆後硬直（遞減型）
       }
       else {
         this.speed = 1.0 + rnd() * 0.5;
@@ -3418,6 +3532,30 @@ class Tank {
       ctx.fillText(eff.icon, x + 2, y - 3);
     }
 
+    // BOSS 原型標記：外框顏色 = 原型色、上方標原型圖示。
+    // 舊版每隻王都長得一樣（同一個紅色大坦克），玩家分不出「這隻會炮擊還是會衝撞」。
+    if (this.bossType && BOSS_TYPES[this.bossType]) {
+      const arch = BOSS_TYPES[this.bossType];
+      ctx.strokeStyle = arch.color;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x - 2, y - 2, s + 4, s + 4);
+      ctx.font = '10px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(arch.icon, x + s / 2, y - 8);
+      ctx.textAlign = 'left';          // textAlign 不能洩漏（C7 守著這條）
+      // 蓄力警示：衝撞前的紅色擴散圈（衝刺中不畫，避免蓋住坦克）
+      if (arch.pattern === 'CHARGE' && this.chargeTicks === 0 && this.stunTicks === 0) {
+        const windup = Math.min(1, (this.patternTimer || 0) / Math.max(1, arch.chargeWindup));
+        ctx.globalAlpha = 0.25 + windup * 0.45;
+        ctx.strokeStyle = '#ff3366';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x + s / 2, y + s / 2, s * (0.9 - windup * 0.35), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+
     if (this.maxHp > 1) {
       ctx.fillStyle = '#000';
       ctx.fillRect(x, y - 6, s, 3);
@@ -3555,6 +3693,9 @@ function updateBullet(b) {
   // 於是每次射擊留下 29 顆 vx=vy=0、ignoreTiles=true 的永久子彈 → 池無界成長、FPS 崩落。
   if (b.laserLife > 0 && --b.laserLife <= 0) { b.alive = false; return; }
 
+  // BOSS 砲彈：引信到期就炸（就算沒打到任何東西）
+  if (b.shell && --b.fuse <= 0) { b.alive = false; explodeShell(b); return; }
+
   // 記錄移動前的位置，用於碰撞回溯
   const prevX = b.x, prevY = b.y;
 
@@ -3568,6 +3709,22 @@ function updateBullet(b) {
   const bc = ((b.x + 3) / TILE) | 0, br = ((b.y + 3) / TILE) | 0;
   if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS && !b.ignoreTiles) {
     const t = G.map[br][bc];
+    if (b.shell && (t === BRICK || t === STEEL || t === BASE)) {
+      // 砲彈打到地形就炸：攻城核心的威脅是「逼你離開落點」，不是慢慢飛過來
+      b.alive = false;
+      if (t === BRICK) breakTile(bc, br);
+      if (t === BASE && !fx.has('wall')) {
+        G.map[br][bc] = BASE_DEAD;
+        G.baseDestroyed = true;
+        for (let i = 0; i < G.dynamicTiles.length; i++) {
+          const dt = G.dynamicTiles[i];
+          if (dt.r === br && dt.c === bc) { dt.type = BASE_DEAD; break; }
+        }
+        Sound.baseDestroyed();
+      }
+      explodeShell(b);
+      return;
+    }
     if (t === BRICK) {
       b.alive = false; breakTile(bc, br);
       spawnExplosion(b.x, b.y, 'spark');
@@ -3655,7 +3812,10 @@ function updateBullet(b) {
         }
       }
       if (hit) {
-        handleBulletHit(b, G.player);
+        // 砲彈碰到玩家也是「爆炸」，不是一般子彈命中的 1 點傷害（傷害走爆炸那條路徑，
+        // 護盾／無敵／反應護盾的判定才只有一份）
+        if (b.shell) { b.alive = false; explodeShell(b); }
+        else handleBulletHit(b, G.player);
       }
     }
   }
@@ -4133,9 +4293,21 @@ function addCombo(kill = true) {
   const bonus = Math.min(G.playerStats.combo, 10) * 0.1;
   G.score += Math.floor((10 + G.level * 2) * (1 + bonus));
 
-  if (G.playerStats.combo >= 10) {
-    triggerShake(3, 5);
-    addScorePopup(G.player.x, G.player.y - 20, '🔥 COMBO x10!');
+  // 每 COMBO_REWARDS.every 連擊一次里程碑：額外分數 + 一個「強化自己」的道具。
+  // 舊版只有 10 連擊時彈一行文字，連擊本身沒有任何實質回饋。
+  const { every, scorePerTier, maxTier, pool } = COMBO_REWARDS;
+  if (G.playerStats.combo % every === 0) {
+    const tier = Math.min(G.playerStats.combo / every, maxTier);
+    const extra = scorePerTier * tier;
+    G.score += extra;
+    triggerShake(3 + tier, 5);
+    Sound.jingleLevelClear();
+    if (G.player && G.player.alive) {
+      const type = pool[(rnd() * pool.length) | 0];
+      // 掉在玩家腳邊：拾取半徑 TILE*1.5，所以下一 tick 就會被吃掉（不會掉在牆裡拿不到）
+      G.powerUps.push({ type, x: G.player.x, y: G.player.y + TILE, life: 600, maxLife: 600, alive: true });
+      addScorePopup(G.player.x, G.player.y - 20, `🔥 COMBO x${G.playerStats.combo}! +${extra}`);
+    }
   }
 }
 
@@ -4297,6 +4469,8 @@ function updateEnemyAI(e) {
     if (e.summonTimer >= 180) { e.summonTimer = 0; spawnEnemy(); }
   }
 
+  // BOSS：階段升級（每隻王都有）+ 原型攻擊模式（三型各不相同）
+  let bossMoved = false;      // 這一 tick 的移動是否已由攻擊模式處理（CHARGE 衝刺）
   if (e.type === 'BOSS') {
     e.bossPhaseTimer = (e.bossPhaseTimer || 0) + 1;
     const hpRatio = e.hp / e.maxHp;
@@ -4304,6 +4478,7 @@ function updateEnemyAI(e) {
     else if (hpRatio <= 0.5 && e.bossPhase < 3) { e.bossPhase = 3; for (let i = 0; i < 5; i++) spawnEnemy(); }
     else if (hpRatio <= 0.75 && e.bossPhase < 2) { e.bossPhase = 2; e.speed *= 1.5; }
     if (G.frameCount % 30 === 0) e.shoot();
+    bossMoved = updateBossPattern(e);
   }
 
   if (SPECIAL_ENEMY_TYPES.has(e.type)) {
@@ -4339,14 +4514,167 @@ function updateEnemyAI(e) {
     e.aiChangeTimer = CONFIG.AI.CHANGE_INTERVAL + rnd() * 50;
   }
 
-  const actualSpeed = e.speed * speedMult;
-  const savedSpeed = e.speed;
-  e.speed = actualSpeed;
-  e.move(e.aiDir);
-  e.speed = savedSpeed;
+  if (!bossMoved) {
+    const actualSpeed = e.speed * speedMult;
+    const savedSpeed = e.speed;
+    e.speed = actualSpeed;
+    e.move(e.aiDir);
+    e.speed = savedSpeed;
+  }
 
   const shootChance = G.isVSMode ? 0.005 : 0.02;
   if (rnd() < shootChance) e.shoot();
+}
+
+// ==================== BOSS 原型行為（三型輪替：攻城／獵殺／蜂巢） ====================
+// 資料在 src/data/bosses.js，這裡只負責「依 pattern 分派」。新增一隻王＝加一筆資料 +
+// 一個 pattern 分支（verify-core 會掃「資料裡的 pattern 在程式碼裡有沒有分支」）。
+function bossArchOf(e) {
+  return BOSS_TYPES[e.bossType] || BOSS_TYPES.SIEGE;
+}
+
+/**
+ * @returns {boolean} true = 這一 tick 的移動已由原型處理（或刻意原地不動），
+ *                    呼叫端不要再跑一般 AI 移動（否則衝刺會變成兩倍速、蓄力會邊走邊蓄）。
+ */
+function updateBossPattern(e) {
+  const arch = bossArchOf(e);
+  if (arch.pattern === 'CHARGE') return updateBossCharge(e, arch);
+
+  e.patternTimer = (e.patternTimer || 0) + 1;
+  if (arch.pattern === 'ARTILLERY') {
+    if (e.patternTimer >= arch.volleyCooldown) {
+      e.patternTimer = 0;
+      fireBossVolley(e, arch);
+    }
+  } else if (arch.pattern === 'SPAWN') {
+    if (e.patternTimer >= arch.spawnCooldown) {
+      e.patternTimer = 0;
+      for (let i = 0; i < arch.spawnCount; i++) spawnEnemy();
+      addScorePopup(e.x + e.size / 2, e.y - TILE, arch.icon + ' 召喚');
+    }
+  }
+  return false;
+}
+
+/** 攻城核心：一輪 volleyCount 發砲彈，朝玩家（以及左右偏移的落點）飛過去，落地爆炸。 */
+function fireBossVolley(e, arch) {
+  const cx = e.x + e.size / 2, cy = e.y + e.size / 2;
+  const hasP = G.player && G.player.alive;
+  const tx0 = hasP ? G.player.x + G.player.size / 2 : cx;
+  const ty0 = hasP ? G.player.y + G.player.size / 2 : cy + TILE * 5;
+
+  for (let i = 0; i < arch.volleyCount; i++) {
+    const off = (i - (arch.volleyCount - 1) / 2) * TILE * 1.6;
+    const dx = (tx0 + off) - cx, dy = ty0 - cy;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+
+    const b = bulletsPool.acquire();
+    b.x = cx - 3; b.y = cy - 3;
+    b.dir = DOWN;
+    b.isPlayer = false;
+    b.vx = dx / len; b.vy = dy / len;
+    b.speed = arch.shellSpeed;
+    b.power = arch.blastPower;
+    b.shell = true;
+    b.shellBoss = arch.id;
+    b.fuse = arch.shellFuse;
+  }
+  addScorePopup(cx, cy - TILE, arch.icon + ' 炮擊');
+  Sound.shoot();
+}
+
+/**
+ * 衝刺走一步。撞到磚牆時**直接撞碎再往前衝**（鋼板與畫面邊界才會把牠停下來）：
+ * 少了這條，王從最上排往下衝的第一格就是磚牆 → 每一輪都立刻暈眩，永遠貼不到玩家，
+ * 打起來就變成「站在上面發呆的大隻小兵」。撞碎磚牆同時也是很好的預告（玩家看得到牠往哪衝）。
+ * @returns {boolean} 這一步有沒有真的移動（false = 被擋住，呼叫端要暈眩）
+ */
+function chargeStep(e, arch) {
+  const x0 = e.x, y0 = e.y;
+  const savedSpeed = e.speed;
+  e.speed = arch.chargeSpeed;
+  e.move(e.chargeDir);
+  if (e.x === x0 && e.y === y0) {
+    // 被擋住：把「往前一步之後身體覆蓋到的格子」裡的磚牆全部撞碎（王是 2×2 格，
+    // 只撞中心那一格的話，磚牆擋在邊角時永遠撞不開 → 每一輪都立刻暈眩、貼不到玩家）。
+    const nx = clampPos(e.x + DX[e.chargeDir] * arch.chargeSpeed);
+    const ny = clampPos(e.y + DY[e.chargeDir] * arch.chargeSpeed);
+    const c1 = (nx / TILE) | 0, r1 = (ny / TILE) | 0;
+    const c2 = ((nx + e.size - 1) / TILE) | 0, r2 = ((ny + e.size - 1) / TILE) | 0;
+    let broke = false;
+    for (let r = r1; r <= r2; r++) {
+      for (let c = c1; c <= c2; c++) {
+        if (r < 0 || r >= ROWS || c < 0 || c >= COLS) continue;
+        if (G.map[r][c] !== BRICK) continue;
+        breakTile(c, r);
+        spawnExplosion(c * TILE + TILE / 2, r * TILE + TILE / 2, 'spark');
+        broke = true;
+      }
+    }
+    if (broke) e.move(e.chargeDir);
+  }
+  e.speed = savedSpeed;
+  return e.x !== x0 || e.y !== y0;
+}
+
+/** 獵殺者：蓄力（畫面上有警示圈）→ 高速衝刺 → 撞鋼板／邊界則硬直。 */
+function updateBossCharge(e, arch) {
+  if (e.stunTicks > 0) {           // 撞牆硬直：不動 → 玩家的輸出窗口
+    e.stunTicks--;
+    return true;
+  }
+
+  if (e.chargeTicks > 0) {
+    e.chargeTicks--;
+    triggerShake(2, 1);
+    if (chargeStep(e, arch)) {
+      e.chargeTravel = (e.chargeTravel || 0) + arch.chargeSpeed;
+    } else {
+      // 撞到鋼板／邊界：結束衝刺。**只有真的衝出去過**才暈眩 —— 否則王貼著鋼板時每輪都暈眩，
+      // 看起來就像卡在牆邊發呆；沒衝出去就只是換方向再蓄力。
+      e.chargeTicks = 0;
+      if ((e.chargeTravel || 0) >= TILE) {
+        e.stunTicks = arch.recoverTicks;
+        triggerShake(8, 5);
+        spawnExplosion(e.x + e.size / 2, e.y + e.size / 2, 'spark');
+      }
+      e.chargeTravel = 0;
+      e.aiChangeTimer = 0;
+    }
+    return true;
+  }
+
+  // 蓄力中照常慢慢逼近（一般 AI 移動），這樣牠才不會因為「每輪都撞牆」而卡在原地：
+  // 舊寫法在蓄力時也回傳 true，結果王除了衝刺那一瞬間之外完全不會移動。
+  e.patternTimer = (e.patternTimer || 0) + 1;
+  if (e.patternTimer < arch.chargeWindup) return false;
+
+  e.patternTimer = 0;
+  const p = G.player && G.player.alive ? G.player : null;
+  e.chargeDir = p
+    ? (Math.abs(p.x - e.x) > Math.abs(p.y - e.y) ? (p.x > e.x ? RIGHT : LEFT) : (p.y > e.y ? DOWN : UP))
+    : DOWN;
+  e.chargeTicks = arch.chargeTicks;
+  e.chargeTravel = 0;
+  Sound.spawn();
+  return true;
+}
+
+/** 砲彈爆炸：範圍傷害（只打玩家 —— 讓王的炮不會順手清掉自己的小兵、白送玩家分數）。 */
+function explodeShell(b) {
+  const arch = BOSS_TYPES[b.shellBoss] || BOSS_TYPES.SIEGE;
+  const bx = b.x + 3, by = b.y + 3;
+  spawnExplosion(bx, by, 'big');
+  triggerShake(6, 4);
+  Sound.explode();
+  if (!G.player || !G.player.alive) return;
+  const dx = (G.player.x + G.player.size / 2) - bx;
+  const dy = (G.player.y + G.player.size / 2) - by;
+  const r = arch.blastRadius;
+  if (dx * dx + dy * dy <= r * r) {
+    damagePlayerFromHazard(bx - TILE / 2, by - TILE / 2, arch.blastPower);
+  }
 }
 
 // ==================== 敵人生成 ====================
@@ -4460,6 +4788,12 @@ function spawnEnemy() {
   G.spawnEffects.push({ x: sx, y: sy, size: TILE, life: 24, maxLife: 24 });
   e.flashTimer = 24;
   Sound.spawn();
+  // 王出場時把原型告訴玩家（不然「這隻會炮擊還是會衝撞」只能靠被打才知道）
+  if (e.type === 'BOSS') {
+    const arch = BOSS_TYPES[e.bossType] || BOSS_TYPES.SIEGE;
+    addScorePopup(sx + TILE / 2, sy + TILE * 2, `${arch.icon} ${arch.name}`);
+    Sound.bigExplode();
+  }
   updateHUD();
 }
 
@@ -5187,6 +5521,13 @@ function render() {
     ctx.fillStyle = '#ff6600';
     ctx.font = '12px "Press Start 2P"';
     ctx.fillText(`${G.playerStats.combo} COMBO`, 10, H - 30);
+    // 距離下一個連擊獎勵的進度條：沒有這條，玩家不知道「再 3 次會有東西」
+    const every = COMBO_REWARDS.every;
+    const progress = (G.playerStats.combo % every) / every;
+    ctx.fillStyle = '#552200';
+    ctx.fillRect(10, H - 25, 64, 3);
+    ctx.fillStyle = '#ffaa00';
+    ctx.fillRect(10, H - 25, (64 * progress) | 0, 3);
   }
 
   ctx.restore();
@@ -5302,6 +5643,7 @@ requestAnimationFrame(gameLoop);
     EMPTY: EMPTY, BRICK: BRICK, STEEL: STEEL, WATER: WATER, FOREST: FOREST, BASE: BASE,
     bulletsPool: bulletsPool, particlesPool: particlesPool,
     WEAPON_TREE: WEAPON_TREE, POWER_UPS: POWER_UPS,
+    BOSS_TYPES, BOSS_ORDER, bossTypeForLevel, COMBO_REWARDS, addCombo, explodeShell,
     ACTIVE_SKILLS: ACTIVE_SKILLS, PASSIVE_SKILLS: PASSIVE_SKILLS,
     ELITE_PREFIXES: ELITE_PREFIXES, SHOP_ITEMS: SHOP_ITEMS,
     Sound: Sound, Music: Music, Perf: Perf,

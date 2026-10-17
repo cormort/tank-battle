@@ -66,7 +66,7 @@ try {
 const browser = await pw.chromium.launch();
 
 /** 以指定的 seed 與輸入腳本跑 ticks 個 tick，回傳 checksum（全部在同一個同步迴圈內完成）。 */
-async function runReplay({ seed, ticks, events }) {
+async function runReplay({ seed, ticks, events, level = 0 }) {
   const page = await (await browser.newContext()).newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message.split('\n')[0]));
@@ -74,9 +74,17 @@ async function runReplay({ seed, ticks, events }) {
   await page.waitForFunction(() => window.__T && window.__T.G, undefined, { timeout: 20000 });
   await page.getByRole('button', { name: 'START GAME' }).click();
   await page.waitForTimeout(300);
-  const result = await page.evaluate(({ ticks, events }) => {
+  const result = await page.evaluate(({ ticks, events, level }) => {
     const T = window.__T, G = T.G;
     G.state = T.STATE.PLAYING;
+    if (level && level > 1) {
+      // 直接開在指定關卡：BOSS 關的行為（原型、炮擊、衝撞、召喚）只有 BOSS 關才走得到，
+      // 而「從第 1 關一路打到第 5 關」需要幾千 tick 的輸入腳本，不適合當 replay。
+      G.level = level;
+      T.startLevel();
+      // BOSS 是第 maxEnemies 隻才生。直接推到最後一隻之前，讓這一輪一定會遇到王。
+      if (level % 5 === 0) G.enemiesSpawned = G.maxEnemies - 1;
+    }
     const byTick = new Map();
     for (const ev of events || []) {
       if (!byTick.has(ev.tick)) byTick.set(ev.tick, []);
@@ -93,14 +101,17 @@ async function runReplay({ seed, ticks, events }) {
       T.stepTicks(1);
     }
     return { checksum: T.gameChecksum(), frames: G.frameCount, score: G.score, level: G.level,
+      bossType: (G.enemies.find((e) => e.type === 'BOSS') || {}).bossType || null,
+      bossSeen: G.enemies.some((e) => e.type === 'BOSS'),
+      shells: T.bulletsPool.active.filter((b) => b.shell).length,
       deterministic: T.deterministic, seed: T.seed };
-  }, { ticks, events });
+  }, { ticks, events, level });
   await page.close();
   return { ...result, errors };
 }
 
 /** 由腳本產生一份 replay（events 只在按下與放開時記錄，減少檔案大小）。 */
-function buildReplay(seed, ticks) {
+function buildReplay(seed, ticks, level = 0) {
   const events = [];
   let held = {};
   for (let tick = 0; tick < ticks; tick++) {
@@ -113,26 +124,41 @@ function buildReplay(seed, ticks) {
     }
   }
   for (const code of Object.keys(held)) events.push({ tick: ticks, code, down: false });
-  return { seed, ticks, events, note: 'M2 replay：seed + 輸入序列 → checksum' };
+  const out = { seed, ticks, events, note: 'M2 replay：seed + 輸入序列 → checksum' };
+  if (level) out.level = level;
+  return out;
 }
 
 mkdirSync(REPLAY_DIR, { recursive: true });
-const REPLAY_FILE = join(REPLAY_DIR, 'smoke.json');
-const SPEC = { seed: 'smoke', ticks: 1800 };     // 30 秒模擬
+
+// smoke：第 1 關的普通敵人流程（30 秒）
+// boss：直接開在第 5 關（攻城核心）—— BOSS 原型、砲擊、爆炸都只在這條路徑上，
+//       只靠 smoke 的話「王相關的改動」在 replay 這道閘門是隱形的（實測：改完王，
+//       smoke 的 checksum 一個字都沒變）。
+const REPLAYS = [
+  { file: 'smoke.json', seed: 'smoke', ticks: 1800 },
+  { file: 'boss.json', seed: 'boss', ticks: 900, level: 5 },
+];
 
 console.log('=== 錄製／載入 replay ===');
-let replay;
-if (RECORD || !existsSync(REPLAY_FILE)) {
-  replay = buildReplay(SPEC.seed, SPEC.ticks);
-  const first = await runReplay(replay);
-  replay.checksum = first.checksum;
-  replay.recordedAt = new Date().toISOString();
-  writeFileSync(REPLAY_FILE, JSON.stringify(replay, null, 1) + '\n');
-  console.log(`${RECORD ? '已重新錄製' : '首次建立'} tools/replays/smoke.json（${replay.ticks} ticks、checksum ${replay.checksum}）`);
-} else {
-  replay = JSON.parse(readFileSync(REPLAY_FILE, 'utf8'));
-  console.log(`載入 tools/replays/smoke.json（${replay.ticks} ticks、checksum ${replay.checksum}）`);
+const loaded = [];
+for (const spec of REPLAYS) {
+  const path = join(REPLAY_DIR, spec.file);
+  let rp;
+  if (RECORD || !existsSync(path)) {
+    rp = buildReplay(spec.seed, spec.ticks, spec.level || 0);
+    const first = await runReplay(rp);
+    rp.checksum = first.checksum;
+    rp.recordedAt = new Date().toISOString();
+    writeFileSync(path, JSON.stringify(rp, null, 1) + '\n');
+    console.log(`${RECORD ? '已重新錄製' : '首次建立'} tools/replays/${spec.file}（${rp.ticks} ticks、checksum ${rp.checksum}${rp.level ? `、第 ${rp.level} 關` : ''}）`);
+  } else {
+    rp = JSON.parse(readFileSync(path, 'utf8'));
+    console.log(`載入 tools/replays/${spec.file}（${rp.ticks} ticks、checksum ${rp.checksum}）`);
+  }
+  loaded.push({ file: spec.file, replay: rp });
 }
+const replay = loaded[0].replay;
 
 console.log('\n=== R. 確定性與回放 ===');
 const runA = await runReplay(replay);
@@ -144,6 +170,20 @@ ok('R1 同一份 replay 跑兩次 checksum 相同（沒有隱藏的隨機或時�
 ok('R2 重播結果與檔案記錄一致（玩法改動會讓這條紅）',
   runA.checksum === replay.checksum,
   `實跑 ${runA.checksum} vs 檔案 ${replay.checksum}`);
+
+// 其他 replay 檔（BOSS 關）也跑一次：確定性 + 與記錄一致 + 這局真的有遇到王
+for (const { file, replay: rp } of loaded.slice(1)) {
+  const run = await runReplay(rp);
+  const again = await runReplay(rp);
+  ok(`R7 ${file}：同一份 replay 跑兩次一致、且與檔案記錄一致`,
+    run.checksum === again.checksum && run.checksum === rp.checksum,
+    `實跑 ${run.checksum}／${again.checksum} vs 檔案 ${rp.checksum}`);
+  if (rp.level) {
+    ok(`R8 ${file}：這一局真的有遇到 BOSS（否則這條 replay 守不到王相關的改動）`,
+      run.bossSeen === true && run.bossType === 'SIEGE',
+      JSON.stringify({ bossSeen: run.bossSeen, bossType: run.bossType, level: run.level }));
+  }
+}
 ok('R3 換 seed 會得到不同結果（seed 真的有驅動隨機）',
   (await runReplay({ ...replay, seed: 'other' })).checksum !== runA.checksum);
 ok('R4 同 seed、不同輸入會得到不同結果（輸入真的有影響）',

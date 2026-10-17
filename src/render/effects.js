@@ -93,6 +93,19 @@ export function makeEffectRenderer({ ctx, particlesPool, bulletsPool, getGame, s
       if (!b.alive) continue;
       const cx = (b.x + b.size / 2) | 0;
       const cy = (b.y + b.size / 2) | 0;
+
+      // BOSS 砲彈（攻城核心）：比一般子彈大、橘紅色外框 + 引信閃爍，讓玩家有時間離開落點。
+      // 一般子彈是 6×6 的 NES 小點，砲彈必須一眼就分得出來（否則「範圍傷害」完全來不及反應）。
+      if (b.shell) {
+        const blink = (b.fuse >> 2) & 1;
+        ctx.fillStyle = '#000';
+        ctx.fillRect(cx - 5, cy - 5, 10, 10);
+        ctx.fillStyle = blink ? '#ffcc33' : '#ff4422';
+        ctx.fillRect(cx - 4, cy - 4, 8, 8);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(cx - 2, cy - 2, 2, 2);
+        continue;
+      }
       ctx.fillStyle = '#000';
       ctx.fillRect(cx - 3, cy - 3, 6, 6);
       ctx.fillStyle = '#ffffff';

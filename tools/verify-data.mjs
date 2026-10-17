@@ -18,6 +18,8 @@ import { fileURLToPath } from 'node:url';
 
 import * as DATA from '../src/data/index.js';
 import { makeDirectorEvents } from '../src/data/events.js';
+import { BOSS_TYPES, BOSS_ORDER, bossTypeForLevel } from '../src/data/bosses.js';
+import { COMBO_REWARDS } from '../src/data/rewards.js';
 import { validateData, validateReachability } from '../src/data/schema.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -40,6 +42,11 @@ const stubCtx = {
 const tables = Object.fromEntries(Object.entries(baseline).map(([k]) => [k, DATA[k]]));
 tables.DIRECTOR_EVENTS = makeDirectorEvents(stubCtx);
 tables.SPECIAL_ENEMY_TYPES = Array.from(DATA.SPECIAL_ENEMY_TYPES);
+// 之後新增的表不在基準快照裡（A 組只比對基準快照有的表），但仍然要過 schema／可達性／死欄位：
+// 基準快照的角色是「偵測既有內容的非預期漂移」，新表的正確性靠下面三組掃描。
+tables.BOSS_TYPES = BOSS_TYPES;
+tables.BOSS_ORDER = BOSS_ORDER;
+tables.COMBO_REWARDS = COMBO_REWARDS;
 
 // ── 遊戲程式碼全文（用來找讀取端與可達性；刻意排除資料檔本身）──
 function collectSources(dir, out = []) {
@@ -129,6 +136,38 @@ console.log('\n=== C. 可達性：宣告的選項都要有處理與生成路徑 
   const problems = validateReachability(tables, gameCode);
   ok('每個詞綴／事件／商店類型／道具／特殊敵人都有對應處理', problems.length === 0,
     problems.length ? problems.slice(0, 6).join('；') + (problems.length > 6 ? ` …（共 ${problems.length} 項）` : '') : '0 項問題');
+}
+
+console.log('\n=== E. BOSS 原型輪替與連擊獎勵（新增內容，不在舊基準快照內）===');
+{
+  const ids = Object.keys(BOSS_TYPES);
+  const valid = (id) => typeof id === 'string' && !!BOSS_TYPES[id];
+  const picked = [];
+  for (let lv = 5; lv <= 60; lv += 5) picked.push(bossTypeForLevel(lv, 5));
+  ok('BOSS_ORDER 覆蓋每一隻王、沒有重複，且 bossTypeForLevel 只回傳合法 id',
+    new Set(BOSS_ORDER).size === BOSS_ORDER.length
+    && ids.every((id) => BOSS_ORDER.includes(id))
+    && picked.every(valid),
+    `${ids.length} 型：${BOSS_ORDER.join('、')}`);
+
+  const cycle = [];
+  for (let lv = 5; lv <= 25; lv += 5) cycle.push(bossTypeForLevel(lv, 5));
+  ok('相鄰的 BOSS 關卡不會是同一型（三型輪替）',
+    cycle.every((id, i) => i === 0 || id !== cycle[i - 1]),
+    `${cycle.join(' → ')}（第 5／10／15／20／25 關）`);
+
+  ok('bossTypeForLevel 對非 BOSS 關卡也不會回傳 undefined（呼叫端不必先判斷）',
+    [1, 2, 3, 4, 7, 99, 0, -5, NaN, undefined].every((lv) => valid(bossTypeForLevel(lv, 5))),
+    '全部合法');
+
+  const badPool = COMBO_REWARDS.pool.filter((id) => !tables.POWER_UPS[id]);
+  ok('COMBO_REWARDS.pool 的每個道具都存在於 POWER_UPS（不會掉出 undefined）',
+    badPool.length === 0, badPool.length ? `不存在：${badPool.join('、')}` : `${COMBO_REWARDS.pool.join('、')}`);
+
+  ok('連擊里程碑的分數會遞增但不是無上限（maxTier 有作用）',
+    COMBO_REWARDS.every >= 1 && COMBO_REWARDS.maxTier >= 1 && COMBO_REWARDS.scorePerTier > 0
+    && Math.min(9, COMBO_REWARDS.maxTier) < COMBO_REWARDS.maxTier + 1,
+    `每 ${COMBO_REWARDS.every} 連擊、第 n 級 +${COMBO_REWARDS.scorePerTier}×n（上限 ${COMBO_REWARDS.maxTier} 級）`);
 }
 
 console.log('\n=== D. 死欄位掃描：宣告的每個欄位都要有讀取端 ===');
