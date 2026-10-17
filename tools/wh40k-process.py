@@ -10,7 +10,7 @@ RAW = ROOT / 'assets/wh40k/raw'
 OUT = ROOT / 'src/render/wh40k-data.js'
 
 # 名稱前綴 → 輸出邊長（px）。tile_* 是滿版紋理（不去背、不裁切）。
-SIZES = [('tank_', 128), ('boss_', 160), ('turret', 96), ('eagle_', 104), ('tile_', 104),
+SIZES = [('tank_', 128), ('chaos_', 128), ('ork_', 128), ('aeldari_', 128), ('tyranid_', 128), ('necron_', 128), ('boss_', 160), ('turret', 96), ('eagle_', 104), ('tile_', 104),
          ('pu_', 64), ('train', 320), ('warp', 96), ('shield', 96), ('orbital', 96), ('airdrop', 64)]
 DEFAULT = 48  # bullet / shell / spark / smoke / mine
 

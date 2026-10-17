@@ -440,11 +440,14 @@ applyCanvasScale(canvas, ctx, W, H, RENDER_SCALE);
 
 const staticCanvas = document.createElement('canvas');
 const staticCtx = staticCanvas.getContext('2d');
-applyCanvasScale(staticCanvas, staticCtx, W, H, RENDER_SCALE);
+// 鏡頭放大 CAM_ZOOM 倍跟著玩家走：離屏的地形層要用放大後的解析度烘，否則一放大就糊
+const CAM_ZOOM = 2;
+const BAKE_SCALE = RENDER_SCALE * CAM_ZOOM;
+applyCanvasScale(staticCanvas, staticCtx, W, H, BAKE_SCALE);
 
 const forestCanvas = document.createElement('canvas');
 const forestCtx = forestCanvas.getContext('2d');
-applyCanvasScale(forestCanvas, forestCtx, W, H, RENDER_SCALE);
+applyCanvasScale(forestCanvas, forestCtx, W, H, BAKE_SCALE);
 
 // WH40K 素材（src/render/wh40k-art.js）：解完之前 art() 回 null，各處退回原本的程序化 NES 畫法。
 // 解完後改用平滑縮放（素材是手繪風，最近鄰縮小會鋸齒），並重烘靜態地圖（磚／鋼／樹／地面）。
@@ -1708,7 +1711,7 @@ class Tank {
       }
       this._spr = spr; this._sprDir = this.aimDir; this._sprPhase = phase; this._sprSize = s;
     }
-    const artImg = art(tankArtName(this));
+    const artImg = tankArt(this);
     if (artImg) drawRotated(ctx, artImg, x + s / 2, y + s / 2, s * 1.15, s * 1.15, this.aimDir * Math.PI / 2);
     else ctx.drawImage(this._spr, x, y);
 
@@ -1773,11 +1776,18 @@ class Tank {
 // 動態層（elite 特效、HP bar、護盾、受擊閃爍）仍每幀繪製，保持原有視覺。
 const _tankSpriteCache = new Map();
 
-function tankArtName(t) {
-  if (t.isPlayer) return 'tank_player';
-  if (t.type === 'BOSS') return 'boss_' + String(t.bossType || 'SIEGE').toLowerCase();
-  if (t.type === 'FAST' || t.type === 'HEAVY' || t.type === 'SUICIDE') return 'tank_' + t.type.toLowerCase();
-  return 'tank_normal';
+// 敵方勢力（純外觀）：每關一個勢力輪替，四種角色（一般／快速／重裝／自爆）各有自己的造型。
+// 用關卡決定而不是亂數 → 不動到模擬用的 rnd()，replay checksum 不受影響。
+const ENEMY_FACTIONS = ['chaos', 'ork', 'aeldari', 'tyranid', 'necron'];
+function tankArt(t) {
+  if (t.isPlayer) return art('tank_player');
+  if (t.type === 'BOSS') return art('boss_' + String(t.bossType || 'SIEGE').toLowerCase());
+  const role = (t.type === 'FAST' || t.type === 'HEAVY' || t.type === 'SUICIDE') ? t.type.toLowerCase() : 'normal';
+  // 輪替跳過 BOSS 關：5 個勢力 × 每 5 關一王，不跳的話某個勢力永遠只出現在 BOSS／VS 關
+  const lvl = Math.max(1, G.level | 0);
+  const n = lvl - Math.floor(lvl / CONFIG.GAMEPLAY.BOSS_LEVEL_INTERVAL);
+  const faction = ENEMY_FACTIONS[(n - 1) % ENEMY_FACTIONS.length];
+  return art(faction + '_' + role) || art('tank_' + role);   // 該勢力缺圖就用原本的通用造型
 }
 
 function buildTankSprite(type, aimDir, phase, s) {
@@ -2195,7 +2205,7 @@ const SMOKE_COLOR = '#505050';   // 煙霧固定色：舊版每顆每幀用樣�
 const glowCanvas = makeGlowCanvas({ doc: document });
 
 // 地形與基地圖磚：實作在 src/render/tiles.js（依賴注入 TILE／renderScale／doc）
-const tileArt = makeTileRenderer({ TILE, renderScale: RENDER_SCALE, doc: document, art });
+const tileArt = makeTileRenderer({ TILE, renderScale: BAKE_SCALE, doc: document, art });
 const { drawBrickNES, drawSteelNES, drawForestNES, drawWaterDirect, drawEagleDirect, eagleSprite, eagleCache } = tileArt;
 
 // 粒子／生成特效／分數彈出／子彈的繪製：實作在 src/render/effects.js（依賴注入）
@@ -3671,7 +3681,10 @@ function drawDirectorEvents() {
       ctx.fillRect(ev.x + 10, ev.y + 5, 10, 10);
     }
   }
+}
 
+/** 導演事件名稱：畫面座標（不跟鏡頭走），由 render() 在還原鏡頭後呼叫。 */
+function drawDirectorEventName() {
   if (G.directorEvents.length > 0 && G.directorEvents[0].name) {
     ctx.fillStyle = '#ffd700';
     ctx.font = '10px "Press Start 2P"';
@@ -3679,6 +3692,63 @@ function drawDirectorEvents() {
     ctx.fillText(G.directorEvents[0].name, W/2, H - 20);
     ctx.textAlign = 'left';
   }
+}
+
+// ==================== 鏡頭與小地圖 ====================
+// 鏡頭：以玩家為中心、放大 CAM_ZOOM 倍，夾在地圖邊界內（地圖邊緣不會露出空白）。
+const _cam = { x: 0, y: 0 };
+function updateCamera() {
+  const vw = W / CAM_ZOOM, vh = H / CAM_ZOOM;
+  const p = G.player;
+  const fx = p ? p.x + p.size / 2 : W / 2, fy = p ? p.y + p.size / 2 : H / 2;
+  _cam.x = Math.max(0, Math.min(W - vw, fx - vw / 2));
+  _cam.y = Math.max(0, Math.min(H - vh, fy - vh / 2));
+}
+
+// 小地圖：地形縮圖每 30 幀才重烘一次（磚會被打掉）；單位每幀畫。
+// 位置從四個角挑一個不蓋住玩家的（玩家靠地圖邊時鏡頭夾邊，玩家會偏離畫面中央）。
+const MINI = 104, MINI_PAD = 6;
+const _miniCanvas = document.createElement('canvas');
+_miniCanvas.width = _miniCanvas.height = MINI * RENDER_SCALE;
+let _miniBakedFrame = -999, _miniCorner = 0;
+function drawMinimap() {
+  const p = G.player;
+  const k = MINI / W;
+  if (G.frameCount - _miniBakedFrame >= 30 || G.frameCount < _miniBakedFrame) {
+    const mc = _miniCanvas.getContext('2d');
+    mc.drawImage(staticCanvas, 0, 0, _miniCanvas.width, _miniCanvas.height);
+    const s = RENDER_SCALE * k;
+    for (const f of G.forestTiles) { mc.fillStyle = '#1f6b2a'; mc.fillRect(f.x * s, f.y * s, TILE * s, TILE * s); }
+    for (const d of G.dynamicTiles) { mc.fillStyle = d.type === WATER ? '#2aa6a0' : '#ffd700'; mc.fillRect(d.x * s, d.y * s, TILE * s, TILE * s); }
+    _miniBakedFrame = G.frameCount;
+  }
+  const corners = [[W - MINI - MINI_PAD, MINI_PAD], [MINI_PAD, MINI_PAD], [W - MINI - MINI_PAD, H - MINI - MINI_PAD], [MINI_PAD, H - MINI - MINI_PAD]];
+  if (p) {
+    const ps = p.size * CAM_ZOOM, psx = (p.x - _cam.x) * CAM_ZOOM, psy = (p.y - _cam.y) * CAM_ZOOM;
+    const covers = ([cx, cy]) => rectsOverlap(cx - 10, cy - 10, MINI + 20, MINI + 20, psx, psy, ps, ps);
+    if (covers(corners[_miniCorner])) {   // 目前的角沒擋到就不換，避免玩家在邊界附近時小地圖來回跳
+      const free = corners.findIndex((c) => !covers(c));
+      if (free >= 0) _miniCorner = free;
+    }
+  }
+  const [mx, my] = corners[_miniCorner];
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(mx - 2, my - 2, MINI + 4, MINI + 4);
+  ctx.drawImage(_miniCanvas, mx, my, MINI, MINI);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#ff3b3b';
+  for (const e of G.enemies) if (e.alive) ctx.fillRect(mx + (e.x + e.size / 2) * k - 2, my + (e.y + e.size / 2) * k - 2, e.type === 'BOSS' ? 6 : 4, e.type === 'BOSS' ? 6 : 4);
+  ctx.fillStyle = '#ffe14d';
+  for (const pu of G.powerUps) if (pu.alive) ctx.fillRect(mx + pu.x * k - 1.5, my + pu.y * k - 1.5, 3, 3);
+  if (p && p.alive) { ctx.fillStyle = '#4dff6a'; ctx.fillRect(mx + (p.x + p.size / 2) * k - 2.5, my + (p.y + p.size / 2) * k - 2.5, 5, 5); }
+  ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(mx + _cam.x * k, my + _cam.y * k, (W / CAM_ZOOM) * k, (H / CAM_ZOOM) * k);
+  ctx.strokeStyle = '#8a6a2a';
+  ctx.strokeRect(mx - 1.5, my - 1.5, MINI + 3, MINI + 3);
+  ctx.restore();
 }
 
 // 暫停時畫面是完全靜止的（frameCount 不再前進 → 水波相位、履帶相位、發光呼吸都凍結），
@@ -3704,6 +3774,11 @@ function render() {
 
   if (G.shakeTimer > 0) {
     ctx.translate((visualRnd() - 0.5) * G.shakeIntensity, (visualRnd() - 0.5) * G.shakeIntensity);
+  }
+  if (isGameplay) {
+    updateCamera();
+    ctx.scale(CAM_ZOOM, CAM_ZOOM);
+    ctx.translate(-_cam.x, -_cam.y);
   }
 
   if (isGameplay) {
@@ -3747,7 +3822,7 @@ function render() {
     for (let i = 0; i < ft.length; i++) {
       const f = ft[i];
       ctx.drawImage(forestCanvas,
-        (f.x - pad) * RENDER_SCALE, (f.y - pad) * RENDER_SCALE, span * RENDER_SCALE, span * RENDER_SCALE,
+        (f.x - pad) * BAKE_SCALE, (f.y - pad) * BAKE_SCALE, span * BAKE_SCALE, span * BAKE_SCALE,
         f.x - pad, f.y - pad, span, span);
     }
   }
@@ -3755,6 +3830,12 @@ function render() {
   drawParticles();
   drawDirectorEvents();
   if (isGameplay) drawScorePopups();
+
+  // 以下是畫面座標（HUD 類）：還原掉鏡頭與震動
+  ctx.restore();
+  ctx.save();
+  drawDirectorEventName();
+  if (isGameplay) drawMinimap();
 
   if (G.playerStats && G.playerStats.combo > 0 && isGameplay) {
     ctx.fillStyle = '#ff6600';
@@ -3862,7 +3943,7 @@ requestAnimationFrame(gameLoop);
     // 驗證工具會呼叫的函式
     applyUpgrade, generateUpgradeOptions, buyItem, handleBulletHit, updateBullet, drawEagleDirect, eagleSprite,
     spawnEnemy, updateDirector, updateDirectorEvents, updateSummonEntities, damagePlayerFromHazard,
-    stepTicks, gameChecksum, seed: SEED, deterministic: DETERMINISTIC, fx,
+    stepTicks, gameChecksum, seed: SEED, deterministic: DETERMINISTIC, fx, CAM_ZOOM,
     // update／render 分開掛出來：headless 的 rAF 不可靠（實測空頁面只有 8.8 fps），
     // 效能工具必須能自行同步呼叫，才能把「模擬」與「繪製」的成本分開量。
     update, render, effectiveSpawnInterval, cacheStaticMap,

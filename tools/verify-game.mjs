@@ -980,7 +980,7 @@ const forestBlit = await page.evaluate(() => {
   G.isVSMode = true;
   T.cacheStaticMap();
   const tiles = G.forestTiles.length;
-  const scale = T.canvas.width / T.W;
+  const scale = (T.canvas.width / T.W) * (T.CAM_ZOOM || 1);   // 樹林層以鏡頭放大後的解析度烘
   const c = T.ctx;
   const orig = c.drawImage;
   const tileSized = [], fullSized = [];

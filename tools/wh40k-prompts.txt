@@ -33,3 +33,19 @@ pu_SUMMON_DROP|power-up icon: Adeptus Mechanicus cog skull emblem, green glow
 pu_GATLING_DROP|power-up icon: heavy rotary assault cannon with fire, red orange
 pu_CLUSTER_DROP|power-up icon: cluster of frag grenades, amber glow
 pu_D_LASER_DROP|power-up icon: twin-linked lascannon with blue beams
+chaos_fast|Chaos Space Marine bike squad / Chaos Raptor attack bike, black and brass with spikes and eight-pointed star, front pointing straight UP toward the top edge
+chaos_suicide|Chaos Nurgle plague drone / daemon-possessed Helbrute charging, red and bronze with fleshy daemonic growths, front pointing straight UP toward the top edge
+ork_normal|Ork Trukk armoured truck with big shoota turret, crude red and yellow scrap metal, glyphs, barrel pointing straight UP toward the top edge, tracks left and right
+ork_fast|Ork Warbuggy speed freek buggy, red paint with flames and checkers, twin big shootas pointing straight UP toward the top edge
+ork_heavy|Ork Battlewagon heavy tank with huge kannon and deff rolla, rusty green and yellow scrap armour, cannon pointing straight UP toward the top edge, very bulky
+aeldari_normal|Aeldari Wave Serpent grav transport, bone-white and jade wraithbone hull with serpent shield, twin shuriken cannon pointing straight UP toward the top edge, sleek alien
+aeldari_heavy|Aeldari Fire Prism grav tank, crimson Saim-Hann and white wraithbone hull, prism cannon pointing straight UP toward the top edge, elegant curved alien design
+aeldari_suicide|Aeldari Vyper jetbike skimmer, yellow Iyanden wraithbone, bright cannon pointing straight UP toward the top edge, small and fast
+tyranid_normal|Tyranid Carnifex monster creature viewed from above, purple carapace and bone-white plates, scything talons, head facing straight UP toward the top edge, alien
+tyranid_fast|Tyranid Hormagaunt swarm of three creatures viewed from above, purple and white carapace, leaping, heads facing straight UP toward the top edge
+tyranid_heavy|Tyranid Tyrannofex bio-titan viewed from above, massive purple carapace with bio-cannon, head facing straight UP toward the top edge, enormous alien
+tyranid_suicide|Tyranid Spore Mine cluster floating bio-bomb, pulsing purple and pink sacs with tendrils, round
+necron_normal|Necron Ghost Ark skimmer viewed from above, gunmetal silver with glowing green energy, gauss flayers pointing straight UP toward the top edge
+necron_fast|Necron Tomb Blade jetbike viewed from above, silver metal with green glowing core, pointing straight UP toward the top edge
+necron_heavy|Necron Doomsday Ark viewed from above, long silver hull with glowing green doomsday cannon pointing straight UP toward the top edge, very large
+necron_suicide|Necron Canoptek Scarab swarm, small silver beetle constructs with glowing green eyes, facing straight UP toward the top edge
