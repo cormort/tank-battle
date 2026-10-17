@@ -966,6 +966,27 @@ const pausedRender = await page.evaluate(() => {
 ok('C11 暫停時同一個 frameCount 只重畫一次（第二次 render 0 次 canvas 呼叫）',
   pausedRender.first > 0 && pausedRender.second === 0, JSON.stringify(pausedRender));
 
+// C12：暫停時玩家坦克不會消失（舊版 render 只在 PLAYING 畫玩家 → 按 P 之後自己那格變空白）
+const pausedPlayer = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  T.render();
+  const drawn = { playing: 0, paused: 0, gameover: 0 };
+  const orig = G.player.draw;
+  G.player.draw = function () { drawn[G.state] = (drawn[G.state] || 0) + 1; return orig.call(G.player); };
+  T.render();                                  // playing
+  G.state = T.STATE.PAUSED;
+  T.frameCount++;                              // 換一幀，否則會被「暫停不重畫」的快取跳過
+  T.render();                                  // paused
+  G.state = T.STATE.GAMEOVER;
+  T.render();                                  // gameover 不該畫
+  G.player.draw = orig;
+  return drawn;
+});
+ok('C12 暫停時玩家坦克仍會畫出來（舊版按 P 之後自己的坦克當場消失）',
+  pausedPlayer.playing > 0 && pausedPlayer.paused > 0 && !pausedPlayer.gameover,
+  JSON.stringify(pausedPlayer));
+
 console.log(`\n${passed} passed, ${failed} failed  (pageerror: ${pageErrors.length})`);
 await browser.close();
 if (server) server.close();

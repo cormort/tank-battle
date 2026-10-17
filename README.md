@@ -48,7 +48,7 @@ tools/              驗證與量測工具（Node + Playwright）
   verify-data.mjs     資料層閘門（等價／schema／可達性／死欄位，5 項，純 Node）
   verify-replay.mjs   確定性與 replay（seed + 輸入 → checksum，12 項）
   verify-bundle.mjs   打包版與模組版行為等價（7 項）
-  verify-game.mjs     遊戲行為與平台細節（47 項）
+  verify-game.mjs     遊戲行為與平台細節（48 項）
   profile.mjs         效能：update／issue／光柵分開量 + draw call 次數 + CPU hot
   render-hash.mjs     畫面指紋：渲染改動前後是否逐像素相同（A/B 用，不是 CI 基準）
 ```
@@ -86,7 +86,7 @@ node tools/verify-replay.mjs  # 確定性與 replay（12 項）
 #   PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-replay.mjs   # 對正式站驗
 node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay
 node tools/verify-bundle.mjs  # 打包版與模組版行為等價（7 項，Playwright）
-node tools/verify-game.mjs    # 遊戲行為與平台細節（47 項，Playwright）
+node tools/verify-game.mjs    # 遊戲行為與平台細節（48 項，Playwright）
 #   PW_MODULE=/path/to/playwright/index.js node tools/verify-game.mjs
 #   PROBE_URL=https://cormort.github.io/tank-battle/ node tools/verify-game.mjs   # 打遠端
 
@@ -160,7 +160,7 @@ fx.clearAll();                                      // restartGame() 內，重�
 兩支工具都支援 `PROBE_URL`，可以直接對生產環境跑：
 
 ```bash
-PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-game.mjs    # 47 項行為與平台檢查
+PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-game.mjs    # 48 項行為與平台檢查
 PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-replay.mjs  # seed + 輸入 → checksum 等價
 ```
 
@@ -205,11 +205,11 @@ replay 那條是「行為等價」最強的證據：正式站跑同一份 replay
 
 ### `verify-game.mjs`（行為與平台）
 
-47 項：A 主玩法（武器進化鏈、商店扣分時機、BARRIER 時效、BOOST 方向、子彈壽命回收、
+48 項：A 主玩法（武器進化鏈、商店扣分時機、BARRIER 時效、BOOST 方向、子彈壽命回收、
 關卡結算與 BOSS 出生閘門、菁英詞綴）、B 行動裝置與輸入（手機橫向可玩、DPR、觸控目標、
 失焦放開輸入與自動暫停、Space 對聚焦按鈕有效、例外不凍結遊戲）、
 C 效能（老鷹離屏快取、sprite 實例快取、粒子批次、NIGHT 漸層重用、音效發聲上限、F3 面板、
-沒有全螢幕填色、樹林逐格貼、暫停不重畫）、
+沒有全螢幕填色、樹林逐格貼、暫停不重畫、暫停時玩家不消失）、
 E 資料接線（SURGE deactivate、空投真的掉寶、FREEZING 凍緩、特殊敵人生成、bomb/mine 傷害）、
 F 狀態機與輸入意圖、G 地圖事件（見下）。
 
@@ -262,7 +262,8 @@ F 狀態機與輸入意圖、G 地圖事件（見下）。
 
 渲染改動怎麼驗證「畫面沒變」：`tools/render-hash.mjs` 把 6 個固定場景（normal／+combo／vs／
 night／paused／menu）畫出來，對 `getImageData` 的每個像素算 FNV 指紋。這 6 個場景在改動前後
-**指紋全部相同**：
+**指紋全部相同**（唯一的例外是 `paused`：順手修掉「按 P 暫停後自己的坦克當場消失」—— 舊版
+`render()` 只在 `PLAYING` 畫玩家，而每一幀都會重畫整片戰場，所以那一格不會被保留下來）：
 
 ```bash
 node tools/render-hash.mjs --save /tmp/before.json   # 改之前

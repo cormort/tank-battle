@@ -5155,7 +5155,10 @@ function render() {
   drawSummonEntities();
   drawPowerUps();
   for (let i = 0; i < G.enemies.length; i++) G.enemies[i].draw();
-  if (G.player && G.state === STATE.PLAYING) G.player.draw();
+  // 暫停時也要畫玩家：舊版只在 PLAYING 畫，於是「按 P 暫停」會讓自己的坦克當場消失
+  // （每一幀都會重畫整片戰場，所以那一格不會被保留下來）。GAMEOVER 不畫（死亡後 alive=false，
+  // 但接關畫面不該留下上一條命的坦克）。
+  if (G.player && (G.state === STATE.PLAYING || G.state === STATE.PAUSED)) G.player.draw();
 
   renderBullets();
 
