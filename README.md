@@ -43,7 +43,14 @@ src/data/           資料層：唯一來源，這裡改數值就是改遊戲
   shop.js             商店品項
   events.js           Director 事件（工廠 + 注入 ctx）與地圖事件
   schema.js           必填欄位、型別、進度鏈、可達性規則
-tools/              驗證工具（Node + Playwright）
+tools/              驗證與量測工具（Node + Playwright）
+  verify-core.mjs     核心／平台層／渲染／UI 單元測試（91 項，純 Node）
+  verify-data.mjs     資料層閘門（等價／schema／可達性／死欄位，5 項，純 Node）
+  verify-replay.mjs   確定性與 replay（seed + 輸入 → checksum，12 項）
+  verify-bundle.mjs   打包版與模組版行為等價（7 項）
+  verify-game.mjs     遊戲行為與平台細節（47 項）
+  profile.mjs         效能：update／issue／光柵分開量 + draw call 次數 + CPU hot
+  render-hash.mjs     畫面指紋：渲染改動前後是否逐像素相同（A/B 用，不是 CI 基準）
 ```
 
 `index.html` 只 import 資料層；資料不再內嵌。**不需要建置流程**（原生 ESM，GitHub Pages 直接支援）。
@@ -70,7 +77,7 @@ detectMobile` 這種碰撞會讓別名指向自己造成無限遞迴 —— 實�
 
 ## 開發與驗證
 
-五支工具，都不需要建置：
+七支工具，都不需要建置（前五支是閘門，後兩支是「改之前先量」的量測工具）：
 
 ```bash
 node tools/verify-core.mjs    # 核心／平台層／渲染／UI 單元測試（91 項，純 Node、秒級）
@@ -79,10 +86,18 @@ node tools/verify-replay.mjs  # 確定性與 replay（12 項）
 #   PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-replay.mjs   # 對正式站驗
 node tools/verify-replay.mjs --record   # 玩法刻意改動後重新錄製基準 replay
 node tools/verify-bundle.mjs  # 打包版與模組版行為等價（7 項，Playwright）
-node tools/verify-game.mjs    # 遊戲行為與平台細節（44 項，Playwright）
+node tools/verify-game.mjs    # 遊戲行為與平台細節（47 項，Playwright）
 #   PW_MODULE=/path/to/playwright/index.js node tools/verify-game.mjs
 #   PROBE_URL=https://cormort.github.io/tank-battle/ node tools/verify-game.mjs   # 打遠端
+
+node tools/profile.mjs        # 效能：update／issue／光柵 分開量，附 draw call 次數與 CPU hot（Playwright）
+node tools/render-hash.mjs    # 畫面指紋：渲染改動前後是不是「逐像素相同」（Playwright）
 ```
+
+需要 Playwright 的那幾支先 `npm ci && npx playwright install chromium`；
+`package.json` 另有等價的縮寫（`npm run verify`／`verify:browser`／`profile`／`build`）。
+`.github/workflows/verify.yml` 在 push 與 PR 上跑同一組閘門（**不含**效能與畫面指紋那兩支，
+理由見上一節）。
 
 ### `verify-data.mjs`（資料層閘門）
 
@@ -145,17 +160,17 @@ fx.clearAll();                                      // restartGame() 內，重�
 兩支工具都支援 `PROBE_URL`，可以直接對生產環境跑：
 
 ```bash
-PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-game.mjs    # 44 項行為與平台檢查
+PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-game.mjs    # 47 項行為與平台檢查
 PROBE_URL=https://cormort.github.io/tank-battle/index.html node tools/verify-replay.mjs  # seed + 輸入 → checksum 等價
 ```
 
 replay 那條是「行為等價」最強的證據：正式站跑同一份 replay 得到的 checksum 必須與
-`tools/replays/smoke.json` 相同（目前 `2087606046`）—— 也就是說，重寫前後的**遊戲行為逐位相同**。
+`tools/replays/smoke.json` 相同（目前 `4108668566`）—— 也就是說，重寫前後的**遊戲行為逐位相同**。
 
 ### `verify-bundle.mjs`（打包驗證）
 
 打包最容易出的錯是「打出來的檔案能開、但行為不一樣」。所以核心檢查是：
-**用同一份 replay 跑打包版，checksum 必須與模組版完全相同**（目前皆為 `2087606046`）。
+**用同一份 replay 跑打包版，checksum 必須與模組版完全相同**（目前皆為 `4108668566`）。
 另外檢查打包檔自足（沒有模組語法、沒有相對匯入、載入時不請求任何本地 `.js`）、
 不含工具鏈程式碼、`?bot` 除錯介面齊全。
 
@@ -190,12 +205,90 @@ replay 那條是「行為等價」最強的證據：正式站跑同一份 replay
 
 ### `verify-game.mjs`（行為與平台）
 
-44 項：A 主玩法（武器進化鏈、商店扣分時機、BARRIER 時效、BOOST 方向、子彈壽命回收、
+47 項：A 主玩法（武器進化鏈、商店扣分時機、BARRIER 時效、BOOST 方向、子彈壽命回收、
 關卡結算與 BOSS 出生閘門、菁英詞綴）、B 行動裝置與輸入（手機橫向可玩、DPR、觸控目標、
 失焦放開輸入與自動暫停、Space 對聚焦按鈕有效、例外不凍結遊戲）、
-C 效能（老鷹離屏快取、sprite 實例快取、粒子批次、NIGHT 漸層重用、音效發聲上限、F3 面板）、
+C 效能（老鷹離屏快取、sprite 實例快取、粒子批次、NIGHT 漸層重用、音效發聲上限、F3 面板、
+沒有全螢幕填色、樹林逐格貼、暫停不重畫）、
 E 資料接線（SURGE deactivate、空投真的掉寶、FREEZING 凍緩、特殊敵人生成、bomb/mine 傷害）、
 F 狀態機與輸入意圖、G 地圖事件（見下）。
+
+> B7／F6 是「例外不凍結遊戲」與「發光敵人畫得出來」這兩條。它們原本用真實時間等 rAF，
+> 在慢主機上會變成假紅（實測空頁面 rAF 只有 8.8 fps），現在改成**同步呼叫 `update()`／
+> `render()`**：一次 render 一定扣一次 `glowTimer`，`frameCount` 有沒有前進也不再取決於主機速度。
+
+### 效能：怎麼量、量到什麼（`tools/profile.mjs` + `tools/render-hash.mjs`）
+
+先講一個踩過的坑：**headless 的 `requestAnimationFrame` 不可信**。同一台機器上，
+空頁面只跑 `rAF` + 一次 `fillRect` 實測只有 **8.8 fps** —— 用它量「遊戲幾幀」會得到
+「遊戲掉到 8 fps」的假結論（`verify-game` 的 B7／F6 就因此紅過）。所以量測工具改成
+**同步呼叫 `__T.update()`／`__T.render()`** 再計時，並把成本拆成三段：
+
+| 量的是什麼 | 怎麼量 | 意義 |
+| :--- | :--- | :--- |
+| `update/tick` | 連續呼叫 `update()` N 次的平均 | 純 JS 模擬成本（與 GPU 無關，真機同樣適用） |
+| `issue/幀` | 連續呼叫 `render()` M 次的平均 | 呼叫 canvas API 的成本（命令錄製） |
+| `paint/幀` | 上述之後補一次 `getImageData` 逼出光柵化 | 真的「填了多少像素」的成本（SwiftShader 下 ≈ 流量） |
+
+三種負載：`normal`（4 敵／12 彈／40 粒子）、`vs`（18 敵／120 彈／400 粒子，割草模式上限）、
+`stress`（48 敵／320 彈／800 粒子，超載）。`--save` / `--compare` 用來做前後對比，
+`--cpu` 會用 CDP 抓 self-time hot function。
+
+這一輪（同一台機器、DPR 2、SwiftShader）的結果：
+
+| 負載 | 幀總計 | 變化 | fillStyle／幀 |
+| :--- | :--- | :--- | :--- |
+| normal | 2.867 → **1.413 ms** | **−50.7%** | 84 → 58 |
+| vs | 4.407 → **2.840 ms** | **−35.6%** | 688 → 422 |
+| stress | 6.520 → **4.730 ms** | **−27.5%** | 1548 → 1015 |
+
+改的是這四件事（全部是「同一個畫面、更少的像素與狀態切換」）：
+
+1. **樹林只貼有樹的格子**。`forestCanvas` 原本每幀整張 1040×1040 貼回（實測 **1.1 ms／幀**），
+   而一張地圖通常只有十幾格樹；改成逐格 `drawImage(sub-rect)` 後是 0.14 ms。逐格貼要注意
+   抗鋸齒溢出：樹叢的圓形 blob 中心可能落在格子邊界外（`x + size*0.15`、半徑 4 → 往左溢出
+   0.1 px），所以四邊各多貼 1 個邏輯像素，否則會少掉一列半透明像素（實測 12 個區塊、每塊
+   1 列，肉眼難辨，但「逐像素相同」的驗證就不成立了）。
+2. **底色烘進 `staticCanvas`**。黑底（以及 NIGHT 事件的靛藍底色）原本每幀全螢幕填一次
+   （0.32 ms），現在在 `cacheStaticMap()` 就烘進背景層；`breakTile()` 也從 `clearRect`
+   改成補底色（`clearRect` 會留下透明洞）。NIGHT 開始／結束時才重烘一次。
+3. **暫停時不重畫**。暫停時 `frameCount` 不再前進 → 水波相位、履帶相位、發光呼吸全部凍結，
+   同一幀的畫面必然完全相同。現在改為同一 `frameCount` 只畫一次（手機上長時間暫停不再
+   持續全速重繪）。
+4. **粒子顏色只在真的變了才指派 `fillStyle`**。800 顆火花每顆都指派 ≈ 0.32 ms／幀，
+   記住上一個顏色後 ≈ 0.22 ms。**刻意不做「分色批次化」**：那會改變粒子重疊時的疊序，
+   而分色批次化省下的時間（≈ 0.1 ms）不值得失去「逐像素相同」這個性質。
+   （同樣用量的子彈也試過改成 sprite `drawImage`：實測 0.28 → 0.58 ms，**更慢**，所以沒有採用。）
+
+渲染改動怎麼驗證「畫面沒變」：`tools/render-hash.mjs` 把 6 個固定場景（normal／+combo／vs／
+night／paused／menu）畫出來，對 `getImageData` 的每個像素算 FNV 指紋。這 6 個場景在改動前後
+**指紋全部相同**：
+
+```bash
+node tools/render-hash.mjs --save /tmp/before.json   # 改之前
+node tools/render-hash.mjs --compare /tmp/before.json # 改之後：6 個場景都要 SAME
+```
+
+> 指紋只保證「同一台機器、同一個 Chromium」的前後比較（字型與 Skia 版本都會影響像素），
+> 所以刻意不把 hash 寫進版控當 CI 基準 —— 它是 A/B 工具。玩法等價則由 replay checksum 守
+> （`4108668566` 在這一輪的所有改動後仍然不變，代表**遊戲行為逐位相同**）。
+
+### SURGE 事件與 VS 難度曲線：兩個寫入端各改一半
+
+`tools/verify-game.mjs` 的 E1 在這一輪一開始是紅的：SURGE 的 `activate()` 直接改
+`G.spawnInterval`（基準值），而 VS 模式的 `updateVSModeDifficulty()` **每 60 tick 就重算一次**
+基準值 → 割草模式裡 SURGE 最多只生效 1 秒鐘，事件結束時 `deactivate()` 還會把重算後的値
+再乘回去（實測 `18 → 9 → 72`，而不是回到 18）。現在把「基準值」與「事件修飾子」分開：
+
+| 誰 | 擁有什麼 | 寫哪個欄位 |
+| :--- | :--- | :--- |
+| `startLevel()`／`updateVSModeDifficulty()` | 關卡與難度的生成節奏 | `G.spawnInterval`（基準） |
+| `DIRECTOR_EVENTS.SURGE` | 事件的暫時加減速 | `G.spawnIntervalMul`（修飾子） |
+| 生成端 | `effectiveSpawnInterval()` | 只讀，回傳 `基準 × 修飾子`（下限 4） |
+
+E1 現在同時斷言三件事：SURGE 期間間隔真的減半、VS 難度重算**不會**吃掉修飾子、事件到期
+完全還原。另外 `startLevel()` 會清掉 `directorEvents`（否則上一關的事件會在新關卡開頭
+才 life 到期，觸發一次莫名其妙的 `deactivate`）。
 
 ### 地圖事件：被「寫入端掃描」揪出的整條死子系統
 

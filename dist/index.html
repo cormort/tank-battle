@@ -419,8 +419,12 @@ function makeDirectorEvents(ctx) {
   return {
   SURGE: {
     name: '⚠️ ENEMY SURGE', duration: 600, desc: '敵軍生成加倍',
-    activate() { ctx.G.spawnInterval = Math.max(4, ctx.G.spawnInterval / 2); },
-    deactivate() { ctx.G.spawnInterval = Math.min(30, ctx.G.spawnInterval * 2); }
+    // 只改修飾子，不動基準值：基準值屬於關卡與 VS 難度曲線（updateVSModeDifficulty 每 60 tick
+    // 重算一次），事件直接寫基準值就會被下一次重算覆蓋，deactivate 還會把重算後的値再乘一次
+    // （實測 18 → 9 → 72，而不是回到 18）。實際間隔＝基準 × 修飾子，讀取端只有
+    // index.html 的 effectiveSpawnInterval()。
+    activate() { ctx.G.spawnIntervalMul = 0.5; },
+    deactivate() { ctx.G.spawnIntervalMul = 1; }
   },
   AIRDROP: {
     name: '📦 空投來了', duration: 900, desc: '高級物資出現',
@@ -1688,23 +1692,27 @@ function makeEffectRenderer({ ctx, particlesPool, bulletsPool, getGame, smokeCol
   function drawParticles() {
     const arr = particlesPool.active;
     ctx.save();
+    // 顏色只在「真的變了」的時候才指派：指派 fillStyle 要解析字串（實測 800 顆火花
+    // 每顆都指派一次 ≈ 0.32 ms／幀，改成記住上一個顏色 ≈ 0.22 ms）。
+    // 繪製順序完全不變（不像分色批次化那樣會改變重疊時的疊序），所以畫面逐像素相同。
+    let lastFill = null;
     for (let i = 0; i < arr.length; i++) {
       const p = arr[i];
       if (!p.alive || p.type !== 'spark') continue;
       const t = p.life / p.maxLife;
-      if (p.color === '#5cd8ff') {
-        ctx.fillStyle = t > 0.5 ? '#ffffff' : '#74c0fc';
-      } else {
-        ctx.fillStyle = t > 0.7 ? '#ffeb50' : t > 0.4 ? '#ff9020' : '#c03030';
-      }
+      const fill = p.color === '#5cd8ff'
+        ? (t > 0.5 ? '#ffffff' : '#74c0fc')
+        : (t > 0.7 ? '#ffeb50' : t > 0.4 ? '#ff9020' : '#c03030');
+      if (fill !== lastFill) { ctx.fillStyle = fill; lastFill = fill; }
       const sz = (p.size + 0.5) | 0;
       ctx.fillRect(p.x | 0, p.y | 0, sz, sz);
     }
+    const smokeFill = smokeColor;      // 固定色 + globalAlpha（純數值）：不再為每顆煙霧配 rgba 字串
     for (let i = 0; i < arr.length; i++) {
       const p = arr[i];
       if (!p.alive || p.type !== 'smoke') continue;
       const a = Math.max(0, p.life / p.maxLife);
-      ctx.fillStyle = smokeColor;      // 固定色 + globalAlpha（純數值）：不再為每顆煙霧配 rgba 字串
+      if (lastFill !== smokeFill) { ctx.fillStyle = smokeFill; lastFill = smokeFill; }
       ctx.globalAlpha = a * 0.5;
       ctx.fillRect(p.x | 0, p.y | 0, p.size | 0, p.size | 0);
       ctx.globalAlpha = 1;
@@ -2428,11 +2436,15 @@ function getShopPrice(basePrice) {
 const G = {
   score: 0, level: 1, continues: 3, isVSMode: false,
   enemiesRemaining: 0, enemiesSpawned: 0, maxEnemies: 10, aliveEnemies: 0,
-  spawnInterval: 120, spawnTimer: 0, baseDestroyed: false,
+  // spawnInterval 是「基準值」（由關卡與 VS 難度曲線決定），spawnIntervalMul 才是事件修飾子
+  // （SURGE 0.5＝生成加倍）。舊版讓 SURGE 直接改基準值，而 VS 模式的 updateVSModeDifficulty()
+  // 每 60 tick 就重算一次基準 → 割草模式裡 SURGE 最多只生效 1 秒，deactivate 的「還原」
+  // 還會把重算後的基準值再乘回去（18 → 9 → 36，上限 30）。兩個寫入端各改一半，互相覆蓋。
+  spawnInterval: 120, spawnIntervalMul: 1, spawnTimer: 0, baseDestroyed: false,
   keys: {}, map: [], player: null, basePos: null, playerSpawnPos: null,
   frameCount: 0, shakeTimer: 0, shakeIntensity: 0,
   vsModeStartFrame: 0,
-  enemies: [], scorePopups: [], particles: [], spawnEffects: [], dynamicTiles: [],
+  enemies: [], scorePopups: [], particles: [], spawnEffects: [], dynamicTiles: [], forestTiles: [],
   powerUps: [],
   playerStats: {
     weapon: 'NORMAL', weaponTier: 0, pierce: false, speedMult: 1,
@@ -3118,26 +3130,59 @@ function generateMap(level) {
 // （實測 ALIVE 有 127 個非零像素 → 每幀 127 次 fillStyle + 127 次 fillRect = 254 次 canvas API，
 //   只為了畫一格 26×26 的圖磚；而且這條路徑在遊戲進行中是無條件執行的）。
 
+// 背景底色（含 NIGHT 事件的底色）由 cacheStaticMap 烘進 staticCanvas，
+// render() 就不必每幀再做一次全螢幕填色（實測：1040×1040 的一次全螢幕 fillRect ≈ 0.32 ms）。
+const BG_BASE = '#050508';
+const BG_NIGHT = 'rgba(0,0,30,0.5)';
+
+function isNightLayerActive() {
+  return mapEventState.active && mapEventState.type === 'NIGHT';
+}
+
+/** 背景底色。cacheStaticMap／breakTile 共用同一份畫法，像素才會完全一致（含 NIGHT 的半透明疊色）。 */
+function paintBackground(c, x, y, w, h) {
+  c.fillStyle = BG_BASE;
+  c.fillRect(x, y, w, h);
+  if (isNightLayerActive()) {
+    c.fillStyle = BG_NIGHT;
+    c.fillRect(x, y, w, h);
+  }
+}
+
+// NIGHT 何時開始／結束會改變「烘進 staticCanvas 的底色」，所以只有那兩個時刻需要重建，
+// 不是每次地圖事件都重建（重建一次要重畫 400 格）。
+let _staticNightBaked = false;
+
 function cacheStaticMap() {
   staticCtx.clearRect(0, 0, W, H);
   forestCtx.clearRect(0, 0, W, H);
+  paintBackground(staticCtx, 0, 0, W, H);   // 黑底烘進去：地形之外的空地不必每幀再填一次
   G.dynamicTiles = [];
+  G.forestTiles = [];
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const t = G.map[r][c], x = c*TILE, y = r*TILE;
       if (t === BRICK) drawBrickNES(staticCtx, x, y, TILE);
       else if (t === STEEL) drawSteelNES(staticCtx, x, y, TILE);
-      else if (t === FOREST) drawForestNES(forestCtx, x, y, TILE);
-      else if (t === WATER || t === BASE) {
+      else if (t === FOREST) {
+        drawForestNES(forestCtx, x, y, TILE);
+        G.forestTiles.push({ x, y });        // 只貼有樹的格子，不再每幀貼一張全螢幕
+      } else if (t === WATER || t === BASE) {
         G.dynamicTiles.push({ type: t, x, y, r, c });
       }
     }
   }
+  _staticNightBaked = isNightLayerActive();
+}
+
+function refreshStaticBackgroundIfNeeded() {
+  if (!G.map || G.map.length !== ROWS) return;   // 地圖還沒生成（boot 階段的地圖是空的）
+  if (_staticNightBaked !== isNightLayerActive()) cacheStaticMap();
 }
 
 function breakTile(c, r) { 
   G.map[r][c] = EMPTY; 
-  staticCtx.clearRect(c*TILE, r*TILE, TILE, TILE); 
+  paintBackground(staticCtx, c*TILE, r*TILE, TILE, TILE);   // 不能 clearRect：staticCanvas 現在是不透明的背景層
 }
 
 // ==================== 共用工具 ====================
@@ -3951,6 +3996,7 @@ function activateMapEvent(ev) {
     }
   }
   addScorePopup(W / 2, H / 2 - 50, `${ev.name} 事件!`);
+  refreshStaticBackgroundIfNeeded();   // NIGHT：底色烘在 staticCanvas 裡，換事件時要重烘
 }
 
 function updateMapEvent() {
@@ -4013,6 +4059,7 @@ function deactivateMapEvent() {
   if (evType === 'DESERT') G.playerStats.speedMult /= 0.7;
   mapEventState.slideDir = -1;
   mapEventState.slideTicks = 0;
+  refreshStaticBackgroundIfNeeded();   // NIGHT 結束 → 把底色烘回純黑
 }
 
 let _nightGradient = null, _nightGradientX = 0, _nightGradientY = 0;
@@ -4439,6 +4486,11 @@ function updateVSModeDifficulty() {
   G.spawnInterval = Math.max(8, 18 - phase * 2);
 }
 
+/** 實際生成間隔＝基準值 × 事件修飾子（SURGE）。唯一的讀取端，避免兩處各算一份。 */
+function effectiveSpawnInterval() {
+  return Math.max(4, Math.round(G.spawnInterval * (G.spawnIntervalMul || 1)));
+}
+
 function startLevel() {
   G.isVSMode = (G.level % CONFIG.GAMEPLAY.VS_MODE_INTERVAL === 0);
 
@@ -4460,6 +4512,8 @@ function startLevel() {
     G.spawnInterval = Math.max(40, Math.floor((120 - G.level * 8) * 1));
     G.spawnTimer = 30;
   }
+  G.spawnIntervalMul = 1;      // 新關卡從乾淨的基準開始（上一關的 SURGE 不該跨關）
+  G.directorEvents.length = 0; // 上一關的局內事件同理：留著會讓 life 繼續遞減並在關卡開頭觸發 deactivate
 
   G.enemiesSpawned = 0;
   G.aliveEnemies = 0;
@@ -4842,7 +4896,7 @@ function update() {
       if (G.aliveEnemies < maxOnScreen) {
         if (--G.spawnTimer <= 0) {
           spawnEnemy();
-          G.spawnTimer = G.spawnInterval;
+          G.spawnTimer = effectiveSpawnInterval();
         }
       }
     }
@@ -5054,23 +5108,30 @@ function drawDirectorEvents() {
   }
 }
 
-function render() {
-  ctx.save();
-  ctx.fillStyle = '#050508';
-  ctx.fillRect(0, 0, W, H);
+// 暫停時畫面是完全靜止的（frameCount 不再前進 → 水波相位、履帶相位、發光呼吸都凍結），
+// 所以同一幀只需要畫一次：暫停中的 rAF 不再每幀重畫整個戰場（手機上暫停很久時的耗電來源）。
+let _pausedRenderedFrame = -1;
 
-  // 用 mapEventState（真正在跑的狀態機）：G.mapEvent 只在 restartGame 被賦值，而 rollMapEvent()
-  // 因為此時 G.level 已重置為 1（條件要求 level>=3）永遠回 null → 這層暗幕從來沒生效過。
-  if (mapEventState.active && mapEventState.type === 'NIGHT') {
-    ctx.fillStyle = 'rgba(0,0,30,0.5)';
-    ctx.fillRect(0, 0, W, H);
+function render() {
+  if (G.state === STATE.PAUSED) {
+    if (_pausedRenderedFrame === G.frameCount) return;
+    _pausedRenderedFrame = G.frameCount;
+  } else if (_pausedRenderedFrame !== -1) {
+    _pausedRenderedFrame = -1;
   }
+
+  const isGameplay = G.state === STATE.PLAYING || G.state === STATE.PAUSED || G.state === STATE.GAMEOVER;
+
+  ctx.save();
+  // 遊戲中的底色（含 NIGHT 事件底色）已經烘在 staticCanvas 裡 → 不必每幀全螢幕填色。
+  // 非遊戲狀態（選單）沒有 staticCanvas 那一層，還是要自己填。
+  // 注意：用 mapEventState（真正在跑的狀態機）判斷；G.mapEvent 只在 restartGame 被賦值，
+  // rollMapEvent() 因為此時 G.level 已重置為 1（條件要求 level>=3）永遠回 null。
+  if (!isGameplay) paintBackground(ctx, 0, 0, W, H);
 
   if (G.shakeTimer > 0) {
     ctx.translate((visualRnd() - 0.5) * G.shakeIntensity, (visualRnd() - 0.5) * G.shakeIntensity);
   }
-
-  const isGameplay = G.state === STATE.PLAYING || G.state === STATE.PAUSED || G.state === STATE.GAMEOVER;
 
   if (isGameplay) {
     ctx.drawImage(staticCanvas, 0, 0, W, H);
@@ -5098,7 +5159,22 @@ function render() {
 
   renderBullets();
 
-  if (isGameplay) ctx.drawImage(forestCanvas, 0, 0, W, H);
+  if (isGameplay) {
+    // 樹林只貼有樹的格子：全螢幕貼一張 1040×1040 的透明圖層實測 1.1 ms／幀（DPR 2、SwiftShader），
+    // 而一張地圖通常只有十幾格樹 → 實測降到 0.14 ms。
+    // 四邊各多貼 1 個邏輯像素：樹叢的圓形 blob 中心可能落在格子邊界外（例如 x+size*0.15、半徑 4），
+    // 抗鋸齒會溢出格子 1 個 device 像素以內；不帶這圈邊界就會少掉那一列半透明像素，
+    // 雖然肉眼難辨，但「跟原本全螢幕貼法逐像素相同」是這個改動能被驗證的前提。
+    // 來源座標是 device pixel，目的地是邏輯座標（ctx 已 setTransform(scale…)）。
+    const ft = G.forestTiles;
+    const pad = 1, span = TILE + pad * 2;
+    for (let i = 0; i < ft.length; i++) {
+      const f = ft[i];
+      ctx.drawImage(forestCanvas,
+        (f.x - pad) * RENDER_SCALE, (f.y - pad) * RENDER_SCALE, span * RENDER_SCALE, span * RENDER_SCALE,
+        f.x - pad, f.y - pad, span, span);
+    }
+  }
 
   drawParticles();
   drawDirectorEvents();
@@ -5204,6 +5280,9 @@ requestAnimationFrame(gameLoop);
     applyUpgrade, buyItem, handleBulletHit, updateBullet, drawEagleDirect, eagleSprite,
     spawnEnemy, updateDirector, updateDirectorEvents, updateSummonEntities, damagePlayerFromHazard,
     stepTicks, gameChecksum, seed: SEED, deterministic: DETERMINISTIC, fx,
+    // update／render 分開掛出來：headless 的 rAF 不可靠（實測空頁面只有 8.8 fps），
+    // 效能工具必須能自行同步呼叫，才能把「模擬」與「繪製」的成本分開量。
+    update, render, effectiveSpawnInterval, cacheStaticMap,
     applyPlayerSpeed, input, gameState, STATES, releaseAllInput,
     rngState: () => rnd.state(), setRngState: (v) => rnd.setState(v),
     drawParticles, drawPowerUps, drawMapEvent, buildTankSprite, rollMapEvent,

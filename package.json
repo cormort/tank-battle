@@ -1,0 +1,18 @@
+{
+  "name": "tank-battle",
+  "version": "2.0.0",
+  "private": true,
+  "description": "坦克大戰 v2 —— 單檔 HTML5 Canvas 坦克遊戲（無建置流程）",
+  "type": "module",
+  "scripts": {
+    "verify": "node tools/verify-core.mjs && node tools/verify-data.mjs && node tools/verify-replay.mjs && node tools/verify-bundle.mjs && node tools/verify-game.mjs",
+    "verify:node": "node tools/verify-core.mjs && node tools/verify-data.mjs",
+    "verify:browser": "node tools/verify-replay.mjs && node tools/verify-bundle.mjs && node tools/verify-game.mjs",
+    "profile": "node tools/profile.mjs",
+    "render-hash": "node tools/render-hash.mjs",
+    "build": "node tools/build-single-file.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1"
+  }
+}

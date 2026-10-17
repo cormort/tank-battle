@@ -230,21 +230,44 @@ ok('A9 驗證期間沒有未捕捉的例外', pageErrors.length === 0, pageError
 console.log('\n=== E. 資料接線（M1：宣告的內容真的有作用） ===');
 // E1：SURGE 事件結束時要呼叫 deactivate（舊版 deactivate 宣告了卻沒有任何呼叫端 →
 //     spawnInterval 被減半後永久不還原）
-const surge = await page.evaluate(async () => {
+//
+// 而且要用 stepTicks 同步推進、不要靠真實時間：headless 的 rAF 可能只有 8 fps，
+// 用 `setTimeout(200)` 等於「等 1~2 幀」，事件可能還沒到期 → 假紅。
+// 這裡同時守住「VS 難度的每 60 tick 重算不會把事件修飾子吃掉」：
+// 舊版 SURGE 直接改基準值，updateVSModeDifficulty() 一重算就整個失效。
+const surge = await page.evaluate(() => {
   const T = window.__T, G = T.G;
   G.state = T.STATE.PLAYING;          // 前面的關卡結算測試會把狀態留在 levelComplete
   G.isVSMode = true;
   G.spawnInterval = 18;
-  const before = G.spawnInterval;
+  G.spawnIntervalMul = 1;
+  G.vsModeStartFrame = 0;             // 讓 VS 難度曲線算出 phase 0（基準＝18），才好驗「重算不會吃掉修飾子」
+  G.spawnTimer = 1e9;                 // 不要讓生成端插進來改狀態
+  G.maxEnemies = 1e9; G.enemiesSpawned = 0;   // 不要讓 checkLevelComplete 把狀態踢出 PLAYING（之後的 step 就不會跑）
+  const before = T.effectiveSpawnInterval();
   T.DIRECTOR_EVENTS.SURGE.activate();
-  const during = G.spawnInterval;
+  const during = T.effectiveSpawnInterval();
+
+  // 讓 VS 難度曲線跑過一輪重算（frameCount % 60 === 0），修飾子必須還在
   G.directorEvents.length = 0;
-  G.directorEvents.push({ name: 'x', desc: 'x', life: 1, type: 'SURGE' });
-  await new Promise((r) => setTimeout(r, 200));
-  return { before, during, after: G.spawnInterval };
+  G.directorEvents.push({ name: 'x', desc: 'x', life: 600, type: 'SURGE' });
+  G.frameCount = 59; step(1);         // → 60：updateVSModeDifficulty 重算基準
+  const afterDifficultyTick = T.effectiveSpawnInterval();
+  const baseAfterTick = G.spawnInterval;
+
+  // 讓事件到期（life 600 → 0），deactivate 必須把間隔還原
+  G.directorEvents[0].life = 1;
+  step(1);
+  const afterExpiry = T.effectiveSpawnInterval();
+  function step(n) { for (let i = 0; i < n; i++) { if (G.state === T.STATE.PLAYING) T.update(); else break; } }
+  return { before, during, baseAfterTick, afterDifficultyTick, afterExpiry, mul: G.spawnIntervalMul };
 });
-ok('E1 SURGE 事件結束時會呼叫 deactivate、生成間隔還原（舊版永久減半）',
-  surge.during < surge.before && surge.after === surge.before, JSON.stringify(surge));
+ok('E1 SURGE 會減半、VS 難度重算不會吃掉修飾子、事件到期會還原生成間隔',
+  surge.during === Math.round(surge.before * 0.5)
+  && surge.afterDifficultyTick === surge.during
+  && surge.afterExpiry === surge.before
+  && surge.mul === 1,
+  JSON.stringify(surge));
 
 // E2：airdrop 事件要真的掉道具（舊版是空分支，玩家只看到「空投來了」）
 const airdrop = await page.evaluate(async () => {
@@ -393,25 +416,34 @@ ok('F5 音訊引擎初始化成功（沒有靜默失敗：ready=true、error=nul
 // 這裡曾經是「呼叫了不存在的 helper（glowCanvas）」，導致每一幀、每一隻帶道具的敵人
 // 都丟 ReferenceError：遊戲被 try/catch 撐住繼續跑，但該幀 render 的後半段全被跳過，
 // 畫面還會一直顯示錯誤橫幅。這條同時守住「渲染路徑不能拋錯」。
-const glowEnemy = await page.evaluate(async () => {
+//
+// 同步呼叫 update()／render() 而不是等 rAF：一次 render 一定扣一次 glowTimer，
+// 所以「等了 600ms 卻一幀都沒畫」在慢主機上會變成假紅（實測 headless 只有 8.8 fps）。
+const glowEnemy = await page.evaluate(() => {
   const T = window.__T, G = T.G;
   const banner = document.getElementById('errorBanner');
   if (banner) { banner.style.display = 'none'; banner.textContent = ''; }
   G.state = T.STATE.PLAYING;
+  G.maxEnemies = 1e9; G.enemiesSpawned = 0;   // 不要讓關卡結算清掉場景
   G.enemies.length = 0;
   const e = new T.Tank(T.TILE * 3, T.TILE * 3, T.DOWN, 'NORMAL', false);
   e.hp = e.maxHp = 99; e.glowTimer = 30; e.hasPowerUp = true;
   G.enemies.push(e);
-  await new Promise((r) => setTimeout(r, 600));
+  let thrown = null;
+  try {
+    for (let i = 0; i < 5; i++) { T.update(); T.render(); }
+  } catch (err) {
+    thrown = String((err && err.message) || err);
+  }
   return {
     glowTimer: e.glowTimer,
+    thrown,
     bannerShown: banner ? getComputedStyle(banner).display !== 'none' : false,
     bannerText: banner ? banner.textContent.slice(0, 60) : '',
-    frames: G.frameCount,
   };
 });
 ok('F6 帶道具敵人的發光渲染不會拋錯（glowCanvas 事件：呼叫了不存在的 helper）',
-  glowEnemy.bannerShown === false && glowEnemy.glowTimer < 30,
+  glowEnemy.thrown === null && glowEnemy.bannerShown === false && glowEnemy.glowTimer === 25,
   JSON.stringify(glowEnemy));
 
 console.log('\n=== G. 地圖事件（M4：被寫入端掃描揪出的死子系統） ===');
@@ -700,19 +732,32 @@ ok('B6 結算/商店 overlay 可捲動（手機橫向內容超出時才按得到
   overlayScroll.overflowY === 'auto' && /pan-y/.test(overlayScroll.touchAction), JSON.stringify(overlayScroll));
 
 // B7：錯誤不再讓遊戲永久凍結
-const freeze = await page.evaluate(async () => {
+//
+// 這裡刻意不用「900ms 內要推進幾幀」當門檻：headless 的 rAF 取決於主機負載，實測一台機器上
+// 空頁面只有 8.8 fps → 舊門檻（>20 幀）在那台機器上永遠紅，但遊戲其實沒有凍結。
+// 凍結的定義是「frameCount 不再前進」，所以改成等待「再前進 2 幀」並給 5 秒上限 ——
+// 真的凍結（rAF 沒有被重新排程）會等到逾時，語意不變、也不依賴主機速度。
+const freezeBefore = await page.evaluate(() => {
   const T = window.__T, G = T.G;
   G.enemies.push(null);                     // 故意讓 render/update 丟例外
-  const before = G.frameCount;
-  await new Promise((r) => setTimeout(r, 900));
-  const after = G.frameCount;
+  const banner = document.getElementById('errorBanner');
+  if (banner) { banner.style.display = 'none'; banner.textContent = ''; }
+  return G.frameCount;
+});
+let freezeAdvanced = true;
+try {
+  await page.waitForFunction((n) => window.__T.G.frameCount > n + 1, freezeBefore, { timeout: 5000 });
+} catch { freezeAdvanced = false; }
+const freeze = await page.evaluate(() => {
+  const G = window.__T.G;
   const banner = document.getElementById('errorBanner');
   const shown = banner && getComputedStyle(banner).display !== 'none';
+  const text = banner ? banner.textContent.slice(0, 40) : '';
   G.enemies = G.enemies.filter(Boolean);
-  return { before, after, stillRunning: after > before, bannerShown: shown, bannerText: banner ? banner.textContent.slice(0, 40) : '' };
+  return { frameCount: G.frameCount, bannerShown: shown, bannerText: text };
 });
-ok('B7 執行期例外不會讓遊戲凍結（900ms 內仍推進 > 20 幀）、且會顯示錯誤提示',
-  (freeze.after - freeze.before) > 20 && freeze.bannerShown, JSON.stringify(freeze));
+ok('B7 執行期例外不會讓遊戲凍結（rAF 仍被排程、錯誤提示顯示），且移除壞資料後可續玩',
+  freezeAdvanced && freeze.bannerShown, JSON.stringify({ freezeAdvanced, ...freeze }));
 
 console.log('\n=== C. 效能 ===');
 // C1：老鷹改為離屏快取（渲染時 0 次 fillRect/fillStyle）
@@ -850,6 +895,76 @@ const perfPanel = await page.evaluate(() => {
 });
 ok('C8 F3 面板量整幀、顯示池峰值，且不會蓋住 HUD 按鈕',
   perfPanel.hasBeginFrame && perfPanel.peakRow && perfPanel.pointerEvents === 'none', JSON.stringify(perfPanel));
+
+// C9：遊戲中的 render 不再有「全螢幕填色」——底色已經烘在 staticCanvas 裡
+//     （舊版每幀一次 1040×1040 的 fillRect ≈ 0.32 ms，DPR 2）
+const fullScreenFills = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  G.enemies.length = 0;
+  const c = T.ctx;
+  const orig = c.fillRect;
+  let full = 0;
+  c.fillRect = function (x, y, w, h) { if (w >= T.W && h >= T.H) full++; return orig.call(c, x, y, w, h); };
+  T.render();
+  c.fillRect = orig;
+  return { full, canvasW: T.canvas.width, renderScale: T.canvas.width / T.W };
+});
+ok('C9 遊戲中的 render 沒有全螢幕填色（底色烘進 staticCanvas）',
+  fullScreenFills.full === 0, JSON.stringify(fullScreenFills));
+
+// C10：樹林逐格貼、不再整張貼回（舊版每幀一次全螢幕 drawImage 透明圖層 ≈ 1.1 ms）
+//     判準：9 參數、來源寬度 = (TILE+2)×scale 的貼圖次數要等於樹的格數；
+//     來源寬度 ≥ 整張畫布的貼圖只能有 1 次（staticCanvas 背景）。舊版會有 2 次。
+const forestBlit = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  G.enemies.length = 0;                  // 只看背景／樹林這兩層，敵人的 sprite 貼圖不列入
+  G.map = T.generateMap(10);             // VS 地圖有樹
+  G.isVSMode = true;
+  T.cacheStaticMap();
+  const tiles = G.forestTiles.length;
+  const scale = T.canvas.width / T.W;
+  const c = T.ctx;
+  const orig = c.drawImage;
+  const tileSized = [], fullSized = [];
+  c.drawImage = function (...a) {
+    if (a.length >= 9) {
+      const srcW = a[3];
+      if (srcW === (T.TILE + 2) * scale) tileSized.push(srcW);
+      else if (srcW >= T.W * scale) fullSized.push(srcW);
+    } else if (a.length === 5 && a[3] >= T.W) fullSized.push(a[3]);
+    return orig.apply(c, a);
+  };
+  T.render();
+  c.drawImage = orig;
+  return { tiles, tileBlits: tileSized.length, fullBlits: fullSized.length, scale };
+});
+ok('C10 樹林逐格貼（28×scale 的貼圖次數 = 樹的格數）、全螢幕貼圖只剩 staticCanvas 1 次',
+  forestBlit.tiles > 0 && forestBlit.tileBlits === forestBlit.tiles && forestBlit.fullBlits === 1,
+  JSON.stringify(forestBlit));
+
+// C11：暫停時畫面靜止 → 同一個 frameCount 只畫一次（不再每秒 60 次重繪整個戰場）
+const pausedRender = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  T.render();                          // 離開 PAUSED：重設暫停快取
+  G.state = T.STATE.PAUSED;
+  const c = T.ctx;
+  let calls = 0;
+  const names = ['fillRect', 'drawImage', 'fillText'];
+  const saved = {};
+  for (const n of names) { saved[n] = c[n]; c[n] = function (...a) { calls++; return saved[n].apply(c, a); }; }
+  T.render();                          // 第一幀：要畫（calls > 0）
+  const first = calls;
+  calls = 0;
+  T.render();                          // 同一 frameCount：跳過
+  const second = calls;
+  for (const n of names) c[n] = saved[n];
+  return { first, second, pausedFrames: G.frameCount };
+});
+ok('C11 暫停時同一個 frameCount 只重畫一次（第二次 render 0 次 canvas 呼叫）',
+  pausedRender.first > 0 && pausedRender.second === 0, JSON.stringify(pausedRender));
 
 console.log(`\n${passed} passed, ${failed} failed  (pageerror: ${pageErrors.length})`);
 await browser.close();

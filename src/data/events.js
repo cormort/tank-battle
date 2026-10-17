@@ -9,8 +9,12 @@ export function makeDirectorEvents(ctx) {
   return {
   SURGE: {
     name: '⚠️ ENEMY SURGE', duration: 600, desc: '敵軍生成加倍',
-    activate() { ctx.G.spawnInterval = Math.max(4, ctx.G.spawnInterval / 2); },
-    deactivate() { ctx.G.spawnInterval = Math.min(30, ctx.G.spawnInterval * 2); }
+    // 只改修飾子，不動基準值：基準值屬於關卡與 VS 難度曲線（updateVSModeDifficulty 每 60 tick
+    // 重算一次），事件直接寫基準值就會被下一次重算覆蓋，deactivate 還會把重算後的値再乘一次
+    // （實測 18 → 9 → 72，而不是回到 18）。實際間隔＝基準 × 修飾子，讀取端只有
+    // index.html 的 effectiveSpawnInterval()。
+    activate() { ctx.G.spawnIntervalMul = 0.5; },
+    deactivate() { ctx.G.spawnIntervalMul = 1; }
   },
   AIRDROP: {
     name: '📦 空投來了', duration: 900, desc: '高級物資出現',

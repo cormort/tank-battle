@@ -1,0 +1,29 @@
+# 五道閘門跑在 CI 上：資料層等價、單元測試、replay 確定性、打包等價、行為與平台。
+# 純 Node 的那兩支秒級；需要 Chromium 的三支約 2 分鐘（Playwright 會自己裝瀏覽器）。
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: 純 Node 閘門（資料層 + 單元）
+        run: npm run verify:node
+      - name: 打包版與 src 同步
+        run: node tools/build-single-file.mjs --check
+      - name: 瀏覽器閘門（replay / 打包等價 / 行為）
+        run: npm run verify:browser
+
+  # 效能與畫面的 A/B 工具刻意不進 CI：headless 的絕對數字依賴主機與 Skia 版本，
+  # 拿來當門檻只會得到假紅（實測空頁面 rAF 只有 8.8 fps）。要量請本機跑 npm run profile。
