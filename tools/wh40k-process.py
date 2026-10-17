@@ -1,17 +1,28 @@
 # 把 assets/wh40k/raw/*.png（agy/Nano Banana 原圖，1024² 洋紅底）處理成遊戲用的小圖，
 # 輸出成 src/render/wh40k-data.js（data URI，WebP）——打包版是單檔，不能依賴外部圖檔路徑。
 #   python3 tools/wh40k-process.py
-import base64, io, json, pathlib
+import base64, io, json, os, pathlib
 import numpy as np
 from PIL import Image
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RAW = ROOT / 'assets/wh40k/raw'
 OUT = ROOT / 'src/render/wh40k-data.js'
+# gaga-survivor（同作者的另一個專案）的角色與地面貼圖：直接從它的 checkout 讀，不複製進來
+GAGA = pathlib.Path(os.environ.get('GAGA', ROOT.parent / 'gaga-survivor'))
+GAGA_SPRITES = {  # 輸出名 → gaga 路徑（已是透明底，不去背）
+    'gaga_sniper': 'assets/xian/sniper.png', 'gaga_engineer': 'assets/xian/techpriest_goose.png',
+    'gaga_interferer': 'assets/xian/boomer.png', 'gaga_guard': 'assets/xian/warden.png',
+    'gaga_minelayer': 'assets/xian/spore_host.png', 'gaga_bomb': 'assets/xian/squig_bomb.png',
+    'gaga_poxwalker': 'assets/xian/poxwalker.png', 'gaga_ork_boy': 'assets/xian/ork_boy.png',
+    'gaga_genestealer': 'assets/xian/genestealer.png', 'gaga_hormagaunt': 'assets/xian/hormagaunt.png',
+    'gaga_termagant': 'assets/xian/termagant.png',
+}
+GROUND_SIZE = 384
 
 # 名稱前綴 → 輸出邊長（px）。tile_* 是滿版紋理（不去背、不裁切）。
 SIZES = [('tank_', 128), ('chaos_', 128), ('ork_', 128), ('aeldari_', 128), ('tyranid_', 128), ('necron_', 128), ('boss_', 160), ('turret', 96), ('eagle_', 104), ('tile_', 104),
-         ('pu_', 64), ('train', 320), ('warp', 96), ('shield', 96), ('orbital', 96), ('airdrop', 64)]
+         ('gaga_', 128), ('pu_', 64), ('train', 320), ('warp', 96), ('shield', 96), ('orbital', 96), ('airdrop', 64)]
 DEFAULT = 48  # bullet / shell / spark / smoke / mine
 
 
@@ -47,10 +58,37 @@ def process(path):
     return name, sq.resize((n, n), Image.LANCZOS)
 
 
+def trim_square(im, n):
+    im = im.convert('RGBA')
+    im = im.crop(im.getchannel('A').point(lambda a: 255 if a > 16 else 0).getbbox() or (0, 0, *im.size))
+    s = max(im.size)
+    sq = Image.new('RGBA', (s, s)); sq.paste(im, ((s - im.width) // 2, (s - im.height) // 2))
+    return sq.resize((n, n), Image.LANCZOS)
+
+
+def luminance(im):
+    return float((np.asarray(im.convert('L')).astype(np.float32) / 255).mean())
+
+
+def sources():
+    """(名稱, 處理後的圖)。地面全部壓到同一個平均亮度：亮的雪地／沙漠不會蓋過地形與坦克。"""
+    out = [process(p) for p in sorted(RAW.glob('*.png'))]
+    for name, rel in GAGA_SPRITES.items():
+        out.append((name, trim_square(Image.open(GAGA / rel), size_for(name))))
+    grounds = [(f'ground_{p.stem[7:]}', Image.open(p).convert('RGB').resize((GROUND_SIZE,) * 2, Image.LANCZOS))
+               for p in sorted((GAGA / 'assets/ground').glob('ground_*.png'))]
+    base = next(im for n, im in out if n == 'tile_ground')
+    target = luminance(base) * 0.38          # = 原本執行期疊 62% 黑的亮度
+    normed = []
+    for name, im in [('tile_ground', base)] + grounds:
+        k = min(1.0, target / max(luminance(im), 1e-3))
+        normed.append((name, Image.fromarray((np.asarray(im).astype(np.float32) * k).clip(0, 255).astype(np.uint8))))
+    return [(n, im) for n, im in out if n != 'tile_ground'] + normed
+
+
 def main():
     art = {}
-    for p in sorted(RAW.glob('*.png')):
-        name, im = process(p)
+    for name, im in sources():
         buf = io.BytesIO(); im.save(buf, 'WEBP', quality=88, method=6)
         art[name] = 'data:image/webp;base64,' + base64.b64encode(buf.getvalue()).decode()
         (RAW.parent / f'{name}.webp').write_bytes(buf.getvalue())   # 預覽用

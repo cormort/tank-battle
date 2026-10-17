@@ -1436,20 +1436,29 @@ function isNightLayerActive() {
 }
 
 /** 背景底色。cacheStaticMap／breakTile 共用同一份畫法，像素才會完全一致（含 NIGHT 的半透明疊色）。 */
-let _groundPattern = null;
+// 地圖背景每關輪替：第 1 關是原本的戰場，之後輪流用 gaga-survivor 的 16 張地面。
+// 亮度在 tools/wh40k-process.py 已壓到同一水準（亮的雪地／沙漠不會蓋過地形與坦克）。
+const GROUNDS = ['tile_ground', 'ground_core', 'ground_storm', 'ground_swamp', 'ground_lab', 'ground_foundry',
+  'ground_frost', 'ground_street', 'ground_makaimura', 'ground_voidroad', 'ground_subway', 'ground_inkmount',
+  'ground_td_redalert', 'ground_td_starcraft', 'ground_td_warcraft', 'ground_frostvoid', 'ground_endless'];
+const _groundPatterns = new Map();
+function groundPattern(c) {
+  const name = GROUNDS[(Math.max(1, G.level | 0) - 1) % GROUNDS.length];
+  const img = art(name) || art('tile_ground');
+  if (!img) return null;
+  let pat = _groundPatterns.get(img);
+  if (!pat) {
+    pat = c.createPattern(img, 'repeat');
+    // 原本的戰場紋理細節小、4 格一循環；gaga 的地面是大場景，10 格一循環才不會擠成一團
+    const k = TILE * (img === art('tile_ground') ? 4 : 10) / img.width;
+    pat.setTransform({ a: k, b: 0, c: 0, d: k, e: 0, f: 0 });
+    _groundPatterns.set(img, pat);
+  }
+  return pat;
+}
 function paintBackground(c, x, y, w, h) {
-  const ground = art('tile_ground');
-  if (ground && !_groundPattern) {
-    _groundPattern = c.createPattern(ground, 'repeat');
-    const k = TILE * 4 / ground.width;
-    _groundPattern.setTransform({ a: k, b: 0, c: 0, d: k, e: 0, f: 0 });
-  }
-  c.fillStyle = ground ? _groundPattern : BG_BASE;
+  c.fillStyle = groundPattern(c) || BG_BASE;
   c.fillRect(x, y, w, h);
-  if (ground) {   // 地面壓暗：否則與磚牆、深色坦克同明度，地形與敵人會糊在一起
-    c.fillStyle = 'rgba(0,0,0,0.62)';
-    c.fillRect(x, y, w, h);
-  }
   if (isNightLayerActive()) {
     c.fillStyle = BG_NIGHT;
     c.fillRect(x, y, w, h);
@@ -1533,6 +1542,7 @@ class Tank {
     this.aiChangeTimer = rnd() * 50; 
     this.aiDir = dir;
     this.lastDist = Infinity;
+    this.visualIdx = _tankVisualCounter++;
     this.applyTypeStats();
   }
 
@@ -1712,7 +1722,7 @@ class Tank {
       this._spr = spr; this._sprDir = this.aimDir; this._sprPhase = phase; this._sprSize = s;
     }
     const artImg = tankArt(this);
-    if (artImg) drawRotated(ctx, artImg, x + s / 2, y + s / 2, s * 1.15, s * 1.15, this.aimDir * Math.PI / 2);
+    if (artImg) drawRotated(ctx, artImg, x + s / 2, y + s / 2, s * 1.2, s * 1.2, isUprightArt(this) ? 0 : this.aimDir * Math.PI / 2);
     else ctx.drawImage(this._spr, x, y);
 
     // 帶道具的敵人發光：glowTimer 原本只被寫入、沒有任何讀取端 → 玩家看不出哪隻會掉寶
@@ -1779,14 +1789,31 @@ const _tankSpriteCache = new Map();
 // 敵方勢力（純外觀）：每關一個勢力輪替，四種角色（一般／快速／重裝／自爆）各有自己的造型。
 // 用關卡決定而不是亂數 → 不動到模擬用的 rnd()，replay checksum 不受影響。
 const ENEMY_FACTIONS = ['chaos', 'ork', 'aeldari', 'tyranid', 'necron'];
-function tankArt(t) {
-  if (t.isPlayer) return art('tank_player');
-  if (t.type === 'BOSS') return art('boss_' + String(t.bossType || 'SIEGE').toLowerCase());
-  const role = (t.type === 'FAST' || t.type === 'HEAVY' || t.type === 'SUICIDE') ? t.type.toLowerCase() : 'normal';
+// gaga-survivor 的角色：特殊敵人各一個；部分勢力的一般敵人每 3 隻有 1 隻是步兵（純外觀）
+const SPECIAL_ART = { SNIPER: 'gaga_sniper', ENGINEER: 'gaga_engineer', INTERFERER: 'gaga_interferer', GUARD: 'gaga_guard', MINELAYER: 'gaga_minelayer' };
+const FACTION_INFANTRY = { chaos: ['gaga_poxwalker'], ork: ['gaga_ork_boy'], tyranid: ['gaga_genestealer', 'gaga_hormagaunt', 'gaga_termagant'] };
+let _tankVisualCounter = 0;   // 只給外觀用（輪流挑步兵造型），不進 checksum、不用 rnd()
+/** gaga 的角色是直立的側視圖：不跟著方向旋轉（轉 180° 會倒立）。 */
+function isUprightArt(t) {
+  return !t.isPlayer && (!!SPECIAL_ART[t.type] || (t.type === 'NORMAL' && t.visualIdx % 3 === 2 && !!FACTION_INFANTRY[enemyFaction()]));
+}
+function enemyFaction() {
   // 輪替跳過 BOSS 關：5 個勢力 × 每 5 關一王，不跳的話某個勢力永遠只出現在 BOSS／VS 關
   const lvl = Math.max(1, G.level | 0);
   const n = lvl - Math.floor(lvl / CONFIG.GAMEPLAY.BOSS_LEVEL_INTERVAL);
-  const faction = ENEMY_FACTIONS[(n - 1) % ENEMY_FACTIONS.length];
+  return ENEMY_FACTIONS[(n - 1) % ENEMY_FACTIONS.length];
+}
+function tankArt(t) {
+  if (t.isPlayer) return art('tank_player');
+  if (t.type === 'BOSS') return art('boss_' + String(t.bossType || 'SIEGE').toLowerCase());
+  if (SPECIAL_ART[t.type]) return art(SPECIAL_ART[t.type]) || art('tank_normal');
+  const faction = enemyFaction();
+  if (isUprightArt(t)) {
+    const list = FACTION_INFANTRY[faction];
+    const img = art(list[((t.visualIdx / 3) | 0) % list.length]);
+    if (img) return img;
+  }
+  const role = (t.type === 'FAST' || t.type === 'HEAVY' || t.type === 'SUICIDE') ? t.type.toLowerCase() : 'normal';
   return art(faction + '_' + role) || art('tank_' + role);   // 該勢力缺圖就用原本的通用造型
 }
 
@@ -3610,6 +3637,14 @@ function drawSummonEntities() {
       if (mImg) {
         ctx.globalAlpha = (G.frameCount & 16) ? 1 : 0.75;
         ctx.drawImage(mImg, se.x + 4, se.y + 4, TILE - 8, TILE - 8);
+        ctx.globalAlpha = 1;
+      }
+    } else if (se.type === 'bomb') {
+      // INTERFERER 丟的定時炸彈原本也沒畫；快爆時閃爍
+      const bImg = art('gaga_bomb');
+      if (bImg) {
+        ctx.globalAlpha = se.life < 30 && (G.frameCount & 4) ? 0.5 : 1;
+        ctx.drawImage(bImg, se.x, se.y, TILE, TILE);
         ctx.globalAlpha = 1;
       }
     } else if (se.type === 'decoy') {
