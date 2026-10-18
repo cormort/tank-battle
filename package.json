@@ -5,9 +5,10 @@
   "description": "坦克大戰 v2 —— 單檔 HTML5 Canvas 坦克遊戲（無建置流程）",
   "type": "module",
   "scripts": {
-    "verify": "node tools/verify-core.mjs && node tools/verify-data.mjs && node tools/verify-replay.mjs && node tools/verify-bundle.mjs && node tools/verify-game.mjs",
-    "verify:node": "node tools/verify-core.mjs && node tools/verify-data.mjs",
+    "verify": "node tools/verify-core.mjs && node tools/verify-data.mjs && node tools/weapon-dps.mjs && node tools/verify-replay.mjs && node tools/verify-bundle.mjs && node tools/verify-game.mjs",
+    "verify:node": "node tools/verify-core.mjs && node tools/verify-data.mjs && node tools/weapon-dps.mjs",
     "verify:browser": "node tools/verify-replay.mjs && node tools/verify-bundle.mjs && node tools/verify-game.mjs",
+    "weapon-dps": "node tools/weapon-dps.mjs",
     "profile": "node tools/profile.mjs",
     "render-hash": "node tools/render-hash.mjs",
     "build": "node tools/build-single-file.mjs"

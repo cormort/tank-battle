@@ -651,6 +651,20 @@ const ACTIVE_SKILLS = [
 ];
 // ── src/data/weapons.js ──
 // 武器資料：四條流派樹、射擊參數、起始武器、掉落池。
+//
+// 傷害只有一個來源：WEAPON_REGISTRY[key].power（每發子彈的傷害）。
+// 舊版還有一個 WEAPON_TREE[key].basePower 會再乘一次，於是「資料表看得到的數字」與
+// 「實際打出來的傷害」是兩件事——OVERDRIVE 的實際單體 DPS 是 FORTRESS 的 3 倍、
+// 是起始武器的 11 倍，但從兩張表上都讀不出來（玩家只會覺得「D 路線是廢的」）。
+// basePower 已移除；曲線現在由 tools/weapon-dps.mjs 用同一組資料算出來並當成閘門：
+//
+//   node tools/weapon-dps.mjs
+//
+// 曲線（單體 DPS；60 tick = 1 秒）：
+//   起始 NORMAL 4.3 → 入門 ≈11 → 強化 ≈19 → 終形 ≈34
+// 同階四條路線差距 ≤1.35 倍。路線特色靠「形狀」而不是靠數字：
+//   A 高射速＋貫穿（單體疊傷）  B 扇形＋分裂＋轟炸（群聚）
+//   C 貫穿光束（沿線一串）      D 召喚砲塔（本體弱、砲塔強）
 
 const WEAPON_TREE = {
   // 四條流派、各 3 級：入門（tier1）→ 強化（tier2）→ 終形（tier3）。
@@ -660,93 +674,102 @@ const WEAPON_TREE = {
   // A 路線：高射速流 - 超高DPS，單發低，剋重甲
   RAPID: {
     id: 'RAPID',
-    route: 'A', tier: 1, name: '快速射擊', desc: '雙連發模式，子彈貫穿',
-    next: 'GATLING', color: '#ff6b00', icon: '⚡', basePower: 1.0
+    route: 'A', tier: 1, name: '快速射擊', desc: '高射速單發，子彈貫穿',
+    next: 'GATLING', color: '#ff6b00', icon: '⚡'
   },
   GATLING: {
     id: 'GATLING',
-    route: 'A', tier: 2, name: '格林機槍', desc: '雙管射擊，火力+10%',
-    next: 'OVERDRIVE', color: '#ff4400', icon: '🔥', basePower: 1.1
+    route: 'A', tier: 2, name: '格林機槍', desc: '雙管齊射，貫穿',
+    next: 'OVERDRIVE', color: '#ff4400', icon: '🔥'
   },
   OVERDRIVE: {
     id: 'OVERDRIVE',
     route: 'A', tier: 3, name: '過載出火', desc: '四管齊射，全螢幕橫掃',
-    next: null, color: '#880000', icon: '💀', basePower: 1.4
+    next: null, color: '#880000', icon: '💀'
   },
 
   // B 路線：範圍爆破流 - 清怪神，打王弱，命中分裂
   SPREAD: {
     id: 'SPREAD',
     route: 'B', tier: 1, name: '散彈核心', desc: '扇形發射 3 發子彈',
-    next: 'CLUSTER', color: '#ffdd00', icon: '💫', basePower: 1.0
+    next: 'CLUSTER', color: '#ffdd00', icon: '💫'
   },
   CLUSTER: {
     id: 'CLUSTER',
     route: 'B', tier: 2, name: '集束彈頭', desc: '命中分裂 5 發小彈',
-    next: 'APOCALYPSE', color: '#ffaa00', icon: '💛', basePower: 1.1
+    next: 'APOCALYPSE', color: '#ffaa00', icon: '💛'
   },
   APOCALYPSE: {
     id: 'APOCALYPSE',
     route: 'B', tier: 3, name: '末日轟炸', desc: '5 發散彈 + 每 3 秒全螢幕轟炸',
-    next: null, color: '#ff0000', icon: '☠️', basePower: 1.5
+    next: null, color: '#ff0000', icon: '☠️'
   },
 
   // C 路線：雷射科技流 - 貫穿，超遠距，打王強
   PLASMA: {
     id: 'PLASMA',
     route: 'C', tier: 1, name: '電漿武器', desc: '高傷貫穿子彈',
-    next: 'D_LASER', color: '#00ddff', icon: '⚡', basePower: 1.2
+    next: 'D_LASER', color: '#00ddff', icon: '⚡'
   },
   D_LASER: {
     id: 'D_LASER',
     route: 'C', tier: 2, name: '雙光束炮', desc: '雙光束射擊',
-    next: 'OMEGA', color: '#00aaff', icon: '🔷', basePower: 1.3
+    next: 'OMEGA', color: '#00aaff', icon: '🔷'
   },
   OMEGA: {
     id: 'OMEGA',
     route: 'C', tier: 3, name: '歐米茄射線', desc: '光束掃射，穿透障礙',
-    next: null, color: '#0044cc', icon: '👁️', basePower: 1.6
+    next: null, color: '#0044cc', icon: '👁️'
   },
 
   // D 路線：召喚塔防流 - 本體弱，召喚物強
   SUMMON: {
     id: 'SUMMON',
-    route: 'D', tier: 1, name: '工程師', desc: '部署 1 個自動砲塔',
-    next: 'DRONE', color: '#44ff88', icon: '🛠️', basePower: 0.8
+    route: 'D', tier: 1, name: '工程師', desc: '部署 2 座自動砲塔',
+    next: 'DRONE', color: '#44ff88', icon: '🛠️'
   },
   DRONE: {
     id: 'DRONE',
-    route: 'D', tier: 2, name: '維修無人機', desc: '砲塔生命與傷害提升',
-    next: 'FORTRESS', color: '#22cc66', icon: '🤖', basePower: 0.9
+    route: 'D', tier: 2, name: '維修無人機', desc: '3 座砲塔，傷害與射速提升',
+    next: 'FORTRESS', color: '#22cc66', icon: '🤖'
   },
   FORTRESS: {
     id: 'FORTRESS',
-    route: 'D', tier: 3, name: '要塞核心', desc: '終極塔防，四座砲台',
-    next: null, color: '#008833', icon: '⚔️', basePower: 1.3
+    route: 'D', tier: 3, name: '要塞核心', desc: '終極塔防，四座重型砲台',
+    next: null, color: '#008833', icon: '⚔️'
   }
 };
 
 const STARTER_WEAPONS = ['NORMAL', 'RAPID', 'SPREAD', 'PLASMA', 'SUMMON'];
 
+// power  = 每發子彈傷害（唯一的傷害來源；沒有任何地方會再乘一次）
+// effect = 特殊行為：
+//   PIERCE      子彈貫穿
+//   SPLIT       命中後分裂 5 發小彈
+//   BOMBARD     每 3 秒全螢幕轟炸（真的會造成傷害）
+//   LASER_BEAM  沿線一次判定的光束（不是 30 顆子彈各自判定）
+//   SPAWN_TURRET 召喚砲塔；參數在 turret（數量／單發傷害／射擊間隔 tick）
 const WEAPON_REGISTRY = {
-  // NORMAL: 普通发射
-  NORMAL:   { fireRate: 14, count: 1, spread: 0,   power: 1.0,  effect: null },
-  // RAPID: 快速射击链（貫穿）
-  RAPID:    { fireRate: 6,  count: 1, spread: 0,   power: 0.6,  effect: 'PIERCE' },
-  GATLING:  { fireRate: 5,  count: 2, spread: 0,   power: 0.55, effect: 'PIERCE' },
-  OVERDRIVE:{ fireRate: 3,  count: 4, spread: 0,   power: 0.45, effect: 'PIERCE' },
-  // SPREAD: 散射
-  SPREAD:   { fireRate: 16, count: 3, spread: 0.25, power: 0.8,  effect: null },
-  CLUSTER:  { fireRate: 14, count: 3, spread: 0.25, power: 0.9,  effect: null },
-  APOCALYPSE:{ fireRate: 10, count: 5, spread: 0.4, power: 0.8,  effect: 'BOMBARD' },
-  // PLASMA: 激光科技流
-  PLASMA:   { fireRate: 12, count: 1, spread: 0,   power: 1.2,  effect: 'PIERCE' },
-  D_LASER:  { fireRate: 10, count: 2, spread: 0,   power: 1.1,  effect: 'PIERCE' },
-  OMEGA:    { fireRate: 6,  count: 1, spread: 0,   power: 1.4,  effect: 'LASER_BEAM' },
-  // SUMMON: 召唤塔防流
-  SUMMON:   { fireRate: 20, count: 1, spread: 0,   power: 0.8,  effect: 'SPAWN_TURRET' },
-  DRONE:    { fireRate: 18, count: 1, spread: 0,   power: 0.9,  effect: 'SPAWN_TURRET' },
-  FORTRESS: { fireRate: 14, count: 1, spread: 0,   power: 1.3,  effect: 'SPAWN_TURRET' }
+  NORMAL:    { fireRate: 14, count: 1, spread: 0,    power: 1.00, effect: null },
+  // A：高射速＋貫穿
+  RAPID:     { fireRate: 6,  count: 1, spread: 0,    power: 0.79, effect: 'PIERCE' },
+  GATLING:   { fireRate: 5,  count: 2, spread: 0,    power: 0.57, effect: 'PIERCE' },
+  OVERDRIVE: { fireRate: 3,  count: 4, spread: 0,    power: 0.30, effect: 'PIERCE' },
+  // B：扇形＋分裂＋轟炸
+  SPREAD:    { fireRate: 16, count: 3, spread: 0.25, power: 1.40, effect: null },
+  CLUSTER:   { fireRate: 14, count: 3, spread: 0.25, power: 1.05, effect: 'SPLIT' },
+  APOCALYPSE:{ fireRate: 10, count: 5, spread: 0.40, power: 1.47, effect: 'BOMBARD' },
+  // C：貫穿光束
+  PLASMA:    { fireRate: 12, count: 1, spread: 0,    power: 1.64, effect: 'PIERCE' },
+  D_LASER:   { fireRate: 10, count: 2, spread: 0,    power: 1.16, effect: 'PIERCE' },
+  OMEGA:     { fireRate: 6,  count: 1, spread: 0,    power: 1.94, effect: 'LASER_BEAM' },
+  // D：召喚砲塔（本體弱、砲塔強）
+  SUMMON:    { fireRate: 20, count: 1, spread: 0,    power: 2.23, effect: 'SPAWN_TURRET',
+               turret: { count: 2, damage: 1.5, cooldown: 25 } },
+  DRONE:     { fireRate: 18, count: 1, spread: 0,    power: 2.46, effect: 'SPAWN_TURRET',
+               turret: { count: 3, damage: 2.2, cooldown: 22 } },
+  FORTRESS:  { fireRate: 14, count: 1, spread: 0,    power: 2.56, effect: 'SPAWN_TURRET',
+               turret: { count: 4, damage: 3.2, cooldown: 20 } }
 };
 
 const WEAPON_DROPS_T1 = ['RAPID_DROP', 'SPREAD_DROP', 'PLASMA_DROP', 'SUMMON_DROP'];
@@ -2864,10 +2887,31 @@ function distSq(a, b) {
 // 基础武器配置：攻击速度、子弹数量、散射角度、伤害、特殊效果
 
 // ==================== 武器管理器 (Weapon Manager) ====================
+// ==================== 武器管理器 (Weapon Manager) ====================
+// 傷害路徑只有一條：finalPower = config.power × (1 + weaponDamageBonus)。
+// 舊版另外乘了一次 WEAPON_TREE.basePower，於是資料表上的「威力」與實際傷害是兩件事，
+// 四條路線的實際 DPS 差距可以到 11 倍卻沒有人看得出來（詳見 src/data/weapons.js）。
+const BOMBARD_INTERVAL = 180;      // tick：每 3 秒一次全螢幕轟炸
+const BOMBARD_STRIKES = 20;        // 每次轟炸的落點數
+const BOMBARD_RADIUS_SQ = (TILE * 1.3) ** 2;
+const BEAM_SEGMENTS = 30;          // 光束的視覺分段（每段 15px，覆蓋整個畫面寬）
+const BEAM_SEGMENT_STEP = 15;
+
+// 範圍傷害／光束用的「虛擬子彈」：走 handleBulletHit 才能共用護盾、擊殺、計分、被動技能。
+const _burstBullet = {
+  x: 0, y: 0, size: CONFIG.BULLET.SIZE, power: 1, isPlayer: true, alive: true,
+  pierce: true, hitTanks: [], _isChild: true, effect: null, freezing: false, dir: 0,
+};
+const _burstPoint = { x: 0, y: 0 };
+
 const WeaponManager = {
+  // 轟炸落點佇列：用 tick 排程，不用 setTimeout。
+  // setTimeout 不受暫停／換關約束——玩家暫停後炸彈照樣落，關卡結束後還會炸到下一關。
+  bombardQueue: [],
+
   fire(tank) {
     if (!tank.isPlayer) {
-      // 敵人：維持原本行為（單發、各自冷卻、BOSS 用專用彈速、不觸發震屏/音效/特效）
+      // 敵人：單發、各自冷卻、BOSS 用專用彈速、不觸發震屏/音效/特效
       if (!tank.alive || tank.bulletTimer > 0) return;
       const hs = tank.size / 2;
       const cx = tank.x + hs;
@@ -2880,7 +2924,9 @@ const WeaponManager = {
       b.y = cy - 3 + DY[tank.aimDir] * (hs + 2);
       b.speed = bulletSpeed(tank.type === 'BOSS' ? CONFIG.BULLET.SPEED_BOSS : CONFIG.BULLET.SPEED_ENEMY);
       b.vx = DX[tank.aimDir]; b.vy = DY[tank.aimDir];
-      b.power = tank.weapon === 'SPREAD' ? 2 : 1;
+      // BOSS 砲彈傷害 2、小兵 1（舊版寫成 tank.weapon === 'SPREAD' ? 2 : 1，
+      // 用「武器名」偷渡敵人數值——BOSS 剛好被設成 SPREAD 才會動，改一個字就整個歪掉）
+      b.power = tank.type === 'BOSS' ? 2 : 1;
       b.hitTanks.length = 0;
       tank.bulletTimer = tank.bulletCooldown;
       return;
@@ -2888,47 +2934,40 @@ const WeaponManager = {
 
     const weaponKey = tank.weapon || 'NORMAL';
     const config = WEAPON_REGISTRY[weaponKey] || WEAPON_REGISTRY.NORMAL;
-    
-    // 攻速計算
+
+    // 攻速：cooldownMult 是冷卻倍率（越小越快），商店加成最多讓冷卻降到 40%
     let cooldownMult = getHeatStacksMultiplier();
-    // cooldownMult 是冷卻倍率（越小越快；HEAT 也是用 1/(1+stacks*0.03) 變快）。
-    // 舊版寫 *= 2 讓「超頻爆發」期間冷卻加倍＝射速砍半，按下去是懲罰而不是爆發。
     if (fx.has('boost')) cooldownMult *= 0.5;
     const fireRateBonus = G.playerStats.shopFireRateBonus || 0;
-    const actualCD = Math.max(2, Math.floor(config.fireRate * cooldownMult * (1 - fireRateBonus)));
-    tank.bulletTimer = actualCD;
+    tank.bulletTimer = Math.max(2, Math.floor(config.fireRate * cooldownMult * Math.max(0.4, 1 - fireRateBonus)));
 
-    // 获取基础伤害
-    const basePower = config.power;
-    const weaponData = WEAPON_TREE[weaponKey];
-    const weaponTreePower = weaponData ? weaponData.basePower : 1.0;
-    const damageBonus = tank.isPlayer ? (G.playerStats.weaponDamageBonus || 0) : 0;
-    const finalPower = weaponTreePower * basePower + damageBonus;
+    // 傷害：唯一來源是 config.power；weaponDamageBonus 是百分比加成（+0.2 = +20%）
+    const damageBonus = G.playerStats.weaponDamageBonus || 0;
+    const finalPower = config.power * (1 + damageBonus);
 
-    // 生成子弹
     for (let i = 0; i < config.count; i++) {
       const angle = config.spread * (i - (config.count - 1) / 2);
       this.spawnBullet(tank, angle, finalPower, config.effect);
     }
 
-    // 触发特殊效果
-    if (config.effect === 'BOMBARD') this.triggerBombard();
-    if (config.effect === 'SPAWN_TURRET') this.spawnTurret(tank);
+    if (config.effect === 'LASER_BEAM') this.fireBeam(tank, finalPower);
+    if (config.effect === 'BOMBARD') this.triggerBombard(finalPower);
+    if (config.effect === 'SPAWN_TURRET') this.spawnTurret(tank, weaponKey);
 
     triggerShake(2, 1);
     Sound.shoot();
-    if (tank.isPlayer) applyPassiveEffects(null, tank, 'shoot');
+    applyPassiveEffects(null, tank, 'shoot');
   },
 
   spawnBullet(tank, angle, power, effect) {
     const hs = tank.size / 2;
     const cx = tank.x + hs;
     const cy = tank.y + hs;
-    
+
     const baseDir = tank.aimDir;
     const dx = DX[baseDir], dy = DY[baseDir];
     const cos = Math.cos(angle), sin = Math.sin(angle);
-    
+
     const vx = dx * cos - dy * sin;
     const vy = dx * sin + dy * cos;
 
@@ -2938,63 +2977,159 @@ const WeaponManager = {
     b.isPlayer = tank.isPlayer;
     b.freezing = !tank.isPlayer && tank.elitePrefix === 'FREEZING';   // FREEZING 精英的子彈會凍緩玩家
     b.vx = vx; b.vy = vy;
-    b.speed = bulletSpeed(tank.isPlayer ? CONFIG.BULLET.SPEED_PLAYER : CONFIG.BULLET.SPEED_ENEMY);
+    b.speed = bulletSpeed(CONFIG.BULLET.SPEED_PLAYER);
     b.power = power;
+    b.effect = effect || null;
     b.pierce = (effect === 'PIERCE' || effect === 'LASER_BEAM' || tank.pierce);
     b.hitTanks.length = 0;
     b.ignoreTiles = (effect === 'LASER_BEAM');
-    
+
+    // 光束分段純視覺：傷害由 fireBeam() 沿線一次判定（noHit）。
+    // 主彈也一起停住（speed = 0）：否則會有一根光條從砲口往前飛，和整條靜止光柱對不上。
     if (effect === 'LASER_BEAM') {
       b.laserLife = 15;
-      for (let i = 1; i < 30; i++) {
+      b.noHit = true;
+      b.speed = 0;
+      b.vx = 0; b.vy = 0;
+      for (let i = 1; i < BEAM_SEGMENTS; i++) {
         const lb = bulletsPool.acquire();
-        // 從砲口中心往外排（舊版從坦克左上角起算，整條光束偏離砲管約半個車身）
-        lb.x = b.x + i * 15 * DX[baseDir];
-        lb.y = b.y + i * 15 * DY[baseDir];
+        // 從砲口中心往外排（b.x 已經是 cx - 3；舊版從坦克左上角起算，整條光束偏離砲管半個車身）
+        lb.x = b.x + i * BEAM_SEGMENT_STEP * DX[baseDir];
+        lb.y = b.y + i * BEAM_SEGMENT_STEP * DY[baseDir];
         lb.dir = baseDir;
         lb.isPlayer = true;
         lb.vx = 0; lb.vy = 0;
         lb.speed = 0;
-        lb.power = power;
+        lb.power = 0;
         lb.laserLife = 15;
+        lb.noHit = true;
         lb.ignoreTiles = true;
         lb.hitTanks.length = 0;
       }
     }
   },
 
-  triggerBombard() {
-    if (G.frameCount % 180 === 0) {
-      for (let i = 0; i < 20; i++) {
-        const bx = rnd() * W;
-        const by = rnd() * H;
-        setTimeout(() => {
-          if (G.level === G.level && G.state === STATE.PLAYING) {
-            spawnExplosion(bx, by, 'big');
-            triggerShake(4, 5);
-          }
-        }, i * 50);
-      }
+  // 光束：整條線一次判定，每個敵人只吃一發。
+  // 舊版是「主彈 + 29 顆 speed=0 的分段子彈」，每顆每幀各自跑一次碰撞查詢
+  // （一次射擊 ≈450 次查詢），而且傷害會隨敵人体型膨脹——24px 的敵人同時吃到 2 顆分段，
+  // 等於「同一道光束對大隻的敵人傷害翻倍」。現在一個 O(敵人數) 的線段判定就結束。
+  fireBeam(tank, power) {
+    const hs = tank.size / 2;
+    const ox = tank.x + hs;
+    const oy = tank.y + hs;
+    const dx = DX[tank.aimDir], dy = DY[tank.aimDir];
+    const halfWidth = CONFIG.BULLET.SIZE * 0.5;
+
+    for (let i = 0; i < G.enemies.length; i++) {
+      const e = G.enemies[i];
+      if (!e.alive || e.isPlayer) continue;
+      const rx = e.x + e.size / 2 - ox;
+      const ry = e.y + e.size / 2 - oy;
+      const proj = rx * dx + ry * dy;                  // 沿光束方向的距離
+      if (proj <= 0) continue;
+      const perp = Math.abs(rx * dy - ry * dx);        // 到光束中心的垂直距離
+      if (perp > e.size * 0.5 + halfWidth) continue;
+      _burstBullet.x = e.x + e.size / 2 - CONFIG.BULLET.SIZE / 2;
+      _burstBullet.y = e.y + e.size / 2 - CONFIG.BULLET.SIZE / 2;
+      _burstBullet.power = power;
+      _burstBullet.alive = true;
+      _burstBullet.hitTanks.length = 0;
+      handleBulletHit(_burstBullet, e);
     }
   },
 
-  spawnTurret(tank) {
-    const maxTurrets = 1 + (tank.weaponTier || 0);
-    const existingTurrets = G.summonEntities.filter(e => e.type === 'turret').length;
-    if (existingTurrets < maxTurrets) {
-      G.summonEntities.push({
-        type: 'turret',
-        x: tank.x,
-        y: tank.y,
-        life: 300 + (tank.weaponTier || 0) * 100,
-        maxLife: 300 + (tank.weaponTier || 0) * 100,
-        damage: 1 + (tank.weaponTier || 0),
-        cooldown: 0,
-        alive: true
+  // 末日轟炸：每 3 秒一次，20 個落點在 1 秒內落下，每個落點造成範圍傷害。
+  // 舊版有兩個問題：(1) 只呼叫 spawnExplosion（純粒子），完全沒有傷害；
+  // (2) 用 G.frameCount % 180 === 0 當節拍器，但這個判斷寫在 fire() 裡——
+  //     只要射速被熱能／商店／超頻改變，射擊就不會剛好落在 180 的倍數上，轟炸永遠不觸發。
+  triggerBombard(power) {
+    if (fx.has('bombard')) return;
+    fx.set('bombard', BOMBARD_INTERVAL);
+    for (let i = 0; i < BOMBARD_STRIKES; i++) {
+      this.bombardQueue.push({
+        x: rnd() * (W - TILE) + TILE * 0.5,
+        y: rnd() * (H - TILE) + TILE * 0.5,
+        delay: 2 + i * 3,
+        power: power * 0.8,
       });
     }
+  },
+
+  tickBombard() {
+    const q = this.bombardQueue;
+    for (let i = q.length - 1; i >= 0; i--) {
+      if (--q[i].delay > 0) continue;
+      const strike = q[i];
+      q.splice(i, 1);
+      this.bombStrike(strike);
+    }
+  },
+
+  bombStrike(strike) {
+    spawnExplosion(strike.x, strike.y, 'big');
+    triggerShake(3, 4);
+    for (let i = 0; i < G.enemies.length; i++) {
+      const e = G.enemies[i];
+      if (!e.alive) continue;
+      _burstPoint.x = strike.x; _burstPoint.y = strike.y;
+      if (distSq(_burstPoint, e) > BOMBARD_RADIUS_SQ) continue;
+      _burstBullet.x = e.x + e.size / 2;
+      _burstBullet.y = e.y + e.size / 2;
+      _burstBullet.power = strike.power;
+      _burstBullet.alive = true;
+      _burstBullet.hitTanks.length = 0;
+      handleBulletHit(_burstBullet, e);
+    }
+  },
+
+  // 砲塔：數量／傷害／射擊間隔來自資料表（WEAPON_REGISTRY[key].turret）。
+  // 舊版把 maxTurrets 與 damage 都寫成 1 + weaponTier，結果終形只有 0.03 的 DPS 成長。
+  spawnTurret(tank, weaponKey) {
+    const cfg = (WEAPON_REGISTRY[weaponKey] || {}).turret;
+    if (!cfg) return;
+
+    let existing = 0;
+    for (let i = 0; i < G.summonEntities.length; i++) {
+      const se = G.summonEntities[i];
+      if (se.alive && se.type === 'turret') existing++;
+    }
+    if (existing >= cfg.count) return;
+
+    const spot = findTurretTile(tank);
+    const life = 300 + (tank.weaponTier || 0) * 100;
+    G.summonEntities.push({
+      type: 'turret',
+      x: spot.x,
+      y: spot.y,
+      life,
+      maxLife: life,
+      damage: cfg.damage,
+      cooldown: 0,
+      cooldownMax: cfg.cooldown,
+      alive: true,
+    });
   }
 };
+
+// 砲塔只能放在可通行的格子上（舊版直接放在玩家座標，玩家貼著鋼板時砲塔會埋在牆裡，
+// 子彈一出生就撞牆，等於白放）。
+function findTurretTile(tank) {
+  const offsets = [
+    [0, 0], [1, 0], [-1, 0], [0, 1], [0, -1],
+    [1, 1], [-1, 1], [1, -1], [-1, -1],
+    [2, 0], [-2, 0], [0, 2], [0, -2],
+  ];
+  const bc = Math.round(tank.x / TILE);
+  const br = Math.round(tank.y / TILE);
+  for (let i = 0; i < offsets.length; i++) {
+    const c = bc + offsets[i][0];
+    const r = br + offsets[i][1];
+    if (c < 0 || c >= COLS || r < 0 || r >= ROWS) continue;
+    const t = G.map[r][c];
+    if (t === EMPTY || t === FOREST) return { x: c * TILE, y: r * TILE };
+  }
+  return { x: tank.x, y: tank.y };
+}
 
 
 // Tier 1 weapons (always available)
@@ -3061,6 +3196,14 @@ function refreshActiveSkillKey() {
 
 // ==================== 升級卡系統（分支流派） ====================
 // 每局提供 3 張升級卡：武器路線進化、被動技能、主動技能
+
+// 火力加成是「整局累積的百分比」（+0.2 = +20%），上限 +100%。
+// 舊版是無上限的加法、但每關開頭被歸零，兩個方向都錯。
+const MAX_WEAPON_DAMAGE_BONUS = 1.0;
+function addWeaponDamageBonus(v) {
+  const ps = G.playerStats;
+  ps.weaponDamageBonus = Math.min(MAX_WEAPON_DAMAGE_BONUS, (ps.weaponDamageBonus || 0) + v);
+}
 
 function upgradeCard(type, data, titlePrefix = '') {
   return {
@@ -3147,7 +3290,7 @@ function applyUpgrade(opt) {
         ps.route = wp.route;
         ps.weaponTier = wp.tier;
       }
-      ps.weaponDamageBonus = (ps.weaponDamageBonus || 0) + 0.1;
+      addWeaponDamageBonus(0.1);
     } else {
       ps.weapon = opt.id;
       const wp = WEAPON_TREE[opt.id];
@@ -3391,7 +3534,7 @@ function activatePowerUp(type) {
       const currentWp = WEAPON_TREE[G.playerStats.weapon];
       if (!currentWp) {
         // NORMAL 武器不在 WEAPON_TREE，給傷害加成代替
-        G.playerStats.weaponDamageBonus = (G.playerStats.weaponDamageBonus || 0) + 0.2;
+        addWeaponDamageBonus(0.2);
         addScorePopup(G.player.x, G.player.y - 30, '火力 +20%', '#ffd700');
       } else if (currentWp.next) {
         const nextWp = WEAPON_TREE[currentWp.next];
@@ -3448,8 +3591,8 @@ function applyLevelWeapon(weaponType) {
     G.levelWeaponStacks[stackKey]++;
 
     if (G.levelClearedCount >= CONFIG.GAMEPLAY.UPGRADE_INTERVAL) {
-      // 已通關足夠關卡：疊加傷害+20%
-      G.playerStats.weaponDamageBonus = (G.playerStats.weaponDamageBonus || 0) + 0.2;
+      // 已通關足夠關卡：疊加傷害 +20%
+      addWeaponDamageBonus(0.2);
       addScorePopup(G.player.x, G.player.y - 20, `疊加 +20%`);
     } else {
       // 尚未通關足夠關卡：不疊加，只顯示提示
@@ -3457,7 +3600,7 @@ function applyLevelWeapon(weaponType) {
     }
   } else {
     // 不同路線：不更換武器，只加少量傷害
-    G.playerStats.weaponDamageBonus = (G.playerStats.weaponDamageBonus || 0) + 0.1;
+    addWeaponDamageBonus(0.1);
     addScorePopup(G.player.x, G.player.y - 20, `+10%`);
   }
 }
@@ -3469,10 +3612,8 @@ function spawnBullet(x, y, dir, isPlayer, pierce = false, power = 1) {
   b.dir = dir;
   b.isPlayer = isPlayer;
   b.pierce = pierce;
-  let finalPower = power;
-  if (isPlayer && G.playerStats.weaponDamageBonus) {
-    finalPower = power + G.playerStats.weaponDamageBonus;
-  }
+  const bonus = (isPlayer && G.playerStats.weaponDamageBonus) || 0;
+  const finalPower = power * (1 + bonus);
   b.power = finalPower;
   b.vx = DX[dir];
   b.vy = DY[dir];
@@ -3499,9 +3640,10 @@ function spawnChainBullet(x, y, target) {
     b.vx = dx / len; b.vy = dy / len;
     b.speed = 8;
     b.isPlayer = true;
-    const basePower = WEAPON_TREE[G.playerStats.weapon]?.basePower || 1;
-    const powerBonus = G.playerStats.weaponDamageBonus || 0;
-    b.power = 0.5 * basePower + powerBonus;
+    // 連鎖彈＝目前武器傷害的 50%（武器傷害的唯一來源是 WEAPON_REGISTRY.power）
+    const weaponPower = (WEAPON_REGISTRY[G.playerStats.weapon] || WEAPON_REGISTRY.NORMAL).power;
+    b.power = 0.5 * weaponPower * (1 + (G.playerStats.weaponDamageBonus || 0));
+    b.effect = null;
     b.hitTanks.length = 0;
   }
 }
@@ -3529,9 +3671,9 @@ function chainLightning(x, y, source) {
     b.speed = 10;
     b.isPlayer = true;
     b.pierce = false;
-    const basePower = WEAPON_TREE[G.playerStats.weapon]?.basePower || 1;
-    const powerBonus = G.playerStats.weaponDamageBonus || 0;
-    b.power = basePower + powerBonus;
+    const weaponPower = (WEAPON_REGISTRY[G.playerStats.weapon] || WEAPON_REGISTRY.NORMAL).power;
+    b.power = weaponPower * (1 + (G.playerStats.weaponDamageBonus || 0));
+    b.effect = null;
     b.type = 'PLASMA';
     b.hitTanks.length = 0;
     spawnExplosion(x, y, 'spark');
@@ -3583,7 +3725,7 @@ const particlesPool = new Pool(
 );
 
 const bulletsPool = new Pool(
-  () => ({ x:0, y:0, dir:0, vx:0, vy:0, isPlayer:false, speed:0, size:CONFIG.BULLET.SIZE, alive:false, power:1, pierce:false, hitTanks:[], ignoreTiles:false, _isChild:false, laserLife:0, freezing:false, shell:false, fuse:0, shellBoss:null }),
+  () => ({ x:0, y:0, dir:0, vx:0, vy:0, isPlayer:false, speed:0, size:CONFIG.BULLET.SIZE, alive:false, power:1, pierce:false, hitTanks:[], ignoreTiles:false, _isChild:false, laserLife:0, freezing:false, shell:false, fuse:0, shellBoss:null, effect:null, noHit:false }),
   (b) => { 
     b.alive = true; 
     b.size = CONFIG.BULLET.SIZE; 
@@ -3596,6 +3738,8 @@ const bulletsPool = new Pool(
     b.shell = false;          // 攻城核心的砲彈：命中地形／引信到期都會爆炸
     b.fuse = 0;
     b.shellBoss = null;
+    b.effect = null;          // 由 WEAPON_REGISTRY.effect 帶進來（SPLIT／BOMBARD…）
+    b.noHit = false;          // true＝純視覺（雷射光束的分段）
   }, 
   CONFIG.POOL.BULLET_INITIAL,
   CONFIG.POOL.BULLET_MAX
@@ -4232,6 +4376,10 @@ function updateBullet(b) {
     b.alive = false; return;
   }
 
+  // 純視覺子彈（雷射光束分段）：傷害由 WeaponManager.fireBeam() 一次判定，
+  // 這裡不再查地形、不再查敵人（舊版每段每幀各自查一次，一次射擊 ≈450 次查詢）
+  if (b.noHit) return;
+
   const bc = ((b.x + 3) / TILE) | 0, br = ((b.y + 3) / TILE) | 0;
   if (br >= 0 && br < ROWS && bc >= 0 && bc < COLS && !b.ignoreTiles) {
     const t = G.map[br][bc];
@@ -4404,8 +4552,9 @@ function handleBulletHit(b, t) {
   b.hitTanks.push(t);
   if (!b.pierce) b.alive = false;
 
-  // CLUSTER 分裂：擊中後分裂成 5 發小彈
-  if (b.isPlayer && G.playerStats.weapon === 'CLUSTER' && !b._isChild) {
+  // CLUSTER 分裂：擊中後分裂成 5 發小彈（看子彈自己的 effect，不看「現在拿什麼武器」——
+  // 舊版用 weapon id 判斷，所以升級成 APOCALYPSE 之後分裂就消失了）
+  if (b.isPlayer && b.effect === 'SPLIT' && !b._isChild) {
     const childPower = b.power * 0.5;
     const dir = b.dir;
     for (let i = 0; i < 5; i++) {
@@ -5361,8 +5510,9 @@ function startLevel() {
   G.bossSpawned = false;      // 每關重新等待 BOSS 出生（見 checkLevelComplete）
 
   if (G.level % CONFIG.GAMEPLAY.UPGRADE_INTERVAL !== 0) {
+    // 只清「本關的武器疊加次數」。weaponDamageBonus 是整局的累積加成，
+    // 舊版在這裡一起歸零，於是「疊加 +20%」的提示下一關就失效（等於騙玩家）。
     G.levelWeaponStacks = {};
-    G.playerStats.weaponDamageBonus = 0;
   }
 
   if (G.isVSMode) {
@@ -5384,6 +5534,7 @@ function startLevel() {
   G.baseDestroyed = false;
   bulletsPool.clear();
   particlesPool.clear();
+  WeaponManager.bombardQueue.length = 0;   // 上一關沒落完的轟炸不跨關
   G.enemies = [];
   G.scorePopups = [];
   G.spawnEffects = [];
@@ -5756,6 +5907,7 @@ function update() {
     }
 
     updateSummonEntities();
+    WeaponManager.tickBombard();
 
     const maxOnScreen = G.isVSMode ? CONFIG.GAMEPLAY.MAX_ENEMIES_ON_SCREEN_VS : CONFIG.GAMEPLAY.MAX_ENEMIES_ON_SCREEN;
     if (G.enemiesSpawned < G.maxEnemies) {
@@ -5846,7 +5998,7 @@ function updateSummonEntities() {
           const randDir = dirs[(rnd() * 4) | 0];
           spawnBullet(cx, cy, randDir, true, false, se.damage);
         }
-        se.cooldown = 25;
+        se.cooldown = se.cooldownMax || 25;
       }
     }
 
@@ -6283,6 +6435,9 @@ requestAnimationFrame(gameLoop);
     showGameOver: showGameOver, showFinalGameOver: showFinalGameOver,
     openShop: openShop, closeShop: closeShop,
     togglePause: togglePause, checkLevelComplete: checkLevelComplete, showUpgradeScreen: showUpgradeScreen,
+    // 武器系統（驗證工具用來直接驅動射擊路徑，不必靠鍵盤事件）
+    WeaponManager: WeaponManager, addWeaponDamageBonus: addWeaponDamageBonus,
+    findTurretTile: findTurretTile, MAX_WEAPON_DAMAGE_BONUS: MAX_WEAPON_DAMAGE_BONUS,
   };
   ['bot.js','data-collector.js'].forEach(function(src){
     var s = document.createElement('script');

@@ -92,15 +92,16 @@ const INTENTIONAL = {
 // changedFields 的新值符合結構規則（next 指向存在的條目或 null、tier 遞增）。
 const SIMPLIFIED = {
   WEAPON_TREE: {
-    reason: '武器系統精簡：四條流派各 3 級（16 → 12 把），刪掉「只是子彈變多」的中間階。'
-      + '成長路徑因此短一階，其餘數值不動（終形提早一關拿到）。',
+    reason: '武器系統精簡：四條流派各 3 級（16 → 12 把），刪掉「只是子彈變多」的中間階；'
+      + '同一次改動移除 basePower（傷害的唯一來源改成 WEAPON_REGISTRY.power）並修正 4 條說明文字。',
     removed: ['CHAINGUN', 'NAPALM', 'T_LASER', 'TURRET'],
-    changedFields: ['next', 'tier'],
+    changedFields: ['next', 'tier', 'basePower', 'desc'],
   },
   WEAPON_REGISTRY: {
-    reason: '同上：射擊參數只保留 12 把武器（＋NORMAL）',
+    reason: '同上：射擊參數只保留 12 把武器（＋NORMAL），並依 tools/weapon-dps.mjs 重做一次'
+      + '平衡（四條路線同階差距 ≤1.35 倍、逐階成長 ≥125%）；D 路線的砲塔參數改由資料表決定。',
     removed: ['CHAINGUN', 'NAPALM', 'T_LASER', 'TURRET'],
-    changedFields: [],
+    changedFields: ['power', 'count', 'spread', 'fireRate', 'effect', 'turret'],
   },
 };
 
@@ -185,7 +186,8 @@ console.log('=== A. 與抽離前的基準逐值等價 ===');
       intentionalHits.includes(`${table}.${spec.field}`), spec.reason.slice(0, 60) + '…');
   });
   Object.entries(SIMPLIFIED).forEach(([table, spec]) => {
-    ok(`精簡 ${table}：只刪掉 listed 的 ${spec.removed.length} 個條目（${spec.removed.join('、')}），其餘逐值不變`,
+    ok(`精簡 ${table}：只刪掉 listed 的 ${spec.removed.length} 個條目（${spec.removed.join('、')}），`
+      + `除 ${spec.changedFields.join('／') || '（無）'} 外逐值不變`,
       simplifiedHits.includes(table), spec.reason.slice(0, 50) + '…');
   });
 }

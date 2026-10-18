@@ -1226,6 +1226,153 @@ ok('H5 每 10 連擊會額外加分並掉一個 COMBO_REWARDS.pool 內的道具'
   && comboReward.totalGain >= 100 && comboReward.dropType && comboReward.poolHas,
   JSON.stringify(comboReward));
 
+console.log('\n=== W. 武器系統（傷害路徑、光束、轟炸、砲塔、火力加成）===');
+
+// W1：OMEGA 光束對同一隻敵人「一次射擊只判定一次」，分段子彈純視覺
+const beam = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  G.isVSMode = false;
+  T.bulletsPool.clear();
+  G.enemies.length = 0;
+  G.playerStats.weapon = 'OMEGA';
+  G.playerStats.weaponTier = 3;
+  G.playerStats.weaponDamageBonus = 0;
+  G.player.pierce = false;
+  G.player.weapon = 'OMEGA';
+  G.player.weaponTier = 3;
+  G.player.x = 260; G.player.y = 400; G.player.aimDir = T.UP;
+  const mk = (x, y) => {
+    const e = new T.Tank(x, y, T.DOWN, 'NORMAL', false);
+    e.hp = e.maxHp = 99; e.speed = 0;
+    G.enemies.push(e);
+    return e;
+  };
+  const onBeam = mk(260, 120);      // 光束正前方 280px
+  const offBeam = mk(400, 120);     // 不在光束上
+  G.player.bulletTimer = 0;
+  T.WeaponManager.fire(G.player);
+  // 分段（29 顆，站著不動、傷害 0）＋ 1 顆會飛的「主彈」；三者都是純視覺（noHit）
+  const segs = T.bulletsPool.active.filter((b) => b.noHit && b.power === 0);
+  const mainVisual = T.bulletsPool.active.filter((b) => b.noHit && b.power > 0).length;
+  const segPower = segs.every((b) => b.speed === 0);
+  const hpAfterFire = { onBeam: onBeam.hp, offBeam: offBeam.hp };
+  // 15 tick 之後分段子彈要全部消失（不會留下永久子彈把池撐爆）
+  const alive0 = T.bulletsPool.active.filter((b) => b.alive).length;
+  for (let t = 0; t < 16; t++) T.bulletsPool.active.slice().forEach((b) => T.updateBullet(b));
+  const alive1 = T.bulletsPool.active.filter((b) => b.alive).length;
+  return {
+    expectPower: +T.WEAPON_REGISTRY.OMEGA.power.toFixed(3),
+    beamDamage: +(99 - hpAfterFire.onBeam).toFixed(3),
+    offDamage: +(99 - hpAfterFire.offBeam).toFixed(3),
+    segments: segs.length,
+    mainVisual,
+    segPower,
+    alive0, alive1,
+  };
+});
+ok('W1 OMEGA 光束沿線只判定一次（同一個敵人不會被 30 顆分段各打一次），分段純視覺且會消失',
+  Math.abs(beam.beamDamage - beam.expectPower) < 0.001 && beam.offDamage === 0
+  && beam.segments === 29 && beam.mainVisual === 1 && beam.segPower && beam.alive1 === 0,
+  JSON.stringify(beam));
+
+// W2：末日轟炸真的造成傷害（舊版只放粒子），而且只在 PLAYING 時推進
+const bombard = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  T.bulletsPool.clear();
+  G.enemies.length = 0;
+  T.fx.clear('bombard');
+  T.WeaponManager.bombardQueue.length = 0;
+  T.WeaponManager.triggerBombard(2);
+  const queued = T.WeaponManager.bombardQueue.length;
+  const first = T.WeaponManager.bombardQueue[0];
+  const e = new T.Tank(Math.max(0, first.x - 13), Math.max(0, first.y - 13), T.DOWN, 'NORMAL', false);
+  e.hp = e.maxHp = 50; e.speed = 0;
+  G.enemies.push(e);
+  const hpBefore = e.hp;
+
+  // 暫停時不該推進（tickBombard 只在 PLAYING 的 update 內被呼叫）
+  G.state = T.STATE.PAUSED;
+  for (let i = 0; i < 30; i++) T.update();
+  const queuedWhilePaused = T.WeaponManager.bombardQueue.length;
+
+  G.state = T.STATE.PLAYING;
+  for (let i = 0; i < 200 && T.WeaponManager.bombardQueue.length; i++) T.WeaponManager.tickBombard();
+  return {
+    queued, queuedWhilePaused,
+    hpLoss: +(hpBefore - e.hp).toFixed(2),
+    drained: T.WeaponManager.bombardQueue.length,
+    hasTimer: T.fx.has('bombard'),
+  };
+});
+ok('W2 末日轟炸：20 個落點會排程、暫停時不落、恢復後真的造成傷害',
+  bombard.queued === 20 && bombard.queuedWhilePaused === 20 && bombard.hpLoss > 0
+  && bombard.drained === 0 && bombard.hasTimer,
+  JSON.stringify(bombard));
+
+// W3：砲塔數量／傷害／間隔來自資料表，且只會蓋在可通行的格子上
+const turrets = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  T.summonEntities = G.summonEntities;
+  G.summonEntities.length = 0;
+  G.state = T.STATE.PLAYING;
+  G.playerStats.weapon = 'FORTRESS';
+  G.playerStats.weaponTier = 3;
+  G.player.weapon = 'FORTRESS';
+  G.player.weaponTier = 3;
+  for (let i = 0; i < 10; i++) T.WeaponManager.spawnTurret(G.player, 'FORTRESS');
+  const cfg = T.WEAPON_REGISTRY.FORTRESS.turret;
+  const placed = G.summonEntities.map((se) => {
+    const c = Math.round(se.x / T.TILE), r = Math.round(se.y / T.TILE);
+    return { tile: T.G.map[r] && T.G.map[r][c], damage: se.damage, cooldownMax: se.cooldownMax };
+  });
+  const walkable = placed.every((p) => p.tile === T.EMPTY || p.tile === T.FOREST);
+  return {
+    count: placed.length,
+    expectCount: cfg.count,
+    walkable,
+    statsMatch: placed.every((p) => p.damage === cfg.damage && p.cooldownMax === cfg.cooldown),
+    tiles: placed.map((p) => p.tile),
+  };
+});
+ok('W3 砲塔：上限／傷害／射擊間隔依資料表，且都落在可通行格（不會埋在牆裡）',
+  turrets.count === turrets.expectCount && turrets.walkable && turrets.statsMatch,
+  JSON.stringify(turrets));
+
+// W4：火力加成是百分比、有上限、而且換關不會被歸零
+const bonus = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  G.playerStats.weaponDamageBonus = 0;
+  T.bulletsPool.clear();
+  G.enemies.length = 0;
+  G.state = T.STATE.PLAYING;
+  G.player.weapon = 'RAPID';
+  G.playerStats.weapon = 'RAPID';
+  G.player.bulletTimer = 0;
+  G.playerStats.weaponDamageBonus = 0.2;
+  T.WeaponManager.fire(G.player);
+  const fired = T.bulletsPool.active.find((b) => b.alive && b.power > 0);
+  const expect = T.WEAPON_REGISTRY.RAPID.power * 1.2;
+  T.addWeaponDamageBonus(5);
+  const capped = G.playerStats.weaponDamageBonus;
+  const levelBefore = G.level;
+  G.level = 4;                       // 非升級關（4 % 3 !== 0）
+  T.startLevel();
+  const afterLevel = G.playerStats.weaponDamageBonus;
+  G.level = levelBefore;
+  G.playerStats.weaponDamageBonus = 0;
+  return {
+    power: fired ? +fired.power.toFixed(3) : null,
+    expect: +expect.toFixed(3),
+    capped, cap: T.MAX_WEAPON_DAMAGE_BONUS, afterLevel,
+  };
+});
+ok('W4 火力加成：+20% 是乘算、上限 +100%、換關不再被歸零',
+  bonus.power !== null && Math.abs(bonus.power - bonus.expect) < 0.002
+  && bonus.capped === bonus.cap && bonus.afterLevel === bonus.cap,
+  JSON.stringify(bonus));
+
 console.log(`\n${passed} passed, ${failed} failed  (pageerror: ${pageErrors.length})`);
 await browser.close();
 if (server) server.close();

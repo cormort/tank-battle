@@ -9,6 +9,9 @@ const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const isStr = (v) => typeof v === 'string' && v.length > 0;
 
+// WEAPON_REGISTRY.effect 的合法值（每一種都在 index.html 有對應的處理分支）
+export const WEAPON_EFFECTS = ['PIERCE', 'SPLIT', 'BOMBARD', 'LASER_BEAM', 'SPAWN_TURRET'];
+
 /** 驗證資料表；回傳問題清單（空陣列＝通過）。 */
 export function validateData(T) {
   const p = [];
@@ -36,7 +39,6 @@ export function validateData(T) {
     if (!['A', 'B', 'C', 'D'].includes(w.route)) add(`WEAPON_TREE.${key}.route 必須是 A/B/C/D`);
     if (![1, 2, 3].includes(w.tier)) add(`WEAPON_TREE.${key}.tier 必須是 1~3`);
     ['name', 'desc', 'color', 'icon'].forEach((f) => { if (!isStr(w[f])) add(`WEAPON_TREE.${key}.${f} 必須是非空字串`); });
-    if (!isNum(w.basePower) || w.basePower <= 0) add(`WEAPON_TREE.${key}.basePower 必須是 > 0 的數字`);
     if (w.next !== null && !tree[w.next]) add(`WEAPON_TREE.${key}.next 指向不存在的 ${JSON.stringify(w.next)}`);
   });
   const routes = {};
@@ -55,6 +57,19 @@ export function validateData(T) {
     if (!w) { add(`WEAPON_REGISTRY 缺少 ${id} 的射擊參數`); return; }
     if (!isNum(w.fireRate) || w.fireRate <= 0) add(`WEAPON_REGISTRY.${id}.fireRate 必須 > 0`);
     if (!isNum(w.power) || w.power <= 0) add(`WEAPON_REGISTRY.${id}.power 必須 > 0`);
+    // effect 是「這把槍的行為」：打錯字（例如把 SPLIT 寫成 CLUSTER）不會壞掉，只會安靜地
+    // 變成普通子彈 —— 因此列舉檢查。turret 參數只在 SPAWN_TURRET 時有意義。
+    if (w.effect !== null && w.effect !== undefined && !WEAPON_EFFECTS.includes(w.effect)) {
+      add(`WEAPON_REGISTRY.${id}.effect=${JSON.stringify(w.effect)} 不是支援的效果（${WEAPON_EFFECTS.join('/')}）`);
+    }
+    if (w.effect === 'SPAWN_TURRET') {
+      const t = w.turret || {};
+      ['count', 'damage', 'cooldown'].forEach((f) => {
+        if (!isNum(t[f]) || t[f] <= 0) add(`WEAPON_REGISTRY.${id}.turret.${f} 必須 > 0`);
+      });
+    } else if (w.turret) {
+      add(`WEAPON_REGISTRY.${id} 有 turret 參數但 effect 不是 SPAWN_TURRET（參數不會被讀到）`);
+    }
   });
 
   // ── 卡池／商店／道具：id 唯一、必填欄位齊全 ──
