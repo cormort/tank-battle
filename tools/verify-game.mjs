@@ -1072,6 +1072,9 @@ ok('H1 第 5／10／15 關是三種不同原型，血量／體型／速度都依
 const siegeFight = await page.evaluate(() => {
   const T = window.__T, G = T.G;
   G.state = T.STATE.PLAYING;
+  // baseDestroyed 一定要清：update() 會在 PLAYING 區塊尾端把「基地已毀」直接轉成 GAMEOVER，
+  // 於是第 1 tick 之後整段 update 都不再執行（王永遠打不出砲彈）—— 這就是這條檢查偶發失敗的原因。
+  G.baseDestroyed = false;
   G.isVSMode = false; G.maxEnemies = 1e9; G.enemiesSpawned = 0; G.spawnTimer = 1e9;
   G.enemies.length = 0; G.aliveEnemies = 0;
   T.bulletsPool.clear(); T.particlesPool.clear();
@@ -1372,6 +1375,103 @@ ok('W4 火力加成：+20% 是乘算、上限 +100%、換關不再被歸零',
   bonus.power !== null && Math.abs(bonus.power - bonus.expect) < 0.002
   && bonus.capped === bonus.cap && bonus.afterLevel === bonus.cap,
   JSON.stringify(bonus));
+
+// W5：玩家自己的子彈／砲塔射擊不會打爆老鷹（敵人子彈仍然可以）
+const ownBase = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  G.enemies.length = 0;
+  T.bulletsPool.clear();
+  G.baseDestroyed = false;
+  const base = G.basePos;
+  G.map[base.r][base.c] = T.BASE;
+  // 把基地上方兩格清空，確保這一發真的打到基地（不然打在磚牆上，測試就變成空包彈）
+  G.map[base.r - 1][base.c] = T.EMPTY;
+  G.map[base.r - 2][base.c] = T.EMPTY;
+  G.player.weapon = 'OVERDRIVE'; G.playerStats.weapon = 'OVERDRIVE';
+  G.playerStats.weaponDamageBonus = 0;
+  G.player.x = base.c * T.TILE; G.player.y = base.r * T.TILE - T.TILE * 2;
+  G.playerStats.maxHp = 9; G.playerStats.hp = 9; G.player.applyTypeStats();
+  G.player.aimDir = T.DOWN; G.player.dir = T.DOWN;
+  G.player.bulletTimer = 0;
+  T.WeaponManager.fire(G.player);
+  for (let i = 0; i < 25; i++) T.bulletsPool.active.slice().forEach((b) => T.updateBullet(b));
+  const playerShot = {
+    tile: G.map[base.r][base.c],
+    destroyed: G.baseDestroyed,
+    warned: G.scorePopups.some((p) => /別打自己的基地/.test(p.text)),
+  };
+
+  // 回歸：敵人子彈還是要能打爆基地（不能把敵人的破壞力一起關掉）
+  T.bulletsPool.clear();
+  const eb = T.bulletsPool.acquire();
+  eb.isPlayer = false; eb.power = 1; eb.size = T.CONFIG.BULLET.SIZE;
+  eb.x = base.c * T.TILE + 10; eb.y = base.r * T.TILE - 20;
+  eb.vx = 0; eb.vy = 1; eb.speed = 6;
+  for (let i = 0; i < 12; i++) if (eb.alive) T.updateBullet(eb);
+  const enemyShot = { tile: G.map[base.r][base.c], destroyed: G.baseDestroyed };
+
+  G.baseDestroyed = false;
+  G.map[base.r][base.c] = T.BASE;
+  T.bulletsPool.clear();
+  return { playerShot, enemyShot, baseTile: T.BASE, deadTile: T.BASE_DEAD };
+});
+ok('W5 玩家自己的子彈不會打爆老鷹（敵人子彈仍然打得爆）',
+  ownBase.playerShot.tile === ownBase.baseTile && ownBase.playerShot.destroyed === false
+  && ownBase.playerShot.warned === true
+  && ownBase.enemyShot.destroyed === true && ownBase.enemyShot.tile === ownBase.deadTile,
+  JSON.stringify(ownBase));
+
+// W6：爆炸精英的爆風只傷到附近的玩家（舊版：整個畫面都扣 0.5，而且繞過護盾）
+const blast = await page.evaluate(() => {
+  const T = window.__T, G = T.G;
+  G.state = T.STATE.PLAYING;
+  T.bulletsPool.clear();
+  G.enemies.length = 0;
+  G.playerStats.maxHp = 9; G.playerStats.hp = 9; G.player.applyTypeStats();
+  G.player.x = 60; G.player.y = 460;
+  const mkElite = (x, y) => {
+    const e = new T.Tank(x, y, T.DOWN, 'HEAVY', false);
+    e.elitePrefix = 'EXPLOSIVE'; e.applyTypeStats();
+    e.hp = 1; e.speed = 0;
+    G.enemies.push(e);
+    return e;
+  };
+  const kill = (e) => {
+    const b = T.bulletsPool.acquire();
+    b.isPlayer = true; b.power = 99; b.vx = 0; b.vy = 0; b.speed = 0;
+    b.x = e.x; b.y = e.y; b.hitTanks.length = 0;
+    b.effect = null; b._isChild = true;
+    T.handleBulletHit(b, e);
+  };
+  const far = mkElite(430, 40);
+  const hp0 = G.player.hp;
+  kill(far);
+  const hpFar = G.player.hp;
+  T.bulletsPool.clear();
+  const near = mkElite(G.player.x + T.TILE, G.player.y);
+  kill(near);
+  const hpNear = G.player.hp;
+  // 護盾要能吸收：開無敵再炸一次，血量不變
+  T.bulletsPool.clear();
+  T.fx.set('invul', 60);
+  const near2 = mkElite(G.player.x + T.TILE, G.player.y);
+  kill(near2);
+  const hpInvul = G.player.hp;
+  T.fx.clear('invul');
+  G.state = T.STATE.PLAYING;
+  G.enemies.length = 0;
+  G.playerStats.hp = G.playerStats.maxHp;
+  return {
+    farDist: Math.round(Math.hypot(430 - 60, 40 - 460)),
+    lostFar: +(hp0 - hpFar).toFixed(2),
+    lostNear: +(hpFar - hpNear).toFixed(2),
+    lostInvul: +(hpNear - hpInvul).toFixed(2),
+  };
+});
+ok('W6 爆炸精英只在玩家站在爆風裡時扣血，且無敵／護盾能吸收',
+  blast.lostFar === 0 && blast.lostNear > 0 && blast.lostInvul === 0,
+  JSON.stringify(blast));
 
 console.log(`\n${passed} passed, ${failed} failed  (pageerror: ${pageErrors.length})`);
 await browser.close();

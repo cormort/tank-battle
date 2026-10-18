@@ -1723,6 +1723,14 @@ function addScorePopup(x, y, text) {
   G.scorePopups.push({ x, y, text, life: 40, vy: -1 }); 
 }
 
+// 打到自己的基地時的提示（散彈一次會撞好幾發，30 tick 內只提示一次）
+let _ownBaseWarnAt = -999;
+function warnOwnBase(bc, br) {
+  if (G.frameCount - _ownBaseWarnAt < 30) return;
+  _ownBaseWarnAt = G.frameCount;
+  addScorePopup(bc * TILE + TILE / 2, br * TILE - 4, '⚠️ 別打自己的基地!');
+}
+
 function checkTileCollision(x, y, size) {
   const c1 = (x/TILE)|0, r1 = (y/TILE)|0;
   const c2 = ((x+size-1)/TILE)|0, r2 = ((y+size-1)/TILE)|0;
@@ -2213,6 +2221,16 @@ function updateBullet(b) {
         spawnExplosion(b.x, b.y, 'spark');
         return;
       }
+      // 玩家自己的子彈不會打爆老鷹。
+      // 舊版沒有區分 isPlayer：末日轟炸的 5 路散彈（外側偏 23°）、過載出火的四管、
+      // 砲塔的亂向射擊，只要有一發掃到基地就「瞬間 game over」——玩家只看到基地爆炸、
+      // 完全看不出是自己打的（這就是「不知道哪個武器讓我爆炸死亡」的來源）。
+      if (b.isPlayer) {
+        spawnExplosion(b.x, b.y, 'spark');
+        if (typeof Sound.hitSteel === 'function') Sound.hitSteel();
+        warnOwnBase(bc, br);
+        return;
+      }
       G.map[br][bc] = BASE_DEAD;
       G.baseDestroyed = true;
       for (let i = 0; i < G.dynamicTiles.length; i++) {
@@ -2381,10 +2399,16 @@ function handleBulletHit(b, t) {
     t.alive = false;
 
     if (t.elitePrefix === 'EXPLOSIVE') {
-      spawnExplosion(t.x + t.size/2, t.y + t.size/2, 'big');
+      const ex = t.x + t.size/2, ey = t.y + t.size/2;
+      spawnExplosion(ex, ey, 'big');
       triggerShake(8, 6);
-      if (G.player && G.player.alive && G.player.flashTimer === 0) {
-        G.playerStats.hp -= 0.5;
+      // 只有站在爆風裡的玩家會受傷。舊版直接把 hp 扣 0.5、既沒有距離也沒有護盾／無敵判定，
+      // 於是「末日轟炸／歐米茄射線在畫面另一端清掉一隻爆炸精英」也會讓玩家莫名掉血。
+      if (G.player && G.player.alive) {
+        const pxx = G.player.x + G.player.size/2, pyy = G.player.y + G.player.size/2;
+        if ((pxx - ex) ** 2 + (pyy - ey) ** 2 <= (TILE * 2.5) ** 2) {
+          damagePlayerFromHazard(ex, ey, 0.5);
+        }
       }
     }
 
@@ -4218,7 +4242,7 @@ requestAnimationFrame(gameLoop);
     G: G, STATE: STATE, CONFIG: CONFIG,
     UP: UP, DOWN: DOWN, LEFT: LEFT, RIGHT: RIGHT,
     DX: DX, DY: DY, TILE: TILE, W: W, H: H,
-    EMPTY: EMPTY, BRICK: BRICK, STEEL: STEEL, WATER: WATER, FOREST: FOREST, BASE: BASE,
+    EMPTY: EMPTY, BRICK: BRICK, STEEL: STEEL, WATER: WATER, FOREST: FOREST, BASE: BASE, BASE_DEAD: BASE_DEAD,
     bulletsPool: bulletsPool, particlesPool: particlesPool,
     WEAPON_TREE: WEAPON_TREE, POWER_UPS: POWER_UPS,
     BOSS_TYPES, BOSS_ORDER, bossTypeForLevel, COMBO_REWARDS, addCombo, explodeShell,
